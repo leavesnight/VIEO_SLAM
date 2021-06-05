@@ -210,7 +210,7 @@ int main(int argc, char **argv)
     bool bLoaded=false;
     if (strMapname!="") bLoaded=SLAM.LoadMap(strMapname,false);//for Map Reuse
     g_pSLAM=&SLAM;
-    cin.get();
+//    cin.get();
 
     // Vector for tracking time statistics
     vector<float> vTimesTrack;

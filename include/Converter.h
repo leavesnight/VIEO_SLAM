@@ -24,7 +24,7 @@
 #include<opencv2/core/core.hpp>
 
 #include<Eigen/Dense>
-#include "sophus/se3.hpp"
+//#include "sophus/se3.hpp"
 #ifdef USE_G2O_NEWEST
 #include "g2o/types/sba/types_six_dof_expmap.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
@@ -42,8 +42,8 @@ public:
     static cv::Mat toCvMatInverse(const cv::Mat &T12);//return T21 fast using Isometry3d's property
     
     static Eigen::Isometry3d toIsometry3d(const cv::Mat &cvMat4);//transform cv::Mat(4,4,CV_32F) to Eigen::Isometry3d
-    template<class Tcalc>
-    static Sophus::SE3<Tcalc> toSE3(const cv::Mat &cvMat4);
+//    template<class Tcalc>
+//    static Sophus::SE3<Tcalc> toSE3(const cv::Mat &cvMat4);
     //created by zzh over.
     
     static std::vector<cv::Mat> toDescriptorVector(const cv::Mat &Descriptors);
@@ -65,18 +65,18 @@ public:
     static std::vector<float> toQuaternion(const cv::Mat &M);
 };
 
-    template<class Tcalc>
-    Sophus::SE3<Tcalc> Converter::toSE3(const cv::Mat &cvMat4){//by zzh
-        Eigen::Matrix<Tcalc, 3, 3> R;
-        Eigen::Matrix<Tcalc, 3, 1> t;
-        for (int i=0;i<3;++i) {
-            for (int j = 0; j < 3; ++j)
-                R(i, j) = cvMat4.at<float>(i, j);
-            t(i) = cvMat4.at<float>(i, 3);
-        }
-        Sophus::SE3<Tcalc> se3(R, t);
-        return se3;
-    }
+//    template<class Tcalc>
+//    Sophus::SE3<Tcalc> Converter::toSE3(const cv::Mat &cvMat4){//by zzh
+//        Eigen::Matrix<Tcalc, 3, 3> R;
+//        Eigen::Matrix<Tcalc, 3, 1> t;
+//        for (int i=0;i<3;++i) {
+//            for (int j = 0; j < 3; ++j)
+//                R(i, j) = cvMat4.at<float>(i, j);
+//            t(i) = cvMat4.at<float>(i, 3);
+//        }
+//        Sophus::SE3<Tcalc> se3(R, t);
+//        return se3;
+//    }
 
 }// namespace ORB_SLAM
 

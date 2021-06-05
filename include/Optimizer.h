@@ -618,7 +618,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   if (bComputeMarg) {
     //     if (nBadIMU>0){}else{
     // get the joint marginalized covariance of PVR&Bias
-    if (calc_cov_explicit) {//explicit will be about 7times faster than g2o's computeMarginals()
+    if (calc_cov_explicit) {  // explicit will be about 7times faster than g2o's computeMarginals()
       //      std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
       using Matrix15d = Matrix<double, 15, 15>;
       using Vector15d = Matrix<double, 15, 1>;
@@ -636,8 +636,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         cov_inv.block<9, 6>(0, 9).setZero();
         cov_inv.block<6, 9>(9, 0).setZero();
       } else
-        FillCovInv(eNSPVR, eNSBias, eEnc, 0, !last_mono_stereo ? &vpEdgesMono : nullptr,
-                   1 >= last_mono_stereo ? &vpEdgesStereo : nullptr, cov_inv, nullptr, exact_mode);
+        FillCovInv(eNSPVR, eNSBias, eEnc, 0, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
+                   1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv, nullptr, exact_mode);
       if (!bFixedLast) {  // schur complement to get marginalized(lastf) cov_inv(curf)
         Matrix15d cov_inv_last, cov_inv_cur_last;
         if ((int8_t)g2o::kNotExact <= exact_mode) {
@@ -652,10 +652,11 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           cov_inv_cur_last.block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
         } else {
           eNSPrior->computeError();
-          FillCovInv(eNSPVR, eNSBias, eEnc, 2, !last_mono_stereo ? &vpEdgesMono : nullptr,
-                     1 >= last_mono_stereo ? &vpEdgesStereo : nullptr, cov_inv_last, eNSPrior, exact_mode);
-          FillCovInv(eNSPVR, eNSBias, eEnc, 1, !last_mono_stereo ? &vpEdgesMono : nullptr,
-                     1 >= last_mono_stereo ? &vpEdgesStereo : nullptr, cov_inv_cur_last, nullptr, exact_mode);
+          FillCovInv(eNSPVR, eNSBias, eEnc, 2, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
+                     1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv_last, eNSPrior, exact_mode);
+          FillCovInv(eNSPVR, eNSBias, eEnc, 1, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
+                     1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv_cur_last, nullptr,
+                     exact_mode);
         }
         //[B|E;E^T|C]->[B-EC^(-1)E^T|0;ET|C] => margH = B-EC^(-1)E^T
         Eigen::JacobiSVD<Matrix<double, 15, Eigen::Dynamic>> svd_c(cov_inv_last,
@@ -745,8 +746,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
             spinv.block(0,
                         0)
                 ->eval();  // I think eval() is useless for there's no confusion here/.noalias()=
-        margCov.topRightCorner(9, 6) = spinv.block(0, 1)->eval();
-        margCov.bottomLeftCorner(6, 9) = margCov.topRightCorner(9, 6).transpose();
+        if (!calc_cond_jac) {
+          margCov.topRightCorner(9, 6) = spinv.block(0, 1)->eval();
+          margCov.bottomLeftCorner(6, 9) = margCov.topRightCorner(9, 6).transpose();
+        }
         margCov.bottomRightCorner(6, 6) = spinv.block(1, 1)->eval();
         pFrame->mMargCovInv = margCov.inverse();
       }

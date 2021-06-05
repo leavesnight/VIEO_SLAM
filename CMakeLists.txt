@@ -128,6 +128,7 @@ src/Viewer.cc
 src/Odom/OdomData.cpp
 src/Odom/OdomPreIntegrator.cpp
 src/Odom/IMUInitialization.cpp
+        src/Odom/so3.cpp
 
         src/Odom/g2otypes.cpp)
 
