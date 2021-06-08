@@ -366,7 +366,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated){
   // Optimize Pose
   if (mCurrentFrame.mOdomPreIntIMU.mdeltatij==0){
     cout<<redSTR"CurF.deltatij==0!In TrackLocalMapWithIMU(), Check!"<<whiteSTR<<endl;
-    Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
+    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);//motion-only BA
     mCurrentFrame.UpdateNavStatePVRFromTcw();//here is the imu data empty condition after imu's initialized, we must update NavState to keep continuous right Tbw after imu's initialized
   }else{
     // 2 frames' motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();

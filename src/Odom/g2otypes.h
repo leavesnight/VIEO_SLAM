@@ -24,11 +24,7 @@ using namespace Eigen;
 
 // extend edges to get H
 
-typedef enum HessianExactMode {
-  kExactNoRobust,
-  kExactRobust,
-  kNotExact
-} eHessianExactMode;
+typedef enum HessianExactMode { kExactNoRobust, kExactRobust, kNotExact } eHessianExactMode;
 
 template <int D, typename E, typename VertexXi>
 class BaseUnaryEdgeEx : public BaseUnaryEdge<D, E, VertexXi> {
@@ -40,12 +36,12 @@ class BaseUnaryEdgeEx : public BaseUnaryEdge<D, E, VertexXi> {
   using Base::vertices;
 
  public:
-  using Base::information;
-  using typename Base::JacobianXiOplusType;
-  using typename Base::InformationType;
-  using Base::robustKernel;
   using Base::chi2;
-  virtual void getRho(bool &robust, Vector3d &rho) const {
+  using Base::information;
+  using Base::robustKernel;
+  using typename Base::InformationType;
+  using typename Base::JacobianXiOplusType;
+  virtual void getRho(bool& robust, Vector3d& rho) const {
     if (robust) {
       const RobustKernel* robustkernel = robustKernel();
       if (robustkernel)
@@ -55,13 +51,13 @@ class BaseUnaryEdgeEx : public BaseUnaryEdge<D, E, VertexXi> {
     }
   }
 
-  //please call linearizeOplus() before calling this function for each edge for g2o share jacobians workspace for all
+  // please call linearizeOplus() before calling this function for each edge for g2o share jacobians workspace for all
   // edges
   virtual MatrixXid getHessianXi(bool robust = true) const {
     const JacobianXiOplusType& jac = _jacobianOplusXi;
     Vector3d rho;
     getRho(robust, rho);
-    const InformationType& rinfo = robust ? rho[1] * information() : information();
+    const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
     return jac.transpose() * rinfo * jac;
   }
 };
@@ -76,21 +72,21 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   using MatrixXjd = Matrix<double, VertexXj::Dimension, VertexXj::Dimension>;
   using MatrixXijd = Matrix<double, VertexXi::Dimension, VertexXj::Dimension>;
   using MatrixXjid = Matrix<double, VertexXj::Dimension, VertexXi::Dimension>;
-  using Base::robustInformation;
   using Base::_hessian;
-  using Base::_hessianTransposed;
   using Base::_hessianRowMajor;
+  using Base::_hessianTransposed;
+  using Base::robustInformation;
 
  public:
+  using Base::chi2;
   using Base::information;
+  using Base::robustKernel;
+  using typename Base::HessianBlockTransposedType;
+  using typename Base::HessianBlockType;
+  using typename Base::InformationType;
   using typename Base::JacobianXiOplusType;
   using typename Base::JacobianXjOplusType;
-  using typename Base::InformationType;
-  using Base::robustKernel;
-  using Base::chi2;
-  using typename Base::HessianBlockType;
-  using typename Base::HessianBlockTransposedType;
-  virtual void getRho(bool &robust, Vector3d &rho) const {
+  virtual void getRho(bool& robust, Vector3d& rho) const {
     if (robust) {
       const RobustKernel* robustkernel = robustKernel();
       if (robustkernel)
@@ -104,14 +100,14 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
     const JacobianXiOplusType& jac = _jacobianOplusXi;
     Vector3d rho;
     getRho(robust, rho);
-    const InformationType & rinfo = robust ? rho[1] * information() : information();
+    const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
     return jac.transpose() * rinfo * jac;
   }
   virtual MatrixXjd getHessianXj(bool robust = true) const {
     const JacobianXjOplusType& jac = _jacobianOplusXj;
     Vector3d rho;
     getRho(robust, rho);
-    const InformationType & rinfo = robust ? rho[1] * information() : information();
+    const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
     return jac.transpose() * rinfo * jac;
   }
   virtual MatrixXijd getHessianXij(int8_t exact_mode = (int8_t)kExactRobust) const {
@@ -127,7 +123,7 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
       Vector3d rho;
       bool robust = (int8_t)kExactRobust == exact_mode;
       getRho(robust, rho);
-      const InformationType& rinfo = robust ? rho[1] * information() : information();
+      const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
       return jaci.transpose() * rinfo * jacj;
     }
   }
@@ -144,7 +140,7 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
       Vector3d rho;
       bool robust = (int8_t)kExactRobust == exact_mode;
       getRho(robust, rho);
-      const InformationType& rinfo = robust ? rho[1] * information() : information();
+      const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
       return jacj.transpose() * rinfo * jaci;
     }
   }
@@ -154,18 +150,18 @@ template <int D, typename E>
 class BaseMultiEdgeEx : public BaseMultiEdge<D, E> {
  protected:
   using Base = BaseMultiEdge<D, E>;
-  using Base::_jacobianOplus;
-  using Base::robustInformation;//TODO: add const postfix to g2o robustInformation
   using Base::_hessian;
+  using Base::_jacobianOplus;
+  using Base::robustInformation;  // TODO: add const postfix to g2o robustInformation
 
  public:
-  using Base::information;
-  using typename Base::JacobianType;
-  using typename Base::InformationType;
-  using Base::robustKernel;
   using Base::chi2;
+  using Base::information;
+  using Base::robustKernel;
   using typename Base::HessianHelper;
-  virtual void getRho(bool &robust, Vector3d &rho) const {
+  using typename Base::InformationType;
+  using typename Base::JacobianType;
+  virtual void getRho(bool& robust, Vector3d& rho) const {
     if (robust) {
       const RobustKernel* robustkernel = robustKernel();
       if (robustkernel)
@@ -179,13 +175,13 @@ class BaseMultiEdgeEx : public BaseMultiEdge<D, E> {
     const JacobianType& jac = _jacobianOplus[iv];
     Vector3d rho;
     getRho(robust, rho);
-    const InformationType & rinfo = robust ? rho[1] * information() : information();
+    const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
     return jac.transpose() * rinfo * jac;
   }
   virtual MatrixXd getHessianij(int iv, int jv, int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
       bool btranspose = false;
-      if (iv > jv) {//keep same order to get idx as buildStructure in block_solver.hpp
+      if (iv > jv) {  // keep same order to get idx as buildStructure in block_solver.hpp
         std::swap(iv, jv);
         btranspose = true;
       } else if (iv == jv) {
@@ -197,7 +193,7 @@ class BaseMultiEdgeEx : public BaseMultiEdge<D, E> {
       const HessianHelper& h = _hessian[idx];
       btranspose = btranspose ^ h.transposed;
       if (btranspose) {
-          return h.matrix.transpose();
+        return h.matrix.transpose();
       } else {
         return MatrixXd(h.matrix);
       }
@@ -207,7 +203,7 @@ class BaseMultiEdgeEx : public BaseMultiEdge<D, E> {
       Vector3d rho;
       bool robust = (int8_t)kExactRobust == exact_mode;
       getRho(robust, rho);
-      const InformationType& rinfo = robust ? rho[1] * information() : information();
+      const InformationType& rinfo = robust ? InformationType(rho[1] * information()) : information();
       return jaci.transpose() * rinfo * jacj;
     }
   }

@@ -353,11 +353,11 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float deltaMono = sqrt(5.991);    // chi2(0.05,2)
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
   // configs for Prior Hessian
-  const bool calc_cov_explicit = false;  // false;
+  const bool calc_cov_explicit = true;  // false;
   const int8_t exact_mode =
       calc_cov_explicit ? (int8_t)g2o::kExactRobust : (int8_t)g2o::kNotExact;  //(int8_t)g2o::kExactRobust
   const int8_t last_mono_stereo = 0;                                           // 0
-  const bool calc_cond_jac = true;  // false;//calculate conditional cov for only PVR or only Bias
+  const bool calc_cond_jac = false;//calculate conditional cov for only PVR or only Bias
   {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
 
@@ -484,11 +484,13 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
       if (chi2 > chi2Mono[it]) {
         pFrame->mvbOutlier[idx] = true;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(1);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(1);
         nBad++;
       } else {
         pFrame->mvbOutlier[idx] = false;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(0);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(0);
       }
 
       if (it == 2) e->setRobustKernel(0);
@@ -509,10 +511,12 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
       if (chi2 > chi2Mono[it]) {
         pFrame->mvbOutlier[idx] = true;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(1);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(1);
       } else {
         pFrame->mvbOutlier[idx] = false;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(0);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(0);
       }
 
       if (it == 2) e->setRobustKernel(0);
@@ -535,11 +539,11 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
       if (chi2 > chi2Stereo[it]) {
         pFrame->mvbOutlier[idx] = true;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
           e->setLevel(1);  // adjust the outlier edges' level to 1
         nBad++;
       } else {
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
           e->setLevel(0);  // maybe adjust the outliers' level to inliers' level
         pFrame->mvbOutlier[idx] = false;
       }
@@ -563,10 +567,12 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
       if (chi2 > chi2Stereo[it]) {
         pFrame->mvbOutlier[idx] = true;
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(1);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(1);
         nBad++;
       } else {
-        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10) e->setLevel(0);
+//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
+          e->setLevel(0);
         pFrame->mvbOutlier[idx] = false;
       }
 
@@ -665,17 +671,17 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         Matrix15d c_inv = Matrix15d::Zero();
         const int thresh_cond = 1e6;
         const double w_max = w(0);
-        cerr << "check cond_num=";
+//        cerr << "check cond_num=";
         for (int i = 0; i < w.size(); ++i) {
           double cond_num = w_max / w(i);
-          cerr << cond_num << " " << w(i) << ";";
+//          cerr << cond_num << " " << w(i) << ";";
           // too large condition is sensitive to the error of corresponding input state dimension
           //          if (cond_num <= thresh_cond) {
           //          if (w(i) > 1e-6) {
           c_inv(i, i) = 1. / w(i);
           //          }//so we try to decrease it through discarding the corresponding input state dimension info
         }
-        cerr << endl;
+//        cerr << endl;
         c_inv = svd_c.matrixV() * c_inv * svd_c.matrixU().transpose();  // C=USigmaVT=>C^(-1)=VSigma^(-1)UT
         cov_inv -= cov_inv_cur_last * c_inv * cov_inv_cur_last.transpose();
         if (calc_cond_jac) {

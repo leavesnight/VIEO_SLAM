@@ -11,6 +11,10 @@ print_gt=0
 if [[ $3 == "GT"  ]]; then
     print_gt=1
 fi
+print_est=0
+if [[ $3 == "Est"  ]]; then
+    print_est=1
+fi
 
 function printInfo {
     echo "dataset_name=$EUROCFILE"
@@ -18,7 +22,11 @@ function printInfo {
     cat ~/dataset/EuRoC/$EUROCFILE/orbslam2/$SUBFILE/result_ate.txt
     if [[ $print_gt != 0 ]]; then
         echo "result_ate_GT.txt="
-        cat ~/dataset/EuRoC/$EUROCFILE/orbslam2/$SUBFILE/result_ate_GT.txt	
+        cat ~/dataset/EuRoC/$EUROCFILE/orbslam2/$SUBFILE/result_ate_GT.txt
+    fi
+    if [[ $print_est != 0 ]]; then
+        echo "result_ate_Est.txt="
+        cat ~/dataset/EuRoC/$EUROCFILE/orbslam2/$SUBFILE/result_ate_Est.txt
     fi
 }
 
