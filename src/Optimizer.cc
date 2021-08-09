@@ -1974,14 +1974,13 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         }
         // notice matLambda((2,2)&(3,3)) used in other edges means the camera(+encoder) accuracy of (phi,p) which should
         // be close to encoder(here use 1), and different unit has different base!
-        double dTmp = abs(encpreint.mSigmaEij(2, 2));
+        double dTmp=encpreint.mSigmaEij(2,2);
         if (dEncBase[0] > dTmp) {  // phi
           dEncBase[0] = dTmp;
         }
         // intuitively we choose sqrt(sigma2x^2+sigma2y^2) or p, makes (Sigma_p,0) to be (1,0) but (Sigma_p/2,
         // Sigma_p/2) to be near (1, 1)
-        dTmp = sqrt(encpreint.mSigmaEij(3, 3) * encpreint.mSigmaEij(3, 3) +
-                    encpreint.mSigmaEij(4, 4) * encpreint.mSigmaEij(4, 4));
+        dTmp = encpreint.mSigmaEij.block<2,2>(3,3).norm();
         if (dEncBase[1] > dTmp) {
           dEncBase[1] = dTmp;
         }

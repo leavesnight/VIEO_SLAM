@@ -63,11 +63,15 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
       //calculate Sigmaij firstly to use deltaThetaijMz as deltaTheta~ij-1z, maybe we can use deltaP~ij-1 instead of vf/w here
       double thetaj_1j=w*deltat;//Theta~ej-1ej
       Matrix6d A(Matrix6d::Identity()),C;Matrix<double,6,2> B;
-      Matrix3d Rij_1;//delta~REj-1Ej
-      Rij_1<<cos(thetaj_1j),-sin(thetaj_1j),0,
+      Matrix3d Rj_1j;//delta~REj-1Ej
+      Rj_1j<<cos(thetaj_1j),-sin(thetaj_1j),0,
 	      sin(thetaj_1j),cos(thetaj_1j),0,
 	      0,0,1;
-      A.block<3,3>(0,0)=Rij_1.transpose();//delta~REj-1Ej.t()
+      Matrix3d Rij_1;
+      Rij_1<<cos(deltaThetaijMz),-sin(deltaThetaijMz),0,
+          sin(deltaThetaijMz),cos(deltaThetaijMz),0,
+          0,0,1;
+      A.block<3,3>(0,0)=Rj_1j.transpose();//delta~REj-1Ej.t()
       B.setZero();B(2,1)=deltat/2/rc;B(2,0)=-B(2,1);
       Matrix<double,3,2> Bj_11;
       double dt2=deltat*deltat;
@@ -76,9 +80,9 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
       double sinthdivw,one_costh_divw;
       double Bx,By,C0,C1;
       if (abs(thetaj_1j)<EPS){
-// 	A.block<3,3>(0,3)=Rij_1*g2o::skew(Vector3d(-vf*deltat,0,0));
+// 	A.block<3,3>(3,0)=Rij_1*g2o::skew(Vector3d(-vf*deltat,0,0));
 // 	Bj_11.block<2,2>(0,0)<<deltat/2,deltat/2,0,0;
-// 	Cj_11.block<3,3>(3,0)=deltat*Matrix3d::Identity();Cj_11.block<3,3>(3,3).setZero();
+// 	Cj_11.block<3,3>(0,0)=deltat*Matrix3d::Identity();Cj_11.block<3,3>(0,3).setZero();
 	sinthdivw=deltat;one_costh_divw=w*dt2/2;
 	Bx=-vf*w*dt2*deltat/2;By=vf*dt2/2;
 	C0=0;C1=-vf*dt2/2;
@@ -87,7 +91,7 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
 	Bx=vf/w*(deltat*cos(thetaj_1j)-sinthdivw);By=vf/w*(deltat*sin(thetaj_1j)-one_costh_divw);
 	C0=vf/w*(deltat-sinthdivw);C1=-vf/w*one_costh_divw;
       }
-      A.block<3,3>(0,3)=Rij_1*g2o::skew(Vector3d(-vf*sinthdivw,-vf*one_costh_divw,0));
+      A.block<3,3>(3,0)=Rij_1*g2o::skew(Vector3d(-vf*sinthdivw,-vf*one_costh_divw,0));
       Bj_11.block<3,2>(0,0)<<sinthdivw/2-Bx/2/rc,sinthdivw/2+Bx/2/rc,one_costh_divw/2-By/2/rc,one_costh_divw/2+By/2/rc,0,0;
       C(0,3)=sinthdivw;C(0,4)=one_costh_divw;C(1,3)=-one_costh_divw;C(1,4)=sinthdivw;
       Cj_11<<sinthdivw,-one_costh_divw,0,0,0,Bx,
@@ -105,8 +109,9 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
       //update deltaPijM before update deltaThetaijM to use deltaThetaijMz as deltaTheta~ij-1z
       double thetaij=deltaThetaijMz+thetaj_1j;//Theta~eiej
       if (abs(thetaj_1j)<EPS){//or thetaj_1j==0
-	double arrdTmp[4]={cos(deltaThetaijMz),sin(deltaThetaijMz),-sin(deltaThetaijMz),cos(deltaThetaijMz)};//row-major:{cos(deltaTheij-1Mz),-sin(deltaTheij-1Mz),0,sin(deltaTheij-1Mz),cos(deltaThetaij-1Mz),0,0,0,1}; but Eigen defaultly uses col-major!
-	eigdeltaPijM+=Matrix2d(arrdTmp)*Vector2d(vf*deltat,0);//deltaPijM+Reiej-1*vej-1ej-1*deltat
+        //double arrdTmp[4]={cos(deltaThetaijMz),sin(deltaThetaijMz),-sin(deltaThetaijMz),cos(deltaThetaijMz)};//row-major:{cos(deltaTheij-1Mz),-sin(deltaTheij-1Mz),0,sin(deltaTheij-1Mz),cos(deltaThetaij-1Mz),0,0,0,1}; but Eigen defaultly uses col-major!
+        //eigdeltaPijM+=Matrix2d(arrdTmp)*Vector2d(vf*deltat,0);//deltaPijM+Reiej-1*vej-1ej-1*deltat
+        eigdeltaPijM+=Rij_1.block<2,2>(0,0)*Vector2d(vf*sinthdivw,vf*one_costh_divw);//deltaPijM+Reiej-1*vej-1ej-1*deltat
       }else{
 	eigdeltaPijM+=vf/w*Vector2d(sin(thetaij)-sin(deltaThetaijMz),cos(deltaThetaijMz)-cos(thetaij));
       }
