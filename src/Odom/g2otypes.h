@@ -40,7 +40,12 @@ class BaseUnaryEdgeEx : public BaseUnaryEdge<D, E, VertexXi> {
   using Base::information;
   using Base::robustKernel;
   using typename Base::InformationType;
+#ifdef USE_G2O_NEWEST
+  using JacobianXiOplusType =
+      typename BaseFixedSizedEdge<D, E, VertexXi>::template JacobianType<D, VertexXi::Dimension>;
+#else
   using typename Base::JacobianXiOplusType;
+#endif
   virtual void getRho(bool& robust, Vector3d& rho) const {
     if (robust) {
       const RobustKernel* robustkernel = robustKernel();
@@ -72,20 +77,34 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   using MatrixXjd = Matrix<double, VertexXj::Dimension, VertexXj::Dimension>;
   using MatrixXijd = Matrix<double, VertexXi::Dimension, VertexXj::Dimension>;
   using MatrixXjid = Matrix<double, VertexXj::Dimension, VertexXi::Dimension>;
+#ifdef USE_G2O_NEWEST
+  using Base::_hessianTuple;
+  using Base::_hessianTupleTransposed;
+#else
   using Base::_hessian;
-  using Base::_hessianRowMajor;
   using Base::_hessianTransposed;
+#endif
+  using Base::_hessianRowMajor;
   using Base::robustInformation;
 
  public:
   using Base::chi2;
   using Base::information;
   using Base::robustKernel;
-  using typename Base::HessianBlockTransposedType;
+#ifdef USE_G2O_NEWEST
+  using typename Base::HessianTuple;
+  using typename Base::HessianTupleTransposed;
+  using JacobianXiOplusType =
+      typename BaseFixedSizedEdge<D, E, VertexXi, VertexXj>::template JacobianType<D, VertexXi::Dimension>;
+  using JacobianXjOplusType =
+      typename BaseFixedSizedEdge<D, E, VertexXi, VertexXj>::template JacobianType<D, VertexXj::Dimension>;
+#else
   using typename Base::HessianBlockType;
-  using typename Base::InformationType;
+  using typename Base::HessianBlockTransposedType;
   using typename Base::JacobianXiOplusType;
   using typename Base::JacobianXjOplusType;
+#endif
+  using typename Base::InformationType;
   virtual void getRho(bool& robust, Vector3d& rho) const {
     if (robust) {
       const RobustKernel* robustkernel = robustKernel();
@@ -113,9 +132,17 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   virtual MatrixXijd getHessianXij(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
       if (_hessianRowMajor) {
+#ifdef USE_G2O_NEWEST
+        return MatrixXjid(std::get<0>(_hessianTupleTransposed)).transpose();
+#else
         return MatrixXijd(_hessianTransposed.transpose());
+#endif
       } else {
+#ifdef USE_G2O_NEWEST
+        return MatrixXijd(std::get<0>(_hessianTuple));
+#else
         return MatrixXijd(_hessian);
+#endif
       }
     } else {
       const JacobianXiOplusType& jaci = _jacobianOplusXi;
@@ -130,9 +157,17 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   virtual MatrixXjid getHessianXji(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
       if (_hessianRowMajor) {
+#ifdef USE_G2O_NEWEST
+        return MatrixXjid(std::get<0>(_hessianTupleTransposed));
+#else
         return MatrixXjid(_hessianTransposed);
+#endif
       } else {
+#ifdef USE_G2O_NEWEST
+        return MatrixXijd(std::get<0>(_hessianTuple)).transpose();
+#else
         return MatrixXjid(_hessian.transpose());
+#endif
       }
     } else {
       const JacobianXiOplusType& jaci = _jacobianOplusXi;

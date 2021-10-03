@@ -64,7 +64,7 @@ if (NOT OpenCV_FOUND)
     endif ()
 endif ()
 
-find_package(Eigen3 3.1.0 MODULE REQUIRED)
+find_package(Eigen3 3.3.7 MODULE REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
@@ -72,7 +72,7 @@ find_package(PCL REQUIRED COMPONENT common io filters)
 
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
-    # Find Sophus
+    # Find Sophus, we found only newest master branch code could be directly compiled with eigen 3.3.7
     find_package(Sophus REQUIRED)
     message(STATUS "Sophus_INCLUDE_DIR=${Sophus_INCLUDE_DIR}; LIBS=${Sophus_LIBRARIES}; Ver=${Sophus_VERSION}")
 
@@ -85,6 +85,7 @@ endif ()
 #find g2o here for Eigen>3.2.10
 if (${USE_G2O_NEWEST})
     add_definitions(-DUSE_G2O_NEWEST)
+    add_definitions(-DG2O_USE_VENDORED_CERES)
     find_package(G2O REQUIRED)
     SET(G2O_LIBRARIES ${G2O_STUFF_LIBRARY} ${G2O_CORE_LIBRARY} ${G2O_TYPES_SLAM3D} ${G2O_TYPES_SIM3} ${G2O_TYPES_SBA} ${G2O_SOLVER_DENSE} ${G2O_SOLVER_CHOLMOD} ${G2O_SOLVER_EIGEN})
     message(STATUS "g2o_Version=" ${G2O_INCLUDE_DIR}${G2O_LIBRARIES})
@@ -148,7 +149,7 @@ target_link_libraries(${PROJECT_NAME}
         ${BLAS_LIBRARIES}
         ${LAPACK_LIBRARIES}
         ${PCL_LIBRARIES}
-        ${Sophus_LIBRARIES}
+	${Sophus_LIBRARIES}
         )
 
 # Build examples

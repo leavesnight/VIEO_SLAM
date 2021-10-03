@@ -112,6 +112,16 @@ if you use ORB-SLAM2 (Stereo or RGB-D) in an academic work, please cite:
       year={2016}
      }
 
+If you use VIEOS2 (Stereo or RGB-D) in an academic work, please cite:
+
+    @article{zhu2021visual,
+      title={Visual-Inertial RGB-D SLAM with Encoders for a Differential Wheeled Robot},
+      author={Zhu, Zhanghao and Kaizu, Yutaka and Furuhashi, Kenichi and Imou, Kenji},
+      journal={IEEE Sensors Journal},
+      year={2021},
+      publisher={IEEE}
+     }
+
 # 2. Prerequisites
 We have tested the library in **Ubuntu 12.04**, **14.04** and **16.04**, but it should be easy to compile in other platforms. A powerful computer (e.g. i7) will ensure real-time performance and provide more stable and accurate results.
 
