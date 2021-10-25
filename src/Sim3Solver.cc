@@ -72,8 +72,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
             if(pMP1->isBad() || pMP2->isBad())
                 continue;
 
-            int indexKF1 = pMP1->GetIndexInKeyFrame(pKF1);
-            int indexKF2 = pMP2->GetIndexInKeyFrame(pKF2);
+            //TODO: check if needed to extend for 4 cams
+            int indexKF1 = *pMP1->GetIndexInKeyFrame(pKF1).begin();
+            int indexKF2 = *pMP2->GetIndexInKeyFrame(pKF2).begin();
 
             if(indexKF1<0 || indexKF2<0)//it's for safe
                 continue;

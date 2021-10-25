@@ -59,6 +59,7 @@
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
+#include <iostream>
 
 #include "ORBextractor.h"
 
@@ -768,7 +769,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
 {
     allKeypoints.resize(nlevels);
 
-    const float W = 30;
+    const float W = 35;//30;
 
     for (int level = 0; level < nlevels; ++level)
     {
@@ -1044,11 +1045,11 @@ static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Ma
         computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
 }
 
-void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
-                      OutputArray _descriptors)
-{ 
+int ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
+                      OutputArray _descriptors, std::vector<int> *pvLappingArea)
+{
     if(_image.empty())
-        return;
+        return -1;
 
     Mat image = _image.getMat();
     assert(image.type() == CV_8UC1 );//canonly process Gray Image
@@ -1073,10 +1074,16 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
         descriptors = _descriptors.getMat();
     }
 
-    _keypoints.clear();
-    _keypoints.reserve(nkeypoints);
+    if (!pvLappingArea) {
+      _keypoints.clear();
+      _keypoints.reserve(nkeypoints);
+    } else
+      _keypoints = vector<cv::KeyPoint>(nkeypoints);
 
     int offset = 0;
+    //Modified for speeding up stereo fisheye matching
+    int monoIndex = 0, stereoIndex = nkeypoints-1;
+    int lastlevel = -1, lastcount = -1;
     for (int level = 0; level < nlevels; ++level)
     {
         vector<KeyPoint>& keypoints = allKeypoints[level];
@@ -1091,22 +1098,46 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
 	//maybe better to use GaussianBlur(mvImagePyramid[level],workingMat,...)!
 
         // Compute the descriptors
-        Mat desc = descriptors.rowRange(offset, offset + nkeypointsLevel);
+        Mat desc;
+        if (!pvLappingArea)
+          desc = descriptors.rowRange(offset, offset + nkeypointsLevel); //no lappingarea then use ordered way
+        else
+          desc = cv::Mat(nkeypointsLevel, 32, CV_8U); //has lapping area then ordered mono, back ordered stereo
         computeDescriptors(workingMat, keypoints, desc, pattern);
 
         offset += nkeypointsLevel;
 
         // Scale keypoint coordinates
-        if (level != 0)
-        {
-            float scale = mvScaleFactor[level]; //getScale(level, firstLevel, scaleFactor);//<-this is the old slower method in opencv
-            for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
-                 keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
-                keypoint->pt *= scale;
+        float scale = mvScaleFactor[level]; //getScale(level, firstLevel, scaleFactor);//<-this is the old slower method in opencv
+        int i = 0;
+        for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
+                 keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint){
+
+          // Scale keypoint coordinates
+          if (level != 0){
+            keypoint->pt *= scale;
+          }
+
+          // And add the keypoints to the output
+          // notice the nkeypointslevel<=mnFeaturesPerLevel[level]
+          if (pvLappingArea) {
+            if (keypoint->pt.x >= (*pvLappingArea)[0] && keypoint->pt.x <= (*pvLappingArea)[1]) {
+              _keypoints.at(stereoIndex) = (*keypoint);
+              desc.row(i).copyTo(descriptors.row(stereoIndex));
+              stereoIndex--;
+            } else {
+              _keypoints.at(monoIndex) = (*keypoint);
+              desc.row(i).copyTo(descriptors.row(monoIndex));
+              monoIndex++;
+            }
+            i++;
+          }
         }
-        // And add the keypoints to the output
-        _keypoints.insert(_keypoints.end(), keypoints.begin(), keypoints.end());//notice the nkeypointslevel<=mnFeaturesPerLevel[level]
+        if (!pvLappingArea)
+          _keypoints.insert(_keypoints.end(), keypoints.begin(), keypoints.end());
     }
+
+    return monoIndex;
 }
 
 void ORBextractor::ComputePyramid(cv::Mat image)

@@ -115,12 +115,12 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mNavState=F.mNavState;//we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
   
   mnId=nNextId++;
-  mGrid.resize(mnGridCols);
-  for(int i=0; i<mnGridCols;i++){
-    mGrid[i].resize(mnGridRows);
-    for(int j=0; j<mnGridRows; j++)
-      mGrid[i][j] = F.mGrid[i][j];
-  }
+  vgrids_ = F.vgrids_;
+  vvkeys_ = F.vvkeys_;
+  vvkeys_un_ = F.vvkeys_un_;
+  vdescriptors_.resize(F.vdescriptors_.size());
+  for (size_t i = 0; i < F.vdescriptors_.size(); ++i)
+    vdescriptors_[i] = F.vdescriptors_[i].clone();
   SetPose(F.mTcw);//we have already used UpdatePoseFromNS() in Frame
   
   read(is);//set odom list & mState
@@ -210,8 +210,8 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
     mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
     fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
-    mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),
+    mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), mpCameras(F.mpCameras), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
+    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()), mapn2ijn_(F.mapn2ijn_),
     mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
@@ -231,13 +231,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   
     mnId=nNextId++;
 
-    mGrid.resize(mnGridCols);
-    for(int i=0; i<mnGridCols;i++)
-    {
-        mGrid[i].resize(mnGridRows);
-        for(int j=0; j<mnGridRows; j++)
-            mGrid[i][j] = F.mGrid[i][j];
-    }
+    vgrids_ = F.vgrids_;
 
     SetPose(F.mTcw);    
 }
@@ -247,6 +241,7 @@ void KeyFrame::ComputeBoW()
     if(mBowVec.empty() || mFeatVec.empty())
     {
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
+        cout << "check des kf="<<mDescriptors.size()<<endl;
         // Feature vector associate features with nodes in the 4th level (from leaves up)
         // We assume the vocabulary tree has 6 levels, change the 4 otherwise
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
@@ -405,11 +400,12 @@ void KeyFrame::EraseMapPointMatch(const size_t &idx)
     mvpMapPoints[idx]=static_cast<MapPoint*>(NULL);
 }
 
-void KeyFrame::EraseMapPointMatch(MapPoint* pMP)
-{
-    int idx = pMP->GetIndexInKeyFrame(this);
-    if(idx>=0)
-        mvpMapPoints[idx]=static_cast<MapPoint*>(NULL);
+void KeyFrame::EraseMapPointMatch(MapPoint* pMP) {
+  set<size_t> idxs = pMP->GetIndexInKeyFrame(this);
+  for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+    auto idx = *iter;
+    mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
+  }
 }
 
 
@@ -485,24 +481,18 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
 
     //For all map points in keyframe check in which other keyframes are they seen
     //Increase counter for those keyframes
-    for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++)
-    {
-        MapPoint* pMP = *vit;
+    for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++) {
+      MapPoint *pMP = *vit;
 
-        if(!pMP)
-            continue;
+      if (!pMP) continue;
 
-        if(pMP->isBad())
-            continue;
+      if (pMP->isBad()) continue;
 
-        map<KeyFrame*,size_t> observations = pMP->GetObservations();
-
-        for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-        {
-            if(mit->first->mnId==mnId)
-                continue;
-            KFcounter[mit->first]++;
-        }
+      map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
+      for (auto mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+        if (mit->first->mnId == mnId) continue;
+        KFcounter[mit->first]++;
+      }
     }
 
     // This should not happen
@@ -510,7 +500,7 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
         cout<<"Failed to update spanning tree! "<<mnId<<" "<<mnFrameId<<endl;
 	if (pLastKF==NULL){
 	  if (mpParent==NULL)
-	    assert(mnId==0);//"Error in parameter in UpdateConnections()"
+	    CV_Assert(mnId==0);//"Error in parameter in UpdateConnections()"
 	  else
 	    cout<<"but has 1 parent and "<<mConnectedKeyFrameWeights.size()<<" covisibility KFs"<<endl;
 	}else{
@@ -560,6 +550,7 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
         }else ++mit;*/
 //         (mit->first)->AddConnection(this,mit->second);
     }
+    cout << mnId << "vPairsz="<<vPairs.size() << endl;
 
     if(vPairs.empty())
     {
@@ -574,7 +565,9 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
     {
         lKFs.push_front(vPairs[i].second);//notice here push_front not push_back!!!
         lWs.push_front(vPairs[i].first);
+        cout << "lW="<<*lWs.begin()<<",kfid"<<lKFs.front()->mnId<<";";
     }
+    cout <<endl;
 
     {
         unique_lock<mutex> lockCon(mMutexConnections);
@@ -679,7 +672,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
             return;
         }
     }
-    assert(mnId!=0);
+    CV_Assert(mnId!=0);
 
     //erase the relation with this(&KF)
     for(map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
@@ -837,7 +830,7 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
         UpdateBestCovisibles();
 }
 
-vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const float &r) const
+vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
@@ -862,7 +855,7 @@ vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
-            const vector<size_t> vCell = mGrid[ix][iy];
+            const vector<size_t> vCell = vgrids_[cami][ix][iy];
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];

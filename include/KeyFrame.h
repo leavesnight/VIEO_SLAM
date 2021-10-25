@@ -39,6 +39,7 @@ class Map;
 class MapPoint;
 class Frame;
 class KeyFrameDatabase;
+class GeometricCamera;
 
 class KeyFrame
 {
@@ -247,7 +248,7 @@ public:
     MapPoint* GetMapPoint(const size_t &idx);//mvpMapPoints[idx]
 
     // KeyPoint functions
-    std::vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r) const;//return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
+    std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float  &y, const float  &r) const;//return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
     cv::Mat UnprojectStereo(int i);
 
     // Image
@@ -309,6 +310,7 @@ public:
 
     // Calibration parameters
     const float fx, fy, cx, cy, invfx, invfy, mbf, mb, mThDepth;
+    vector<GeometricCamera*> mpCameras;
 
     // Number of KeyPoints
     const int N;
@@ -316,9 +318,13 @@ public:
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_;
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
+  std::vector<cv::Mat> vdescriptors_;
+    std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
 
     //BoW
     DBoW2::BowVector mBowVec;
@@ -360,7 +366,7 @@ protected:
     ORBVocabulary* mpORBvocabulary;
 
     // Grid over the image to speed up feature matching
-    std::vector< std::vector <std::vector<size_t> > > mGrid;
+    std::vector<std::vector< std::vector <std::vector<size_t>>>> vgrids_;
 
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;//covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints 
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;//ordered covisibility graph/connected KFs need KFs >=15 covisible MPs or the KF with Max covisible MapPoints

@@ -201,12 +201,17 @@ bool System::LoadMap(const string &filename,bool bPCL,bool bReadBadKF){
       
       size_t Nobs;
       f.read((char*)&Nobs,sizeof(Nobs));//size of observations/MPs
-      for(int j=0;j<Nobs;++j){
-        f.read((char*)&nlData,sizeof(nlData));//obs: KFj's id (old)
-        assert(mapIdpKF.count(nlData)==1);
-        size_t idKeyPoint;
-        f.read((char*)&idKeyPoint,sizeof(idKeyPoint));//obs: KFj's corresponding KeyPoint's id/order of this MP
-        pMP->AddObservation(mapIdpKF[nlData],idKeyPoint);
+      for(int j=0;j<Nobs;++j) {
+        f.read((char *)&nlData, sizeof(nlData));  // obs: KFj's id (old)
+        assert(mapIdpKF.count(nlData) == 1);
+        // obs: KFj's corresponding KeyPoint's ids/order of this MP
+        size_t size_idxs;
+        f.read((char *)&size_idxs, sizeof(size_idxs));
+        for (size_t idxi = 0; idxi < size_idxs; ++idxi) {
+          size_t idx;
+          f.read((char *)&idx, sizeof(idx));
+          pMP->AddObservation(mapIdpKF[nlData], idx);
+        }
       }
       pMP->ComputeDistinctiveDescriptors();
       pMP->UpdateNormalAndDepth();
@@ -360,13 +365,20 @@ void System::SaveMap(const string &filename,bool bPCL,bool bUseTbc,bool bSaveBad
       pnlData=&pMP->GetReferenceKeyFrame()->mnId;f.write((char*)pnlData,sizeof(*pnlData));//refKF's id, must be before MapPoint::write()
       pMP->write(f);
       assert(!(pMP->GetReferenceKeyFrame()->isBad()));
-      map<KeyFrame*,size_t> observations=pMP->GetObservations();//observations
+      auto observations=pMP->GetObservations();//observations
       size_t Nobs=observations.size();
       f.write((char*)&Nobs,sizeof(Nobs));//size of observations
-      for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; ++mit){
+      for(auto mit=observations.begin(), mend=observations.end(); mit!=mend; ++mit) {
         assert(!(mit->first->isBad()));
-        pnlData=&mit->first->mnId;f.write((char*)pnlData,sizeof(*pnlData));//obs: KFj's id (old)
-        size_t idKeyPoint=mit->second;f.write((char*)&idKeyPoint,sizeof(idKeyPoint));//obs: KFj's corresponding KeyPoint's id of this MP
+        pnlData = &mit->first->mnId;
+        f.write((char *)pnlData, sizeof(*pnlData));  // obs: KFj's id (old)
+        auto idxs = mit->second;
+        size_t size_idxs = idxs.size();
+        f.write((char *)&size_idxs, sizeof(size_idxs));
+        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+          auto idx = *iter;
+          f.write((char *)&idx, sizeof(idx));  // obs: KFj's corresponding KeyPoint's id of this MP
+        }
       }
     }
     
@@ -641,7 +653,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpIMUInitiator->SetLocalMapper(mpLocalMapper);//for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
 }
 
-cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp)
+cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp, const bool inputRect)
 {
     if(mSensor!=STEREO)
     {
@@ -683,12 +695,12 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     }
     }
 
-    cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);
+    cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp, inputRect);
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
-    mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+    //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvvKeysUn[0];
     return Tcw;
 }
 
@@ -740,7 +752,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
-    mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+    //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
     return Tcw;
 }
 
@@ -791,7 +803,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
-    mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+    //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
 
     return Tcw;
 }
@@ -1019,10 +1031,10 @@ vector<MapPoint*> System::GetTrackedMapPoints()
     return mTrackedMapPoints;
 }
 
-vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
-{
-    unique_lock<mutex> lock(mMutexState);
-    return mTrackedKeyPointsUn;
-}
+//vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
+//{
+//    unique_lock<mutex> lock(mMutexState);
+//    return mTrackedKeyPointsUn;
+//}
 
 } //namespace ORB_SLAM

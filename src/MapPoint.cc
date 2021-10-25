@@ -20,6 +20,7 @@
 
 #include "MapPoint.h"
 #include "ORBmatcher.h"
+#include "KannalaBrandt8.h"
 
 #include<mutex>
 
@@ -135,49 +136,52 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
     return mpRefKF;
 }
 
-void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    if(mObservations.count(pKF))
-        return;
-    mObservations[pKF]=idx;
+void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  set<size_t> indexes;
 
-    if(pKF->mvuRight[idx]>=0)
-        nObs+=2;
-    else
-        nObs++;
+  if (mObservations.count(pKF)) {
+    indexes = mObservations[pKF];
+  }
+  indexes.insert(idx);
+  mObservations[pKF] = indexes;
+
+  if (pKF->mvuRight[idx] >= 0)
+    nObs += 2;
+  else
+    nObs++;
 }
 
-void MapPoint::EraseObservation(KeyFrame* pKF)
-{
-    bool bBad=false;
-    {
-        unique_lock<mutex> lock(mMutexFeatures);
-        if(mObservations.count(pKF))
-        {
-            int idx = mObservations[pKF];
-            if(pKF->mvuRight[idx]>=0)
-                nObs-=2;
-            else
-                nObs--;
+void MapPoint::EraseObservation(KeyFrame* pKF) {
+  bool bBad = false;
+  {
+    unique_lock<mutex> lock(mMutexFeatures);
+    if (mObservations.count(pKF)) {
+      auto idxs = mObservations[pKF];
+      for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+        auto idx = *iter;
+        if (pKF->mvuRight[idx] >= 0)
+          nObs -= 2;
+        else
+          nObs--;
+      }
 
-            mObservations.erase(pKF);
+      mObservations.erase(pKF);
 
-            // If < 2 observing KFs for a stereo MP, discard it for it may be created by triangulation method!
-            if(nObs<=2)
-                bBad=true;
-	    else if(mpRefKF==pKF) mpRefKF=mObservations.begin()->first;//!empty()/nObs>0 avoids for Segmentation Fault? revised by zzh, notice we don't use the information of bad MPs
-        }
+      // If < 2 observing KFs for a stereo MP, discard it for it may be created by triangulation method!
+      if (nObs <= 2) bBad = true;
+      //! empty()/nObs>0 avoids for Segmentation Fault? revised by zzh, notice we don't use the information of bad MPs
+      else if (mpRefKF == pKF)
+        mpRefKF = mObservations.begin()->first;
     }
+  }
 
-    if(bBad)
-        SetBadFlag();
+  if (bBad) SetBadFlag();
 }
 
-map<KeyFrame*, size_t> MapPoint::GetObservations()
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    return mObservations;
+map<KeyFrame*, set<size_t>> MapPoint::GetObservations() {
+  unique_lock<mutex> lock(mMutexFeatures);
+  return mObservations;
 }
 
 int MapPoint::Observations()
@@ -186,23 +190,25 @@ int MapPoint::Observations()
     return nObs;
 }
 
-void MapPoint::SetBadFlag()
-{
-    map<KeyFrame*,size_t> obs;
-    {
-        unique_lock<mutex> lock1(mMutexFeatures);
-        unique_lock<mutex> lock2(mMutexPos);
-        mbBad=true;
-        obs = mObservations;
-        mObservations.clear();
+void MapPoint::SetBadFlag() {
+  map<KeyFrame*, set<size_t>> obs;
+  {
+    unique_lock<mutex> lock1(mMutexFeatures);
+    unique_lock<mutex> lock2(mMutexPos);
+    mbBad = true;
+    obs = mObservations;
+    mObservations.clear();
+  }
+  for (map<KeyFrame*, set<size_t>>::iterator mit = obs.begin(), mend = obs.end(); mit != mend; mit++) {
+    KeyFrame* pKF = mit->first;
+    auto idxs = mit->second;
+    for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+      auto idx = *iter;
+      pKF->EraseMapPointMatch(idx);
     }
-    for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
-    {
-        KeyFrame* pKF = mit->first;
-        pKF->EraseMapPointMatch(mit->second);
-    }
+  }
 
-    mpMap->EraseMapPoint(this);
+  mpMap->EraseMapPoint(this);
 }
 
 MapPoint* MapPoint::GetReplaced()
@@ -212,44 +218,49 @@ MapPoint* MapPoint::GetReplaced()
     return mpReplaced;
 }
 
-void MapPoint::Replace(MapPoint* pMP)
-{
-    if(pMP->mnId==this->mnId)
-        return;
+void MapPoint::Replace(MapPoint* pMP) {
+  if (pMP->mnId == this->mnId) return;
 
-    int nvisible, nfound;
-    map<KeyFrame*,size_t> obs;
-    {
-        unique_lock<mutex> lock1(mMutexFeatures);
-        unique_lock<mutex> lock2(mMutexPos);
-        obs=mObservations;
-        mObservations.clear();
-        mbBad=true;
-        nvisible = mnVisible;
-        nfound = mnFound;
-        mpReplaced = pMP;
+  int nvisible, nfound;
+  map<KeyFrame*, set<size_t>> obs;
+  {
+    unique_lock<mutex> lock1(mMutexFeatures);
+    unique_lock<mutex> lock2(mMutexPos);
+    obs = mObservations;
+    mObservations.clear();
+    mbBad = true;
+    nvisible = mnVisible;
+    nfound = mnFound;
+    mpReplaced = pMP;
+  }
+
+  for (map<KeyFrame*, set<size_t>>::iterator mit = obs.begin(), mend = obs.end(); mit != mend; mit++) {
+    // Replace measurement in keyframe
+    KeyFrame* pKF = mit->first;
+
+    if (!pMP->IsInKeyFrame(pKF)) {
+      auto idxs = mit->second;
+      for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+        auto idx = *iter;
+        pKF->ReplaceMapPointMatch(idx, pMP);
+        pMP->AddObservation(pKF, idx);
+      }
+    } else {
+      // just erase pKF->mvpMapPoints[mit->second] for it already exists/matches in another pKF->mvpMapPoints[idx](idx!=mit->second)
+      auto idxs = mit->second;
+      for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+        auto idx = *iter;
+        auto idxs_old = pMP->GetObservations()[pKF];
+        CV_Assert(idxs_old.end() == idxs_old.find(idx));
+        pKF->EraseMapPointMatch(idx);
+      }
     }
+  }
+  pMP->IncreaseFound(nfound);
+  pMP->IncreaseVisible(nvisible);
+  pMP->ComputeDistinctiveDescriptors();  // why don't calculate the normal?
 
-    for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
-    {
-        // Replace measurement in keyframe
-        KeyFrame* pKF = mit->first;
-
-        if(!pMP->IsInKeyFrame(pKF))
-        {
-            pKF->ReplaceMapPointMatch(mit->second, pMP);
-            pMP->AddObservation(pKF,mit->second);
-        }
-        else//just erase pKF->mvpMapPoints[mit->second] for it already exists/matches in another pKF->mvpMapPoints[idx](idx!=mit->second)
-        {
-            pKF->EraseMapPointMatch(mit->second);
-        }
-    }
-    pMP->IncreaseFound(nfound);
-    pMP->IncreaseVisible(nvisible);
-    pMP->ComputeDistinctiveDescriptors();//why don't calculate the normal?
-
-    mpMap->EraseMapPoint(this);
+  mpMap->EraseMapPoint(this);
 }
 
 bool MapPoint::isBad()
@@ -282,7 +293,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     // Retrieve all observed descriptors
     vector<cv::Mat> vDescriptors;
 
-    map<KeyFrame*,size_t> observations;
+    map<KeyFrame*,set<size_t>> observations;
 
     {
         unique_lock<mutex> lock1(mMutexFeatures);
@@ -296,12 +307,17 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     vDescriptors.reserve(observations.size());
 
-    for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-    {
-        KeyFrame* pKF = mit->first;
+    for(map<KeyFrame*,set<size_t>>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++) {
+      KeyFrame* pKF = mit->first;
 
-        if(!pKF->isBad())
-            vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
+      // TODO: check if this needs to be extended for 4 cams
+      if (!pKF->isBad()) {
+        auto idxs = mit->second;
+        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+          auto idx = *iter;
+          vDescriptors.push_back(pKF->mDescriptors.row(idx));
+        }
+      }
     }
 
     if(vDescriptors.empty())
@@ -350,13 +366,12 @@ cv::Mat MapPoint::GetDescriptor()
     return mDescriptor.clone();
 }
 
-int MapPoint::GetIndexInKeyFrame(KeyFrame *pKF)
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    if(mObservations.count(pKF))
-        return mObservations[pKF];
-    else
-        return -1;
+set<size_t> MapPoint::GetIndexInKeyFrame(KeyFrame *pKF) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  if (mObservations.count(pKF))
+    return mObservations[pKF];
+  else
+    return set<size_t>();
 }
 
 bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
@@ -365,47 +380,57 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     return (mObservations.count(pKF));
 }
 
-void MapPoint::UpdateNormalAndDepth()
-{
-    map<KeyFrame*,size_t> observations;
-    KeyFrame* pRefKF;
-    cv::Mat Pos;
-    {
-        unique_lock<mutex> lock1(mMutexFeatures);
-        unique_lock<mutex> lock2(mMutexPos);
-        if(mbBad)
-            return;
-        observations=mObservations;
-        pRefKF=mpRefKF;
-        Pos = mWorldPos.clone();
+void MapPoint::UpdateNormalAndDepth() {
+  map<KeyFrame*, set<size_t>> observations;
+  KeyFrame* pRefKF;
+  cv::Mat Pos;
+  {
+    unique_lock<mutex> lock1(mMutexFeatures);
+    unique_lock<mutex> lock2(mMutexPos);
+    if (mbBad) return;
+    observations = mObservations;
+    pRefKF = mpRefKF;
+    Pos = mWorldPos.clone();
+  }
+
+  if (observations.empty()) return;
+
+  cv::Mat normal = cv::Mat::zeros(3, 1, CV_32F);
+  int n = 0;
+  for (map<KeyFrame*, set<size_t>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend;
+       mit++) {
+    KeyFrame* pKF = mit->first;
+    cv::Mat twcr = pKF->GetCameraCenter();
+    cv::Mat twc = twcr.clone();
+    auto idxs = mit->second;
+    for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+      auto idx = *iter;
+      size_t cami = !pKF->mapn2ijn_.size() ? 0 : get<0>(pKF->mapn2ijn_[idx]);
+      if (pKF->mpCameras.size() > cami) {
+        GeometricCamera* pcam1 = pKF->mpCameras[cami];
+        const cv::Mat Rcrw = pKF->GetRotation();
+        twc += Rcrw.t() * pcam1->Trc_.col(3);
+      }
+      cv::Mat normali = mWorldPos - twc;
+      normal = normal + normali / cv::norm(normali);
+      n++;
     }
+  }
 
-    if(observations.empty())
-        return;
+  cv::Mat PC = Pos - pRefKF->GetCameraCenter();
+  const float dist =
+      cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
+  CV_Assert(observations.find(pRefKF) != observations.end());
+  const int level = pRefKF->mvKeysUn[*observations[pRefKF].begin()].octave;
+  const float levelScaleFactor = pRefKF->mvScaleFactors[level];
+  const int nLevels = pRefKF->mnScaleLevels;
 
-    cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
-    int n=0;
-    for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-    {
-        KeyFrame* pKF = mit->first;
-        cv::Mat Owi = pKF->GetCameraCenter();
-        cv::Mat normali = mWorldPos - Owi;
-        normal = normal + normali/cv::norm(normali);
-        n++;
-    }
-
-    cv::Mat PC = Pos - pRefKF->GetCameraCenter();
-    const float dist = cv::norm(PC);//why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
-    const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;
-    const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
-    const int nLevels = pRefKF->mnScaleLevels;
-
-    {
-        unique_lock<mutex> lock3(mMutexPos);
-        mfMaxDistance = dist*levelScaleFactor;//dist*1.2^level
-        mfMinDistance = mfMaxDistance/pRefKF->mvScaleFactors[nLevels-1];//fMaxDis/1.2^7
-        mNormalVector = normal/n;//here maybe use normal/cv::norm(normal) better?
-    }
+  {
+    unique_lock<mutex> lock3(mMutexPos);
+    mfMaxDistance = dist * levelScaleFactor;                              // dist*1.2^level
+    mfMinDistance = mfMaxDistance / pRefKF->mvScaleFactors[nLevels - 1];  // fMaxDis/1.2^7
+    mNormalVector = normal / n;  // here maybe use normal/cv::norm(normal) better?
+  }
 }
 
 float MapPoint::GetMinDistanceInvariance()

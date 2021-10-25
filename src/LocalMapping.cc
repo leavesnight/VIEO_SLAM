@@ -80,6 +80,7 @@ void LocalMapping::Run()
 
             if (!CheckNewKeyFrames())//if the newKFs list is idle
             {
+              cout << "SIN" << endl;
                 // Find more matches in neighbor keyframes and fuse point duplications
                 SearchInNeighbors();
             }
@@ -90,8 +91,8 @@ void LocalMapping::Run()
                 !stopRequested())//if the newKFs list is idle and not requested stop by LoopClosing/localization mode
             {
                 // Local BA
-                if (mpMap->KeyFramesInMap() >
-                    2) {//at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left &&mpCurrentKeyFrame->mnId>mnLastOdomKFId+1
+                // at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left &&mpCurrentKeyFrame->mnId>mnLastOdomKFId+1
+                if (mpMap->KeyFramesInMap() > 2) {
                     chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
                     if (!mpIMUInitiator->GetVINSInited()) {
                         if (mpCurrentKeyFrame->mnId > mnLastOdomKFId + 1) {
@@ -111,6 +112,7 @@ void LocalMapping::Run()
                          << whiteSTR << endl;
                 }
 
+              cout << "KC" << endl;
                 // Check redundant local Keyframes
                 KeyFrameCulling();
             }
@@ -387,8 +389,20 @@ void LocalMapping::CreateNewMapPoints()
             bool bStereo2 = kp2_ur>=0;
 
             // Check parallax between rays
-            cv::Mat xn1 = (cv::Mat_<float>(3,1) << (kp1.pt.x-cx1)*invfx1, (kp1.pt.y-cy1)*invfy1, 1.0);//(x'1/z'2,y'2/z'2,1)
-            cv::Mat xn2 = (cv::Mat_<float>(3,1) << (kp2.pt.x-cx2)*invfx2, (kp2.pt.y-cy2)*invfy2, 1.0);//(x'2/z'2,y'2/z'2,1)
+            cv::Mat xn1, xn2;
+            GeometricCamera *pcam1 = nullptr, *pcam2;
+            if (!pKF2->mpCameras.size()) {
+              xn1 = (cv::Mat_<float>(3,1) << (kp1.pt.x-cx1)*invfx1, (kp1.pt.y-cy1)*invfy1, 1.0);//(x'1/z'2,y'2/z'2,1)
+              xn2 = (cv::Mat_<float>(3,1) << (kp2.pt.x-cx2)*invfx2, (kp2.pt.y-cy2)*invfy2, 1.0);//(x'2/z'2,y'2/z'2,1)
+            } else {
+              CV_Assert(mpCurrentKeyFrame->mpCameras.size());
+              pcam1 = mpCurrentKeyFrame->mpCameras[get<0>(mpCurrentKeyFrame->mapn2ijn_[idx1])];
+              pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2ijn_[idx2])];
+              xn1 = pcam1->unprojectMat(kp1.pt);
+              xn2 = pcam2->unprojectMat(kp2.pt);
+              xn1 = pcam1->Trc_.rowRange(0, 3).colRange(0, 3) * xn1 + pcam1->Trc_.col(3);
+              xn2 = pcam2->Trc_.rowRange(0, 3).colRange(0, 3) * xn2 + pcam2->Trc_.col(3);
+            }
 
             cv::Mat ray1 = Rwc1*xn1;
             cv::Mat ray2 = Rwc2*xn2;
@@ -461,18 +475,25 @@ void LocalMapping::CreateNewMapPoints()
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);//yc1
             const float invz1 = 1.0/z1;
 
-            if(!bStereo1)
-            {
-                float u1 = fx1*x1*invz1+cx1;
-                float v1 = fy1*y1*invz1+cy1;
-                float errX1 = u1 - kp1.pt.x;
-                float errY1 = v1 - kp1.pt.y;
-		//(e^2-0^2)/sigma^2 (if sigma&&0 is population supposed variance&&expected value not sample parameters then degree of freedom is n not n-1)
-                if((errX1*errX1+errY1*errY1)>5.991*sigmaSquare1)//if e'*[1/sigma^2 0;0 1/sigma^2](/Omiga)*e>chi2(0.05 significance level,2 degrees of freedom), it's wrong(95% judgement is right)
-                    continue;
+            if(!bStereo1) {
+              float u1, v1;
+              if (!pcam1) {
+                u1 = fx1 * x1 * invz1 + cx1;
+                v1 = fy1 * y1 * invz1 + cy1;
+              } else {
+                auto pt = pcam1->project(cv::Point3f(x1, y1, z1));
+                u1 = pt.x;
+                v1 = pt.y;
+              }
+              float errX1 = u1 - kp1.pt.x;
+              float errY1 = v1 - kp1.pt.y;
+              //(e^2-0^2)/sigma^2 (if sigma&&0 is population supposed variance&&expected value not sample parameters then degree of freedom is n not n-1)
+              if ((errX1 * errX1 + errY1 * errY1) >
+                  5.991 * sigmaSquare1)  // if e'*[1/sigma^2 0;0 1/sigma^2](/Omiga)*e>chi2(0.05 significance level,2 degrees of freedom), it's wrong(95% judgement is right)
+                continue;
             }
             else
-            {
+            {//TODO: think if this necessary
                 float u1 = fx1*x1*invz1+cx1;
                 float u1_r = u1 - mpCurrentKeyFrame->mbf*invz1;
                 float v1 = fy1*y1*invz1+cy1;
@@ -488,14 +509,20 @@ void LocalMapping::CreateNewMapPoints()
             const float x2 = Rcw2.row(0).dot(x3Dt)+tcw2.at<float>(0);
             const float y2 = Rcw2.row(1).dot(x3Dt)+tcw2.at<float>(1);
             const float invz2 = 1.0/z2;
-            if(!bStereo2)
-            {
-                float u2 = fx2*x2*invz2+cx2;
-                float v2 = fy2*y2*invz2+cy2;
-                float errX2 = u2 - kp2.pt.x;
-                float errY2 = v2 - kp2.pt.y;
-                if((errX2*errX2+errY2*errY2)>5.991*sigmaSquare2)//chi2(0.05,2)
-                    continue;
+            if(!bStereo2) {
+              float u2, v2;
+              if (!pcam1) {
+                u2 = fx2 * x2 * invz2 + cx2;
+                v2 = fy2 * y2 * invz2 + cy2;
+              } else {
+                auto pt = pcam1->project(cv::Point3f(x2, y2, z2));
+                u2 = pt.x;
+                v2 = pt.y;
+              }
+              float errX2 = u2 - kp2.pt.x;
+              float errY2 = v2 - kp2.pt.y;
+              if ((errX2 * errX2 + errY2 * errY2) > 5.991 * sigmaSquare2)  // chi2(0.05,2)
+                continue;
             }
             else
             {
@@ -546,6 +573,7 @@ void LocalMapping::CreateNewMapPoints()
             nnew++;
         }
     }
+    cout << "check nnew = "<< nnew<<endl;
 }
 
 void LocalMapping::SearchInNeighbors()
@@ -571,20 +599,26 @@ void LocalMapping::SearchInNeighbors()
             KeyFrame* pKFi2 = *vit2;
             if(pKFi2->isBad() || pKFi2->mnFuseTargetForKF==mpCurrentKeyFrame->mnId || pKFi2->mnId==mpCurrentKeyFrame->mnId)//avoid bad,duplications && itself(KF now)
                 continue;
+            pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId; // fixed efficiency bug in ORB2
             vpTargetKFs.push_back(pKFi2);
         }
     }
 
+  cout << "over1"<<endl;
     //bijection search matches
     // Search matches by projection from current KF in target KFs
     ORBmatcher matcher;//0.6,true
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+    size_t num_fused = 0;
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
     {
+      cout << "check sz="<<vpTargetKFs.size()<<endl;
         KeyFrame* pKFi = *vit;
+        cout << "targetKFId=" << pKFi->mnId << ",cur="<<mpCurrentKeyFrame->mnId<<endl;
 
-        matcher.Fuse(pKFi,vpMapPointMatches);
+        num_fused = matcher.Fuse(pKFi,vpMapPointMatches);
     }
+  cout << "over2 fused num = "<< num_fused << endl;
 
     // Search matches by projection from target KFs in current KF
     vector<MapPoint*> vpFuseCandidates;
@@ -608,7 +642,8 @@ void LocalMapping::SearchInNeighbors()
         }
     }
 
-    matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
+    num_fused = matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
+  cout << "over3, fused2= "<<num_fused << endl;
 
 
     // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
@@ -628,6 +663,7 @@ void LocalMapping::SearchInNeighbors()
 
     // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs incurrent KF
     mpCurrentKeyFrame->UpdateConnections();
+    cout << "over"<<endl;
 }
 
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
@@ -812,47 +848,48 @@ void LocalMapping::KeyFrameCulling()
         const int thObs=nObs;//can directly use const 3
         int nRedundantObservations=0;//the number of redundant(seen also by at least 3 other KFs) close stereo MPs seen by pKF
         int nMPs=0;//the number of close stereo MPs seen by pKF
-        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++)
-        {
-            MapPoint* pMP = vpMapPoints[i];
-            if(pMP)
-            {
-                if(!pMP->isBad())
-                {
-                    if(!mbMonocular)//if RGBD
-                    {
-                        if(pKF->mvDepth[i]>pKF->mThDepth || pKF->mvDepth[i]<0)//only consider close stereo points(exclude far or monocular points)
-                            continue;
-                    }
-
-                    nMPs++;
-                    if(pMP->Observations()>thObs)//at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at least other 3 KFs have seen 90% MPs
-                    {
-                        const int &scaleLevel = pKF->mvKeysUn[i].octave;
-                        const map<KeyFrame*, size_t> observations = pMP->GetObservations();
-                        int nObs=0;
-                        for(map<KeyFrame*, size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-                        {
-                            KeyFrame* pKFi = mit->first;
-                            if(pKFi==pKF)//"other"
-                                continue;
-                            const int &scaleLeveli = pKFi->mvKeysUn[mit->second].octave;
-
-                            if(scaleLeveli<=scaleLevel+1)//"in the same(+1 for error) or finer scale"
-                            {
-                                nObs++;
-                                if(nObs>=thObs)
-                                    break;
-                            }
-                        }
-                        if(nObs>=thObs)//if the number of same/better observation KFs >= 3(here)
-                        {
-                            nRedundantObservations++;
-                        }
-                    }
-                }
+        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++) {
+          MapPoint *pMP = vpMapPoints[i];
+          if (pMP && !pMP->isBad()) {
+            // if RGBD/Stereo
+            if (!mbMonocular) {
+              // only consider close stereo points(exclude far or monocular points)
+              if (pKF->mvDepth[i] > pKF->mThDepth || pKF->mvDepth[i] < 0) continue;
             }
-        }  
+
+            nMPs++;
+            // at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at least other 3 KFs have seen 90% MPs
+            if (pMP->Observations() > thObs) {
+              const int &scaleLevel = pKF->mvKeysUn[i].octave;
+              const map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
+              int nObs = 0;
+              for (map<KeyFrame *, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end();
+                   mit != mend; mit++) {
+                KeyFrame *pKFi = mit->first;
+                //"other"
+                if (pKFi == pKF) continue;
+                auto idxs = mit->second;
+                int scaleLeveli = INT_MAX;
+                for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+                  auto idx = *iter;
+                  if (scaleLeveli > pKFi->mvKeysUn[idx].octave) {
+                    scaleLeveli = pKFi->mvKeysUn[idx].octave;
+                  }
+                }
+
+                if (scaleLeveli <= scaleLevel + 1)  //"in the same(+1 for error) or finer scale"
+                {
+                  nObs++;
+                  if (nObs >= thObs) break;
+                }
+              }
+              if (nObs >= thObs)  // if the number of same/better observation KFs >= 3(here)
+              {
+                nRedundantObservations++;
+              }
+            }
+          }
+        }
 
         if(nRedundantObservations>0.9*nMPs){
 	    if (tmNext>tmNthKF&&pLastNthKF!=NULL){//this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF

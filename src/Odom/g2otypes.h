@@ -14,8 +14,14 @@
 #include "Thirdparty/g2o/g2o/core/base_multi_edge.h"
 #include "Thirdparty/g2o/g2o/types/types_six_dof_expmap.h"
 #endif
+#include "GeometricCamera.h"
 #include "NavState.h"
 #include "OdomPreIntegrator.h"
+
+namespace VIEO_SLAM {
+// TODO: define template NavState<>
+typedef NavState NavStated;
+}
 
 namespace g2o {
 
@@ -245,6 +251,208 @@ class BaseMultiEdgeEx : public BaseMultiEdge<D, E> {
 };
 
 /**
+ * \brief template Vertex for VertexNavStatePR,VertexNavStateV,VertexNavStatePVR
+ */
+template <int DV>
+bool readVertex(std::istream& is, Matrix<double, DV, 1>& _estimate) {
+  for (int i = 0; i < DV; i++) is >> _estimate[i];
+  return true;  // is.good()
+}
+template <int DV>
+bool writeVertex(std::ostream& os, const Matrix<double, DV, 1>& estimate) {
+  Vector3d lv = estimate;
+  for (int i = 0; i < DV; i++) os << estimate[i] << " ";
+  return os.good();
+}
+template <int D>
+class VertexNavState : public BaseVertex<D, NavStated> {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  // default constructor is enough
+  virtual bool read(std::istream &is) { return true; }
+
+  virtual bool write(std::ostream &os) const { return true; }
+
+  void setToOriginImpl() { this->_estimate = NavStated(); }  // virtual
+  void oplusImpl(const double *update_) {
+    Eigen::Map<const Matrix<double, D, 1>> update(update_);
+    this->_estimate.template IncSmall(update);
+  }  // virtual
+};
+
+typedef VertexNavState<6> VertexNavStatePR;
+typedef VertexNavState<3> VertexNavStateV;
+typedef VertexNavState<9> VertexNavStatePVR; // TODO: delete this for code simplicity
+
+/**
+ * \brief template for EdgeProjectXYZ(binary edge, mono/stereo), similar to EdgeProjectXYZOnlyPose(change the parameter
+ * Pw to optimized vertex _vertices[0] & Tbw to _vertices[1])
+ */
+template <int DE, int DV, int NV>
+class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
+  using VectorDEd = Matrix<double, DE, 1>;
+
+  typedef BaseMultiEdgeEx<DE, VectorDEd> Base;
+
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  EdgeReproject() : Base() { Base::resize(NV); }
+
+  bool read(std::istream &is) { return true; }
+  bool write(std::ostream &os) const { return true; }
+  static VectorDEd cam_project(GeometricCamera *intr, Vector3d x_C, double bf = 0) {
+    VectorDEd res;
+    res.template segment<2>(0) = intr->project(x_C);
+    if (DE > 2) res[2] = res[0] - bf / x_C[2];
+    return res;
+  }
+  void computeError() override {
+    const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xh/Ph
+    // Tbs_w, bs is b for slam
+    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
+    const NavStated& ns = vNS->estimate();  // transform Xh to Xc through Tbw&&Tcb
+    Vector3d Xw = pXh->estimate();
+    if (3 <= NV) {
+      const VertexNavState<DV>* vNSh = static_cast<const VertexNavState<DV>*>(_vertices[2]);  // Tbw,handler
+      const NavStated& nsh = vNSh->estimate();
+      // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
+      Xw = nsh.getRwb() * (Rbch_ * Xw + tbch_) + nsh.mpwb;
+    }
+    // Pc=Tcb*Tbw*Pw=Rcb*Rbw*Pw+Rcb*tbw(-Rcb*Rbw*twb)+tcb(-Rcb*tbc)=Rcb*Rbw*(Pw-twb)+tcb;
+    this->_error = this->_measurement - cam_project(intr_, Rcb * ns.getRwb().transpose() * (Xw - ns.mpwb) + tcb, bf_);
+  }
+  void linearizeOplus() override;
+
+  void SetParams(GeometricCamera *intr, const Matrix3d Rcrb_ = Matrix3d::Identity(), const Vector3d tcrb_ = Vector3d::Zero(),
+                 const float *bf = NULL) {
+    intr_ = intr;
+    Rcb = intr_->Rcr_ * Rcrb_;
+    tcb = intr_->Rcr_ * tcrb_ + intr_->tcr_;
+    if (bf) bf_ = *bf;
+  }
+  void SetParams(const Matrix3d &Rbch, const Vector3d &tbch) {
+    Rbch_ = Rbch;
+    tbch_ = tbch;
+  }
+  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
+    const VertexSBAPointXYZ *pXh = static_cast<const VertexSBAPointXYZ *>(_vertices[0]);          // Xh/Ph
+    const VertexNavState<DV> *vNS = static_cast<const VertexNavState<DV> *>(_vertices[1]);  // Tbw
+    const NavStated &ns = vNS->estimate();
+    Vector3d Xw = pXh->estimate();
+    if (3 <= NV) {
+      const VertexNavState<DV> *vNSh = static_cast<const VertexNavState<DV> *>(_vertices[2]);  // Tbw,handler
+      const NavStated &nsh = vNSh->estimate();
+      // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
+      Xw = nsh.getRwb() * (Rbch_ * Xw + tbch_) + nsh.mpwb;
+    }
+    return (Rcb * ns.getRwb().transpose() * (Xw - ns.mpwb) + tcb)(2) > 0.0;  // Xc.z>0
+  }
+
+ protected:
+  double bf_;
+  GeometricCamera *intr_;  // Camera intrinsics
+  // Camera-IMU extrinsics
+  Matrix3d Rcb, Rbch_;
+  Vector3d tcb, tbch_;
+
+  using Base::_jacobianOplus;
+  using Base::_vertices;
+};
+template <int DE, int DV, int NV>
+void EdgeReproject<DE, DV, NV>::linearizeOplus() {
+  const VertexSBAPointXYZ *pXh = static_cast<const VertexSBAPointXYZ *>(_vertices[0]);  // Xh/Ph
+  Vector3d Ph = pXh->estimate(), Pw = Ph, twh;
+  Matrix3d Rwh, Rwbh;
+  if (3 <= NV) {
+    const VertexNavState<DV> *vNSh = static_cast<const VertexNavState<DV> *>(_vertices[2]);  // Tbhw,bh for handler
+    const NavStated &nsh = vNSh->estimate();
+    // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
+    Rwbh = nsh.getRwb();
+    Rwh = Rwbh * Rbch_;
+    twh = Rwbh * tbch_ + nsh.mpwb;
+    Pw = Rwh * Ph + twh;
+  }
+  const VertexNavState<DV> *vNS = static_cast<const VertexNavState<DV> *>(_vertices[1]);  // Tbw,slam
+  const NavStated &ns = vNS->estimate();
+  Matrix3d Rcw = Rcb * ns.getRwb().transpose();
+
+  Vector3d Pc = Rcw * (Pw - ns.mpwb) + tcb;  // Pc=Rcb*Rbw*(Pw-twb)+tcb
+  double invz = 1 / Pc[2], invz_2 = invz * invz;
+
+  // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
+  Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
+  Jproj.template block<2, 3>(0, 0) = -intr_->projectJac(Pc);
+  // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0 -fx*x/z^2+bf/z^2]
+  if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), 0, Jproj(0, 2) - bf_ * invz_2;
+
+  // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
+  // corresponding Vertex, so here is the same, a bit dfferent from (21)
+  //        Matrix<double,DE,3> JdPwb = Jproj*(-Rcb);//J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
+  Matrix<double, DE, 3> JdPwb = Jproj * (-Rcw);  // J_Pc_dPwb = -Rcw(p<-p+dp)
+
+  // Jacobian of error w.r.t dRwb
+  // J_Pc_dRwb=(Rcw*(Pw-twb))^Rcb, using right disturbance model/Rwb->Rwb*Exp(dphi) or Rbw->Exp(-dphi)*Rbw,
+  // see Manifold paper (20)
+  Vector3d Paux = Rcw * (Pw - ns.mpwb);
+  Matrix<double, DE, 3> JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb);
+
+  // Jacobian of error w.r.t NavStatePR, order in 'update_': dP, dPhi
+  Matrix<double, DE, DV> JNavState = Matrix<double, DE, DV>::Zero();
+  JNavState.template block<DE, 3>(0, 0) = JdPwb;       // J_error_dnotPR=0 so we'd better use PR&V instead of PVR/PVRB
+  JNavState.template block<DE, 3>(0, DV - 3) = JdRwb;  // only for 9(J_e_dV=0)/6
+  _jacobianOplus[1] = JNavState;
+
+  // Jacobian of error(-pc) w.r.t dXh/dPh: J_e_dXh=JdXh=J_e_Pc*J_Pc_dPw*J_Pw_dPh=Jproj*Rcw*Rwh=-JdPwb*Rwh
+  //        _jacobianOplus[0] = -JdPwb*Rwb.transpose();//for (p<-p+R*dp)
+  _jacobianOplus[0] = -JdPwb;  // Jproj*Rcb*Rwb.transpose()*Rwh; it's a fast form for (p<-p+dp);Rwh=I for NV==2
+  if (3 <= NV) {
+    // J_e_dPwb = J_e_dXw * J_Xw_dPwbh = Jproj*Rcw*I
+    _jacobianOplus[2].template block<DE, 3>(0, 0) = _jacobianOplus[0];
+    // J_e_dRwb = J_e_dXw * J_Xw_dRwbh = Jproj*Rcw*(-Rwbh*(Rbh*hX+tbh)^), or J_Xw_dRwbh= -(Rwh(hX-thb)^Rwb)
+    _jacobianOplus[2].template block<DE, 3>(0, DV - 3) =
+        _jacobianOplus[0] * (Rwbh * Sophus::SO3exd::hat(-(Rbch_ * Ph + tbch_)));
+    _jacobianOplus[0] *= Rwh;
+  }
+}
+
+typedef EdgeReproject<2, 6, 2> EdgeReprojectPR;
+typedef EdgeReproject<2, 6, 3> EdgeReprojectPR3V; // designed for 3d points with known model coordinates
+typedef EdgeReproject<3, 6, 2> EdgeReprojectPRStereo;
+
+// we move the vertex here for stereo fisheye cams
+class  EdgeSE3ProjectXYZOnlyPose: public  BaseUnaryEdge<2, Vector2d, VertexSE3Expmap>{
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  EdgeSE3ProjectXYZOnlyPose(){}
+
+  bool read(std::istream& is);
+
+  bool write(std::ostream& os) const;
+
+  void computeError()  {
+    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
+    Vector2d obs(_measurement);
+    _error = obs-cam_project(v1->estimate().map(Xw));
+  }
+
+  bool isDepthPositive() {//unused in motion-only BA
+    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
+    return (v1->estimate().map(Xw))(2)>0.0;
+  }
+
+
+  virtual void linearizeOplus();//calculate the 2*6 jacobian matrix(here is partial(e)/partial(ksi), exactly is par(e)/par(ksi.t()))
+
+  Vector2d cam_project(const Vector3d & trans_xyz) const;
+
+  Vector3d Xw;
+  double fx, fy, cx, cy;
+};
+
+/**
  * \brief template Vertex for VertexScale
  */
 class VertexScale : public BaseVertex<1, double> {
@@ -265,41 +473,6 @@ class VertexScale : public BaseVertex<1, double> {
   void setToOriginImpl() { _estimate = 1; }  // default scale_truth_from_currentworld=1
   void oplusImpl(const double* update_) { _estimate += *update_; }
 };
-
-/**
- * \brief template Vertex for VertexNavStatePR,VertexNavStateV,VertexNavStatePVR
- */
-template <int DV>
-bool readVertex(std::istream& is, Matrix<double, DV, 1>& _estimate) {
-  for (int i = 0; i < DV; i++) is >> _estimate[i];
-  return true;  // is.good()
-}
-template <int DV>
-bool writeVertex(std::ostream& os, const Matrix<double, DV, 1>& estimate) {
-  Vector3d lv = estimate;
-  for (int i = 0; i < DV; i++) os << estimate[i] << " ";
-  return os.good();
-}
-template <int D>
-class VertexNavState : public BaseVertex<D, NavState> {
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  // default constructor is enough
-  virtual bool read(std::istream& is) { return true; }
-
-  virtual bool write(std::ostream& os) const { return true; }
-
-  void setToOriginImpl() { this->_estimate = NavState(); }  // virtual
-  void oplusImpl(const double* update_) {
-    Eigen::Map<const Matrix<double, D, 1> > update(update_);
-    this->_estimate.template IncSmall<D>(update);
-  }  // virtual
-};
-
-typedef VertexNavState<6> VertexNavStatePR;
-typedef VertexNavState<3> VertexNavStateV;
-typedef VertexNavState<9> VertexNavStatePVR;
 
 // have to define Bias independently for it has the same dimension with PR
 class VertexNavStateBias : public BaseVertex<6, NavState> {

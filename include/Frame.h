@@ -42,6 +42,7 @@ namespace VIEO_SLAM
 
 class MapPoint;
 class KeyFrame;
+class GeometricCamera;
 
 class Frame
 { 
@@ -95,7 +96,7 @@ public:
     Frame(const Frame &frame);
 
     // Constructor for stereo cameras.
-    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor*> extractors, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, const vector<GeometricCamera*> *pCamInsts = nullptr);
 
     // Constructor for RGB-D cameras.
     Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
@@ -104,7 +105,7 @@ public:
     Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
 
     // Extract ORB on the image. 0 for left image and 1 for right image.
-    void ExtractORB(int flag, const cv::Mat &im);
+    void ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea = nullptr);
 
     // Compute Bag of Words representation.
     void ComputeBoW();//compute mBowVec && mFeatVec
@@ -132,11 +133,14 @@ public:
     // Compute the cell of a keypoint (return false if outside the grid)
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
-    vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
+    vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
 
     // Search a match for each keypoint in the left image to a keypoint in the right image.
     // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
     void ComputeStereoMatches();
+
+    void ComputeStereoFishEyeMatches(int i, int j, std::map<std::pair<size_t, size_t>, size_t> &mps_used_id,
+                                     std::vector<size_t> count_used, bool blast);
 
     // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
     void ComputeStereoFromRGBD(const cv::Mat &imDepth);
@@ -149,7 +153,7 @@ public:
     ORBVocabulary* mpORBvocabulary;
 
     // Feature extractor. The right is used only in the stereo case.
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+    vector<ORBextractor*> mpORBextractors;
 
     // Frame timestamp.
     double mTimeStamp;
@@ -163,6 +167,7 @@ public:
     static float invfx;
     static float invfy;
     cv::Mat mDistCoef;
+    vector<GeometricCamera*> mpCameras;
 
     // Stereo baseline multiplied by fx.
     float mbf;
@@ -176,24 +181,43 @@ public:
 
     // Number of KeyPoints.
     int N;
+    //Number of Non Lapping Keypoints
+    vector<int> num_mono = vector<int>(1);
+    //For stereo matching
+    //1st dim means the order ij like 01,02,03,12,13,23 through GetIndexIlessJ, 0th dim 0 means i->j, 1 means j->i
+    std::vector<std::vector<std::vector<int>>> mccMatches;
+    //For stereo fisheye matching
+    static cv::BFMatcher BFmatcher;
+    //Triangulated stereo observations using as reference the left camera. These are
+    //computed during ComputeStereoFishEyeMatches
+    //order like 01,02,03,12,13,23 through GetIndexIlessJ
+    std::vector<std::vector<cv::Mat>> mvStereo3Dpoints;
+    size_t GetIndexIlessJ(int i, int j);
 
-    // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
-    // In the stereo case, mvKeysUn is redundant as images must be rectified.
-    // In the RGB-D case, RGB images can be distorted.
-    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
-    std::vector<cv::KeyPoint> mvKeysUn;
+  // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
+  // In the stereo case, mvKeysUn is redundant as images must be rectified.
+  // In the RGB-D case, RGB images can be distorted.
+  std::vector<cv::KeyPoint> mvKeys;
+  std::vector<cv::KeyPoint> mvKeysUn;
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
+  std::vector<std::vector<size_t>> mapin2n_;
 
-    // Corresponding stereo coordinate and depth for each keypoint.
-    // "Monocular" keypoints have a negative value.
-    std::vector<float> mvuRight;
-    std::vector<float> mvDepth;
+  // Corresponding stereo coordinate and depth for each keypoint.
+  // "Monocular" keypoints have a negative value.
+  std::vector<float> mvuRight;
+  std::vector<float> mvDepth;
+  std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
+  //0 means depth in i, 1 means in j, order like 01,02,03,12,13,23 through GetIndexIlessJ
+  std::vector<std::vector<std::vector<float>>> vv_depth_;
 
-    // Bag of Words Vector structures.
+  // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
     DBoW2::FeatureVector mFeatVec;
 
     // ORB descriptor, each row associated to a keypoint.
-    cv::Mat mDescriptors, mDescriptorsRight;
+    cv::Mat mDescriptors;
+    std::vector<cv::Mat> vdescriptors_ = std::vector<cv::Mat>(1);
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     std::vector<MapPoint*> mvpMapPoints;
@@ -204,7 +228,7 @@ public:
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
     static float mfGridElementWidthInv;
     static float mfGridElementHeightInv;
-    std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
+    std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
 
     // Camera pose.
     cv::Mat mTcw;

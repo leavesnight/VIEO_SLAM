@@ -42,6 +42,10 @@ public:
 
     // Computes the Hamming distance between two ORB descriptors(1*256bit/32*8bit)
     static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
+  static void SearchByProjectionBase(const vector<MapPoint*> &vpMapPoints1, cv::Mat Rcrw, cv::Mat tcrw, KeyFrame *pKF,
+                                                 const float th_radius, const float th_bestdist,
+                                       vector<int> &vnMatch1, vector<bool> *pvbAlreadyMatched1 = nullptr,
+                                       bool bCheckViewingAngle = false, const float *pbf = nullptr);
 
     // Search matches between Frame keypoints and projected MapPoints. Returns number of additional matches
     // Used to track the local map (Tracking)

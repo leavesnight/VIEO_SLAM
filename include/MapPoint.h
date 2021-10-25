@@ -59,13 +59,13 @@ public:
     KeyFrame* GetReferenceKeyFrame();//mpRefKF, mpRefKF->mvpMapPoints should has this MP
 
     //if map is large, for single search time cost stability, please use map instead of unordered_map
-    std::map<KeyFrame*,size_t> GetObservations();//mObservations
+    std::map<KeyFrame*,set<size_t>> GetObservations();//mObservations
     int Observations();//nObs
 
     void AddObservation(KeyFrame* pKF,size_t idx);//mObservations[pKF]=idx;nObs+=2/1;
     void EraseObservation(KeyFrame* pKF);//mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
 
-    int GetIndexInKeyFrame(KeyFrame* pKF);//mObservations[pKF](-1 unfound)
+    set<size_t> GetIndexInKeyFrame(KeyFrame* pKF);//mObservations[pKF](empty() unfound)
     bool IsInKeyFrame(KeyFrame* pKF);//mObservations.count(pKF)
 
     void SetBadFlag();//mbBad=true && delete this MP/matches in this->mObservations.first(KFs) && mObservations.clear() && delete this MP in mpMap
@@ -100,12 +100,12 @@ public:
     int nObs;
 
     // Variables used by the tracking
-    float mTrackProjX;
-    float mTrackProjY;
-    float mTrackProjXR;
+    vector<float> vtrack_proj[3]; //X/Y/XR
     bool mbTrackInView;
-    int mnTrackScaleLevel;
-    float mTrackViewCos;
+    vector<size_t> vtrack_cami;
+    vector<bool> vbtrack_inview;
+    vector<int> vtrack_scalelevel;
+    vector<float> vtrack_viewcos;
     long unsigned int mnTrackReferenceForFrame;
     long unsigned int mnLastFrameSeen;
 
@@ -128,8 +128,8 @@ protected:
      // Position in absolute coordinates
      cv::Mat mWorldPos;
 
-     // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,size_t> mObservations;
+     // Keyframes observing the point and associated index in keyframe, set instead of vector here for simple coding
+     std::map<KeyFrame*, set<size_t>> mObservations;
 
      // Mean viewing direction (not definitely normalized)
      cv::Mat mNormalVector;
