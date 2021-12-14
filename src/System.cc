@@ -41,6 +41,8 @@
 
 namespace VIEO_SLAM
 {
+bool System::usedistort_ = false;
+
 bool System::GetLoopDetected(){
   return mpLoopCloser->mbLoopDetected;
 }
@@ -863,11 +865,11 @@ void System::Shutdown()
 void System::SaveTrajectoryTUM(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
-    if(mSensor==MONOCULAR)
+    /*if(mSensor==MONOCULAR)
     {
         cerr << "ERROR: SaveTrajectoryTUM cannot be used for monocular." << endl;
         return;
-    }
+    }*/
 
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -919,6 +921,82 @@ void System::SaveTrajectoryTUM(const string &filename)
     }
     f.close();
     cout << endl << "trajectory saved!" << endl;
+}
+void System::SaveTrajectoryNavState(const string &filename,bool bUseTbc) {
+  cout << endl << "Saving frame NavState to " << filename << " ..." << endl;
+  vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
+  //     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);//set of KFs in Map is already sorted, so it's useless
+
+  // Transform all keyframes so that the first keyframe is at the origin.
+  // After a loop closure the first keyframe might not be at the origin.
+  cv::Mat Two = vpKFs[0]->GetPoseInverse();
+
+  ofstream f;
+  f.open(filename.c_str());
+  f << fixed;
+
+  // Frame pose is stored relative to its reference keyframe (which is optimized by BA and pose graph).
+  // We need to get first the keyframe pose and then concatenate the relative transformation.
+  // Frames not localized (tracking failure) are not saved.
+
+  // For each frame we have a reference keyframe (lRit), the timestamp (lT) and a flag
+  // which is true when tracking failed (lbL).
+  list<VIEO_SLAM::KeyFrame *>::iterator lRit = mpTracker->mlpReferences.begin();
+  list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
+  list<bool>::iterator lbL = mpTracker->mlbLost.begin();
+  list<Vector3d>::iterator lv = mpTracker->relative_frame_bvwbs_.begin();
+  for (list<cv::Mat>::iterator lit = mpTracker->mlRelativeFramePoses.begin(),
+                               lend = mpTracker->mlRelativeFramePoses.end();
+       lit != lend; lit++, lRit++, lT++, lbL++, ++lv) {
+    if (*lbL) continue;
+
+    KeyFrame *pKF = *lRit;
+    //        if (pKF->isBad()) continue;
+
+    cv::Mat Trw = cv::Mat::eye(4, 4, CV_32F);
+
+    // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
+    while (pKF->isBad()) {
+      Trw = Trw * pKF->mTcp;
+      pKF = pKF->GetParent();
+    }
+
+    Trw = Trw * pKF->GetPose() * Two;
+
+    cv::Mat Tcw = (*lit) * Trw;
+    Matrix3d Rwc = Converter::toMatrix3d(Tcw.rowRange(0, 3).colRange(0, 3).t());
+    Vector3d twc = -Rwc * Converter::toVector3d(Tcw.rowRange(0, 3).col(3));
+
+    // For VIO, we should compare the Pose of B/IMU Frame, VO need bUseTbc = true for easy comparison
+    NavState ns;
+    if (bUseTbc) {
+      cv::Mat Twb;
+      Twb = Converter::toCvMatInverse(Frame::mTbc * Tcw);
+      Eigen::Matrix3d Rwb = Converter::toMatrix3d(Twb.rowRange(0, 3).colRange(0, 3));
+      Eigen::Vector3d twb = Converter::toVector3d(Twb.rowRange(0, 3).col(3));
+
+      Eigen::Matrix3d Rw1 = Rwc;  // Rwbj_old/Rwb1
+      Eigen::Vector3d Vw1 = *lv;  // Vw1/wV1=wvbj-1bj_old now bj_old/b1 is changed to bj_new/b2, wV2=wvbj-1bj_new
+      Eigen::Vector3d Vw2 =
+          Rwb * Rw1.transpose() * Vw1;  // bV1 = bV2 ==> Rwb1^T*wV1 = Rwb2^T*wV2 ==> wV2 = Rwb2*Rwb1^T*wV1
+
+      ns.mpwb = twb;
+      ns.setRwb(Rwb);
+      ns.mvwb = Rwb * (*lv);
+    } else {
+      ns.setRwb(Rwc);
+      ns.mpwb = twc;
+    }
+
+    Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
+    Eigen::Vector3d t = ns.mpwb;                       // twb
+    Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
+    f << setprecision(6) << *lT << setprecision(9) << " " << t(0) << " " << t(1) << " " << t(2) << " "
+      << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " "
+      << bg(0) << " " << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+  }
+  f.close();
+  cout << endl << "NavState trajectory saved!" << endl;
 }
 
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)

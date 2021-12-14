@@ -172,7 +172,7 @@ public:
 
     // Current Frame
     Frame mCurrentFrame;
-    cv::Mat mImGray;//used by FrameDrawer
+    vector<cv::Mat> mImGrays;//used by FrameDrawer
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
@@ -184,6 +184,7 @@ public:
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
     list<cv::Mat> mlRelativeFramePoses;
+    list<Vector3d> relative_frame_bvwbs_;
     list<KeyFrame*> mlpReferences;
     list<double> mlFrameTimes;
     list<bool> mlbLost;//true for lost!

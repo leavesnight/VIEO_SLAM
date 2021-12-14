@@ -319,12 +319,11 @@ public:
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
   std::vector<std::vector<cv::KeyPoint>> vvkeys_;
-  std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
   std::vector<cv::Mat> vdescriptors_;
-    std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
+  std::vector<std::pair<size_t, size_t>> mapn2in_;
 
     //BoW
     DBoW2::BowVector mBowVec;

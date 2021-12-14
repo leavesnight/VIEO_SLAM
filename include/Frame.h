@@ -96,7 +96,7 @@ public:
     Frame(const Frame &frame);
 
     // Constructor for stereo cameras.
-    Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor*> extractors, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, const vector<GeometricCamera*> *pCamInsts = nullptr);
+    Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor*> extractors, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, const vector<GeometricCamera*> *pCamInsts = nullptr, bool usedistort = true);
 
     // Constructor for RGB-D cameras.
     Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
@@ -139,8 +139,7 @@ public:
     // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
     void ComputeStereoMatches();
 
-    void ComputeStereoFishEyeMatches(int i, int j, std::map<std::pair<size_t, size_t>, size_t> &mps_used_id,
-                                     std::vector<size_t> count_used, bool blast);
+    void ComputeStereoFishEyeMatches();
 
     // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
     void ComputeStereoFromRGBD(const cv::Mat &imDepth);
@@ -182,17 +181,23 @@ public:
     // Number of KeyPoints.
     int N;
     //Number of Non Lapping Keypoints
-    vector<int> num_mono = vector<int>(1);
+    vector<size_t> num_mono = vector<size_t>(1);
     //For stereo matching
     //1st dim means the order ij like 01,02,03,12,13,23 through GetIndexIlessJ, 0th dim 0 means i->j, 1 means j->i
-    std::vector<std::vector<std::vector<int>>> mccMatches;
+    //std::vector<std::vector<std::vector<int>>> mccMatches;
+  vector<vector<size_t>> mvidxsMatches;
+  vector<bool> goodmatches_; // keep same size with mvidxsMatches
+  map<pair<size_t, size_t>, size_t> mapcamidx2idxs_; // final size_t max < mvidxsMatches.size()
+  size_t GetMapn2idxs(size_t i);
+  vector<size_t> mapidxs2n_;
     //For stereo fisheye matching
     static cv::BFMatcher BFmatcher;
     //Triangulated stereo observations using as reference the left camera. These are
     //computed during ComputeStereoFishEyeMatches
     //order like 01,02,03,12,13,23 through GetIndexIlessJ
-    std::vector<std::vector<cv::Mat>> mvStereo3Dpoints;
-    size_t GetIndexIlessJ(int i, int j);
+    //std::vector<std::vector<cv::Mat>> mvStereo3Dpoints;
+    aligned_vector<Vector3d> mv3Dpoints; // keep same size with mvidxsMatches
+    //size_t GetIndexIlessJ(int i, int j);
 
   // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
   // In the stereo case, mvKeysUn is redundant as images must be rectified.
@@ -201,15 +206,16 @@ public:
   std::vector<cv::KeyPoint> mvKeysUn;
   std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
   std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
-  std::vector<std::vector<size_t>> mapin2n_;
+  std::vector<std::vector<size_t>> mapin2n_; // mapcamidx2n_ for addobs func.
+  //std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
+  std::vector<std::pair<size_t, size_t>> mapn2in_;
 
   // Corresponding stereo coordinate and depth for each keypoint.
   // "Monocular" keypoints have a negative value.
   std::vector<float> mvuRight;
   std::vector<float> mvDepth;
-  std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
   //0 means depth in i, 1 means in j, order like 01,02,03,12,13,23 through GetIndexIlessJ
-  std::vector<std::vector<std::vector<float>>> vv_depth_;
+  //std::vector<std::vector<std::vector<float>>> vv_depth_;
 
   // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
@@ -257,6 +263,7 @@ public:
 
     static bool mbInitialComputations;
 
+  static bool usedistort_;
 
 private:
 

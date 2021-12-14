@@ -40,30 +40,40 @@ class KannalaBrandt8 final : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_FISHEYE;
   }
-  KannalaBrandt8(const std::vector<float> _vParameters)
-      : GeometricCamera(_vParameters), precision(1e-6), mvLappingArea(2, 0) {  // ,tvr(nullptr) {
-    assert(mvParameters.size() == 8);
+  //  KannalaBrandt8(const std::vector<float> _vParameters)
+  //      : GeometricCamera(_vParameters), precision(1e-6) {  // ,tvr(nullptr) {
+  //    assert(mvParameters.size() == 8);
+  //    mnId = nNextId++;
+  //    mnType = CAM_FISHEYE;
+  //  }
+  KannalaBrandt8(const cv::Mat& DistCoef, cv::FileStorage& fSettings, int id, bool& bmiss_param)
+      : GeometricCamera(fSettings, id, bmiss_param), precision(1e-6) {
+    CV_Assert(DistCoef.total() == 4 && DistCoef.elemSize() == sizeof(float));
+    mvParameters.resize(8);
+    mvParameters[4] = DistCoef.at<float>(0);
+    mvParameters[5] = DistCoef.at<float>(1);
+    mvParameters[6] = DistCoef.at<float>(2);
+    mvParameters[7] = DistCoef.at<float>(3);
     mnId = nNextId++;
     mnType = CAM_FISHEYE;
   }
 
-  KannalaBrandt8(const std::vector<float> _vParameters, const float _precision)
-      : GeometricCamera(_vParameters), precision(_precision), mvLappingArea(2, 0) {
-    assert(mvParameters.size() == 8);
-    mnId = nNextId++;
-    mnType = CAM_FISHEYE;
-  }
-  KannalaBrandt8(KannalaBrandt8* pKannala)
-      : GeometricCamera(pKannala->mvParameters),
-        precision(pKannala->precision),
-        mvLappingArea(2, 0) {  // ,tvr(nullptr) {
-    assert(mvParameters.size() == 8);
-    mnId = nNextId++;
-    mnType = CAM_FISHEYE;
-  }
+  //  KannalaBrandt8(const std::vector<float> _vParameters, const float _precision)
+  //      : GeometricCamera(_vParameters), precision(_precision) {
+  //    assert(mvParameters.size() == 8);
+  //    mnId = nNextId++;
+  //    mnType = CAM_FISHEYE;
+  //  }
+  //  KannalaBrandt8(KannalaBrandt8* pKannala)
+  //      : GeometricCamera(pKannala->mvParameters),
+  //        precision(pKannala->precision) {  // ,tvr(nullptr) {
+  //    assert(mvParameters.size() == 8);
+  //    mnId = nNextId++;
+  //    mnType = CAM_FISHEYE;
+  //  }
 
-  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat *pK,
-                                cv::Mat *pDistCoef);
+  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
+                                cv::Mat* pDistCoef);
 
   cv::Point2f project(const cv::Point3f& p3D);
   cv::Point2f project(const cv::Matx31f& m3D);
@@ -87,21 +97,16 @@ class KannalaBrandt8 final : public GeometricCamera {
   //                                     cv::Mat &R21, cv::Mat &t21, std::vector<cv::Point3f> &vP3D, std::vector<bool>
   //                                     &vbTriangulated);
 
-  cv::Mat toK();
-  cv::Matx33f toK_();
-
   bool epipolarConstrain(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                          const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
   bool epipolarConstrain_(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                           const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel, const float unc);
 
-  float TriangulateMatches(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                           const float sigmaLevel, const float unc, cv::Mat& p3D, float *pz2 = nullptr);
   float TriangulateMatches_(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                             const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel, const float unc,
                             cv::Matx31f& p3D);
 
-  std::vector<int> mvLappingArea;
+  std::vector<int> mvLappingArea = {0, INT_MAX};
 
   bool matchAndtriangulate(const cv::KeyPoint& kp1, const cv::KeyPoint& kp2, GeometricCamera* pOther, cv::Mat& Tcw1,
                            cv::Mat& Tcw2, const float sigmaLevel1, const float sigmaLevel2, cv::Mat& x3Dtriangulated);
@@ -117,8 +122,6 @@ class KannalaBrandt8 final : public GeometricCamera {
 
   //        TwoViewReconstruction* tvr;
 
-  void Triangulate(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Mat& Tcw1, const cv::Mat& Tcw2,
-                   cv::Mat& x3D);
   void Triangulate_(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Matx44f& Tcw1, const cv::Matx44f& Tcw2,
                     cv::Matx31f& x3D);
 };

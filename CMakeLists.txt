@@ -7,7 +7,7 @@ ENDIF ()
 
 set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
-set(USE_OPENCV_NEWEST 1)
+set(USE_OPENCV_NEWEST 0)
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -144,6 +144,7 @@ add_library(${PROJECT_NAME} SHARED
 
         src/Odom/g2otypes.cpp
 
+        src/CameraModels/GeometricCamera.cpp
         src/CameraModels/Pinhole.cpp
         src/CameraModels/KannalaBrandt8.cpp)
 

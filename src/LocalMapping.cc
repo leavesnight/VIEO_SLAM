@@ -80,7 +80,6 @@ void LocalMapping::Run()
 
             if (!CheckNewKeyFrames())//if the newKFs list is idle
             {
-              cout << "SIN" << endl;
                 // Find more matches in neighbor keyframes and fuse point duplications
                 SearchInNeighbors();
             }
@@ -112,7 +111,6 @@ void LocalMapping::Run()
                          << whiteSTR << endl;
                 }
 
-              cout << "KC" << endl;
                 // Check redundant local Keyframes
                 KeyFrameCulling();
             }
@@ -303,6 +301,7 @@ void LocalMapping::CreateNewMapPoints()
     if(mbMonocular)
         nn=20;
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+    cout << "check neigh kf num="<<vpNeighKFs.size() <<endl;
 
     ORBmatcher matcher(0.6,false);
 
@@ -358,6 +357,7 @@ void LocalMapping::CreateNewMapPoints()
         // Search matches that fullfil epipolar constraint(with 2 sigma rule)
         vector<pair<size_t,size_t> > vMatchedIndices;
         matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,F12,vMatchedIndices,false);//matching method is like SBBoW
+        cout << "triangulate match num="<<vMatchedIndices.size()<<endl;
 
         cv::Mat Rcw2 = pKF2->GetRotation();
         cv::Mat Rwc2 = Rcw2.t();
@@ -380,26 +380,34 @@ void LocalMapping::CreateNewMapPoints()
             const int &idx1 = vMatchedIndices[ikp].first;
             const int &idx2 = vMatchedIndices[ikp].second;
 
-            const cv::KeyPoint &kp1 = mpCurrentKeyFrame->mvKeysUn[idx1];
+            bool usedistort = mpCurrentKeyFrame->mpCameras.size() && Frame::usedistort_;
+            GeometricCamera *pcam1 = nullptr, *pcam2;
+            if (mpCurrentKeyFrame->mpCameras.size()) {
+              CV_Assert(mpCurrentKeyFrame->mapn2in_.size() > idx1 && pKF2->mpCameras.size() &&
+                        pKF2->mapn2in_.size() > idx2);
+              pcam1 = mpCurrentKeyFrame->mpCameras[get<0>(mpCurrentKeyFrame->mapn2in_[idx1])];
+              pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
+            }
+            const cv::KeyPoint &kp1 = (!usedistort) ? mpCurrentKeyFrame->mvKeysUn[idx1] : mpCurrentKeyFrame->mvKeys[idx1];
             const float kp1_ur=mpCurrentKeyFrame->mvuRight[idx1];
             bool bStereo1 = kp1_ur>=0;
 
-            const cv::KeyPoint &kp2 = pKF2->mvKeysUn[idx2];
+            const cv::KeyPoint &kp2 = (!usedistort) ? pKF2->mvKeysUn[idx2] : pKF2->mvKeys[idx2];
             const float kp2_ur = pKF2->mvuRight[idx2];
             bool bStereo2 = kp2_ur>=0;
 
             // Check parallax between rays
             cv::Mat xn1, xn2;
-            GeometricCamera *pcam1 = nullptr, *pcam2;
-            if (!pKF2->mpCameras.size()) {
-              xn1 = (cv::Mat_<float>(3,1) << (kp1.pt.x-cx1)*invfx1, (kp1.pt.y-cy1)*invfy1, 1.0);//(x'1/z'2,y'2/z'2,1)
-              xn2 = (cv::Mat_<float>(3,1) << (kp2.pt.x-cx2)*invfx2, (kp2.pt.y-cy2)*invfy2, 1.0);//(x'2/z'2,y'2/z'2,1)
+            if (!usedistort) {
+              //(x'1/z'2,y'2/z'2,1)
+              xn1 = (cv::Mat_<float>(3, 1) << (kp1.pt.x - cx1) * invfx1, (kp1.pt.y - cy1) * invfy1, 1.0);
+              //(x'2/z'2,y'2/z'2,1)
+              xn2 = (cv::Mat_<float>(3, 1) << (kp2.pt.x - cx2) * invfx2, (kp2.pt.y - cy2) * invfy2, 1.0);
             } else {
-              CV_Assert(mpCurrentKeyFrame->mpCameras.size());
-              pcam1 = mpCurrentKeyFrame->mpCameras[get<0>(mpCurrentKeyFrame->mapn2ijn_[idx1])];
-              pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2ijn_[idx2])];
               xn1 = pcam1->unprojectMat(kp1.pt);
               xn2 = pcam2->unprojectMat(kp2.pt);
+            }
+            if (mpCurrentKeyFrame->mpCameras.size()) {
               xn1 = pcam1->Trc_.rowRange(0, 3).colRange(0, 3) * xn1 + pcam1->Trc_.col(3);
               xn2 = pcam2->Trc_.rowRange(0, 3).colRange(0, 3) * xn2 + pcam2->Trc_.col(3);
             }
@@ -475,9 +483,9 @@ void LocalMapping::CreateNewMapPoints()
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);//yc1
             const float invz1 = 1.0/z1;
 
-            if(!bStereo1) {
+            {
               float u1, v1;
-              if (!pcam1) {
+              if (!usedistort) {
                 u1 = fx1 * x1 * invz1 + cx1;
                 v1 = fy1 * y1 * invz1 + cy1;
               } else {
@@ -485,55 +493,49 @@ void LocalMapping::CreateNewMapPoints()
                 u1 = pt.x;
                 v1 = pt.y;
               }
-              float errX1 = u1 - kp1.pt.x;
-              float errY1 = v1 - kp1.pt.y;
-              //(e^2-0^2)/sigma^2 (if sigma&&0 is population supposed variance&&expected value not sample parameters then degree of freedom is n not n-1)
-              if ((errX1 * errX1 + errY1 * errY1) >
-                  5.991 * sigmaSquare1)  // if e'*[1/sigma^2 0;0 1/sigma^2](/Omiga)*e>chi2(0.05 significance level,2 degrees of freedom), it's wrong(95% judgement is right)
-                continue;
-            }
-            else
-            {//TODO: think if this necessary
-                float u1 = fx1*x1*invz1+cx1;
-                float u1_r = u1 - mpCurrentKeyFrame->mbf*invz1;
-                float v1 = fy1*y1*invz1+cy1;
+              if (!bStereo1) {
+                float errX1 = u1 - kp1.pt.x;
+                float errY1 = v1 - kp1.pt.y;
+                //(e^2-0^2)/sigma^2 (if sigma&&0 is population supposed variance&&expected value not sample parameters then degree of freedom is n not n-1)
+                if ((errX1 * errX1 + errY1 * errY1) >
+                    5.991 * sigmaSquare1)  // if e'*[1/sigma^2 0;0 1/sigma^2](/Omiga)*e>chi2(0.05 significance level,2 degrees of freedom), it's wrong(95% judgement is right)
+                  continue;
+              } else {  // TODO: think if this necessary
+                float u1_r = u1 - mpCurrentKeyFrame->mbf * invz1;
                 float errX1 = u1 - kp1.pt.x;
                 float errY1 = v1 - kp1.pt.y;
                 float errX1_r = u1_r - kp1_ur;
-                if((errX1*errX1+errY1*errY1+errX1_r*errX1_r)>7.8*sigmaSquare1)//chi2(0.05,3)
-                    continue;
-            }
+                if ((errX1 * errX1 + errY1 * errY1 + errX1_r * errX1_r) > 7.8 * sigmaSquare1)  // chi2(0.05,3)
+                  continue;
+              }
 
-            //Check reprojection error in second keyframe
-            const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
-            const float x2 = Rcw2.row(0).dot(x3Dt)+tcw2.at<float>(0);
-            const float y2 = Rcw2.row(1).dot(x3Dt)+tcw2.at<float>(1);
-            const float invz2 = 1.0/z2;
-            if(!bStereo2) {
+              // Check reprojection error in second keyframe
+              const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
+              const float x2 = Rcw2.row(0).dot(x3Dt) + tcw2.at<float>(0);
+              const float y2 = Rcw2.row(1).dot(x3Dt) + tcw2.at<float>(1);
+              const float invz2 = 1.0 / z2;
               float u2, v2;
-              if (!pcam1) {
+              if (!usedistort) {
                 u2 = fx2 * x2 * invz2 + cx2;
                 v2 = fy2 * y2 * invz2 + cy2;
               } else {
-                auto pt = pcam1->project(cv::Point3f(x2, y2, z2));
+                auto pt = pcam2->project(cv::Point3f(x2, y2, z2));
                 u2 = pt.x;
                 v2 = pt.y;
               }
-              float errX2 = u2 - kp2.pt.x;
-              float errY2 = v2 - kp2.pt.y;
-              if ((errX2 * errX2 + errY2 * errY2) > 5.991 * sigmaSquare2)  // chi2(0.05,2)
-                continue;
-            }
-            else
-            {
-                float u2 = fx2*x2*invz2+cx2;
-                float u2_r = u2 - mpCurrentKeyFrame->mbf*invz2;
-                float v2 = fy2*y2*invz2+cy2;
+              if (!bStereo2) {
+                float errX2 = u2 - kp2.pt.x;
+                float errY2 = v2 - kp2.pt.y;
+                if ((errX2 * errX2 + errY2 * errY2) > 5.991 * sigmaSquare2)  // chi2(0.05,2)
+                  continue;
+              } else {
+                float u2_r = u2 - pKF2->mbf * invz2;
                 float errX2 = u2 - kp2.pt.x;
                 float errY2 = v2 - kp2.pt.y;
                 float errX2_r = u2_r - kp2_ur;
-                if((errX2*errX2+errY2*errY2+errX2_r*errX2_r)>7.8*sigmaSquare2)//chi2(0.05,3)
-                    continue;
+                if ((errX2 * errX2 + errY2 * errY2 + errX2_r * errX2_r) > 7.8 * sigmaSquare2)  // chi2(0.05,3)
+                  continue;
+              }
             }
 
             //Check scale consistency, is this dist not depth very good?
@@ -593,7 +595,7 @@ void LocalMapping::SearchInNeighbors()
         pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
 
         // Extend to some second neighbors
-        const vector<KeyFrame*> vpSecondNeighKFs = pKFi->GetBestCovisibilityKeyFrames(5);
+        const vector<KeyFrame*> vpSecondNeighKFs = pKFi->GetBestCovisibilityKeyFrames(5);//ORB3 uses 20
         for(vector<KeyFrame*>::const_iterator vit2=vpSecondNeighKFs.begin(), vend2=vpSecondNeighKFs.end(); vit2!=vend2; vit2++)
         {
             KeyFrame* pKFi2 = *vit2;
@@ -604,7 +606,6 @@ void LocalMapping::SearchInNeighbors()
         }
     }
 
-  cout << "over1"<<endl;
     //bijection search matches
     // Search matches by projection from current KF in target KFs
     ORBmatcher matcher;//0.6,true
@@ -612,10 +613,7 @@ void LocalMapping::SearchInNeighbors()
     size_t num_fused = 0;
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
     {
-      cout << "check sz="<<vpTargetKFs.size()<<endl;
         KeyFrame* pKFi = *vit;
-        cout << "targetKFId=" << pKFi->mnId << ",cur="<<mpCurrentKeyFrame->mnId<<endl;
-
         num_fused = matcher.Fuse(pKFi,vpMapPointMatches);
     }
   cout << "over2 fused num = "<< num_fused << endl;
@@ -663,7 +661,6 @@ void LocalMapping::SearchInNeighbors()
 
     // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs incurrent KF
     mpCurrentKeyFrame->UpdateConnections();
-    cout << "over"<<endl;
 }
 
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
@@ -764,148 +761,162 @@ void LocalMapping::InterruptBA()
     mbAbortBA = true;
 }
 
-void LocalMapping::KeyFrameCulling()
-{
-    if(mpIMUInitiator->GetCopyInitKFs()) return;//during the copying KFs' stage in IMU Initialization, don't cull any KF!
-    mpIMUInitiator->SetCopyInitKFs(true);
-    
-    // Check redundant keyframes (only local keyframes)
-    // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
-    // in at least other 3 keyframes (in the same or finer scale)
-    // We only consider close stereo points
-    vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();//get all 1st layer covisibility KFs as localKFs, notice no mpCurrentKeyFrame
+void LocalMapping::KeyFrameCulling() {
+  // during the copying KFs' stage in IMU Initialization, don't cull any KF!
+  if (mpIMUInitiator->GetCopyInitKFs()) return;
+  mpIMUInitiator->SetCopyInitKFs(true);
 
-    //get last Nth KF or the front KF of the local window
-    KeyFrame* pLastNthKF=mpCurrentKeyFrame;
-    double tmNthKF=-1;//pLastNthKF==NULL then -1
-    vector<bool> vbEntered;
-    int nRestrict=1;//for not VIO mode
-    bool bSensorIMU=mpIMUInitiator->GetSensorIMU();
-    if (mnLocalWindowSize<1&&mpIMUInitiator->GetVINSInited()) bSensorIMU=false;//for pure-vision+IMU Initialization mode!
-    if (bSensorIMU){
-      int Nlocal=mnLocalWindowSize;
-      while (--Nlocal>0&&pLastNthKF!=NULL){//maybe less than N KFs in pMap
-	pLastNthKF=pLastNthKF->GetPrevKeyFrame();
-      }
-      if (pLastNthKF!=NULL) tmNthKF=pLastNthKF->mTimeStamp;//N starts from 1 & notice mTimeStamp>=0
-      
-      vbEntered.resize(vpLocalKeyFrames.size(),false);
-      if (mpIMUInitiator->GetVINSInited()){
-	nRestrict=2;//notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW, for MH04 has problem with 0.5/3s strategy!
-      }
+  // Check redundant keyframes (only local keyframes)
+  // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
+  // in at least other 3 keyframes (in the same or finer scale)
+  // We only consider close stereo points
+  vector<KeyFrame *> vpLocalKeyFrames =
+      mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();  // get all 1st layer covisibility KFs as localKFs, notice no mpCurrentKeyFrame
+
+  // get last Nth KF or the front KF of the local window
+  KeyFrame *pLastNthKF = mpCurrentKeyFrame;
+  double tmNthKF = -1;  // pLastNthKF==NULL then -1
+  vector<bool> vbEntered;
+  int nRestrict = 1;  // for not VIO mode
+  bool bSensorIMU = mpIMUInitiator->GetSensorIMU(); // false;
+  if (mnLocalWindowSize < 1 && mpIMUInitiator->GetVINSInited())
+    bSensorIMU = false;  // for pure-vision+IMU Initialization mode!
+  if (bSensorIMU) {
+    int Nlocal = mnLocalWindowSize;
+    while (--Nlocal > 0 && pLastNthKF != NULL) {  // maybe less than N KFs in pMap
+      pLastNthKF = pLastNthKF->GetPrevKeyFrame();
     }
-    
-    for (int k=0;k<nRestrict;++k){//k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
-    int vi=0;
-    cout<<"LocalKFs:"<<vpLocalKeyFrames.size()<<endl;
-    for(vector<KeyFrame*>::iterator vit=vpLocalKeyFrames.begin(), vend=vpLocalKeyFrames.end(); vit!=vend; ++vit,++vi)
-    {
-        KeyFrame* pKF = *vit;
-        if(pKF->mnId==0) continue;//cannot erase the initial KF
-        
-        //timespan restriction is implemented as the VIORBSLAM paper III-B
-        double tmNext=-1;
-	if (k==0){
-	  if (bSensorIMU){//restriction is only for VIO
-	    assert(pKF!=NULL);
-// 	    assert(pKF->GetPrevKeyFrame()!=NULL);//solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in other's connectedKFs
-	    if (pKF->GetPrevKeyFrame()==NULL){cout<<pKF->mnId<<" "<<(int)pKF->isBad()<<endl;vbEntered[vi]=true;continue;}
-	    tmNext=pKF->GetNextKeyFrame()->mTimeStamp;
-	    if (tmNext-pKF->GetPrevKeyFrame()->mTimeStamp>0.5) continue;
-	    else vbEntered[vi]=true;
-	    
-// 	    if (pKF==pLastNthKF||pLastNthKF!=NULL&&pKF==pLastNthKF->GetNextKeyFrame()||pKF->GetNextKeyFrame()==mpCurrentKeyFrame) {vbEntered[vi]=true;continue;}
-	  }
-	}else{//loose restriction when k==1
-	  if (vbEntered[vi]) continue;
-	  assert(pKF!=NULL&&pKF->GetPrevKeyFrame()!=NULL);
-	  tmNext=pKF->GetNextKeyFrame()->mTimeStamp;
-	  if (tmNext>tmNthKF||//this KF is in next time's local window or N+1th
-	    tmNext-pKF->GetPrevKeyFrame()->mTimeStamp>3) continue;//normal restriction to perform full BA
-	}
-	
-        //cannot erase last ODOMOK & first ODOMOK's parent!
-        KeyFrame *pNextKF=pKF->GetNextKeyFrame();
-	if (pNextKF==NULL){ cout<<"NoticeNextKF==NULL: "<<pKF->mnId<<" "<<(int)pKF->isBad()<<endl;continue;}//solved old bug
-// 	if (pNextKF!=NULL){//for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the loaded map
-	if (pNextKF->getState()==Tracking::ODOMOK){
-	  if (pKF->getState()==Tracking::ODOMOK){//2 consecutive ODOMOK KFs then delete the former one for a better quality map
-	    if (tmNext>tmNthKF&&pLastNthKF!=NULL){//this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
-	      pLastNthKF=pLastNthKF->GetPrevKeyFrame();
-	      tmNthKF=pLastNthKF==NULL?-1:pLastNthKF->mTimeStamp;
-	    }//must done before pKF->SetBadFlag()!
-	    cout<<greenSTR<<"OdomKF->SetBadFlag()!"<<whiteSTR<<endl;
-	    pKF->SetBadFlag();
-	  }//else next is OK then continue
-	  continue;
-	}else{//next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph Optimization?)
-	  if (pKF->getState()==Tracking::ODOMOK) continue;
-	}
-// 	}
-	
-        const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
-        int nObs = 3;
-        const int thObs=nObs;//can directly use const 3
-        int nRedundantObservations=0;//the number of redundant(seen also by at least 3 other KFs) close stereo MPs seen by pKF
-        int nMPs=0;//the number of close stereo MPs seen by pKF
-        for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++) {
-          MapPoint *pMP = vpMapPoints[i];
-          if (pMP && !pMP->isBad()) {
-            // if RGBD/Stereo
-            if (!mbMonocular) {
-              // only consider close stereo points(exclude far or monocular points)
-              if (pKF->mvDepth[i] > pKF->mThDepth || pKF->mvDepth[i] < 0) continue;
-            }
+    if (pLastNthKF != NULL) tmNthKF = pLastNthKF->mTimeStamp;  // N starts from 1 & notice mTimeStamp>=0
 
-            nMPs++;
-            // at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at least other 3 KFs have seen 90% MPs
-            if (pMP->Observations() > thObs) {
-              const int &scaleLevel = pKF->mvKeysUn[i].octave;
-              const map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
-              int nObs = 0;
-              for (map<KeyFrame *, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end();
-                   mit != mend; mit++) {
-                KeyFrame *pKFi = mit->first;
-                //"other"
-                if (pKFi == pKF) continue;
-                auto idxs = mit->second;
-                int scaleLeveli = INT_MAX;
-                for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-                  auto idx = *iter;
-                  if (scaleLeveli > pKFi->mvKeysUn[idx].octave) {
-                    scaleLeveli = pKFi->mvKeysUn[idx].octave;
-                  }
-                }
+    vbEntered.resize(vpLocalKeyFrames.size(), false);
+    if (mpIMUInitiator->GetVINSInited()) {
+      nRestrict = 2;  // notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW, for MH04 has problem with 0.5/3s strategy!
+    }
+  }
 
-                if (scaleLeveli <= scaleLevel + 1)  //"in the same(+1 for error) or finer scale"
-                {
-                  nObs++;
-                  if (nObs >= thObs) break;
+  // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
+  for (int k = 0; k < nRestrict; ++k) {
+    int vi = 0;
+    cout << "LocalKFs:" << vpLocalKeyFrames.size() << endl;
+    for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
+         ++vit, ++vi) {
+      KeyFrame *pKF = *vit;
+      if (pKF->mnId == 0) continue;  // cannot erase the initial KF
+
+      // timespan restriction is implemented as the VIORBSLAM paper III-B
+      double tmNext = -1;
+      if (k == 0) {
+        if (bSensorIMU) {  // restriction is only for VIO
+          assert(pKF != NULL);
+          // 	    assert(pKF->GetPrevKeyFrame()!=NULL);//solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in other's connectedKFs
+          if (pKF->GetPrevKeyFrame() == NULL) {
+            cout << pKF->mnId << " " << (int)pKF->isBad() << endl;
+            vbEntered[vi] = true;
+            continue;
+          }
+          tmNext = pKF->GetNextKeyFrame()->mTimeStamp;
+          if (tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 0.5)
+            continue;
+          else
+            vbEntered[vi] = true;
+
+          // 	    if (pKF==pLastNthKF||pLastNthKF!=NULL&&pKF==pLastNthKF->GetNextKeyFrame()||pKF->GetNextKeyFrame()==mpCurrentKeyFrame) {vbEntered[vi]=true;continue;}
+        }
+      } else {  // loose restriction when k==1
+        if (vbEntered[vi]) continue;
+        assert(pKF != NULL && pKF->GetPrevKeyFrame() != NULL);
+        tmNext = pKF->GetNextKeyFrame()->mTimeStamp;
+        if (tmNext > tmNthKF ||  // this KF is in next time's local window or N+1th
+            tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 3)
+          continue;  // normal restriction to perform full BA
+      }
+
+      // cannot erase last ODOMOK & first ODOMOK's parent!
+      KeyFrame *pNextKF = pKF->GetNextKeyFrame();
+      if (pNextKF == NULL) {
+        cout << "NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl;
+        continue;
+      }  // solved old bug
+      // 	if (pNextKF!=NULL){//for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the loaded map
+      if (pNextKF->getState() == Tracking::ODOMOK) {
+        if (pKF->getState() ==
+            Tracking::ODOMOK) {  // 2 consecutive ODOMOK KFs then delete the former one for a better quality map
+          if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
+            pLastNthKF = pLastNthKF->GetPrevKeyFrame();
+            tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
+          }  // must done before pKF->SetBadFlag()!
+          cout << greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl;
+          pKF->SetBadFlag();
+        }  // else next is OK then continue
+        continue;
+      } else {  // next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph Optimization?)
+        if (pKF->getState() == Tracking::ODOMOK) continue;
+      }
+      // 	}
+
+      const vector<MapPoint *> vpMapPoints = pKF->GetMapPointMatches();
+      int nObs = 3;
+      const int thObs = nObs;  // can directly use const 3
+      int nRedundantObservations =
+          0;         // the number of redundant(seen also by at least 3 other KFs) close stereo MPs seen by pKF
+      int nMPs = 0;  // the number of close stereo MPs seen by pKF
+      for (size_t i = 0, iend = vpMapPoints.size(); i < iend; i++) {
+        MapPoint *pMP = vpMapPoints[i];
+        if (pMP && !pMP->isBad()) {
+          // if RGBD/Stereo
+          if (!mbMonocular) {
+            // only consider close stereo points(exclude far or monocular points)
+            if (pKF->mvDepth[i] > pKF->mThDepth || pKF->mvDepth[i] < 0) continue;
+          }
+
+          nMPs++;
+          // at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at least other 3 KFs have seen 90% MPs
+          if (pMP->Observations() > thObs) {
+            const int &scaleLevel = pKF->mvKeys[i].octave;  // Un
+            const map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
+            int nObs = 0;
+            for (map<KeyFrame *, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end();
+                 mit != mend; mit++) {
+              KeyFrame *pKFi = mit->first;
+              //"other"
+              if (pKFi == pKF) continue;
+              auto idxs = mit->second;
+              int scaleLeveli = INT_MAX;
+              for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+                auto idx = *iter;
+                // Un
+                if (scaleLeveli > pKFi->mvKeys[idx].octave) {
+                  scaleLeveli = pKFi->mvKeys[idx].octave;
                 }
               }
-              if (nObs >= thObs)  // if the number of same/better observation KFs >= 3(here)
+
+              if (scaleLeveli <= scaleLevel + 1)  //"in the same(+1 for error) or finer scale"
               {
-                nRedundantObservations++;
+                nObs++;
+                if (nObs >= thObs) break;
               }
+            }
+            if (nObs >= thObs)  // if the number of same/better observation KFs >= 3(here)
+            {
+              nRedundantObservations++;
             }
           }
         }
+      }
 
-        if(nRedundantObservations>0.9*nMPs){
-	    if (tmNext>tmNthKF&&pLastNthKF!=NULL){//this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
-	      pLastNthKF=pLastNthKF->GetPrevKeyFrame();
-	      tmNthKF=pLastNthKF==NULL?-1:pLastNthKF->mTimeStamp;
-	    }//must done before pKF->SetBadFlag()!
-	    
-// 	    KeyFrame* pNextKF=pKF->GetNextKeyFrame();
-// 	    cout<<redSTR"pKF list size before: "<<pKF->GetListIMUData().size()<<" "<<pNextKF->GetListIMUData().size()<<endl;
-            pKF->SetBadFlag();
-// 	    cout<<"pKFnext list size after: "<<pNexKF->GetListIMUData().size()<<whiteSTR<<" pKF->mnId:"<<pKF->mnId<<endl;
-	}
+      if (nRedundantObservations > 0.9 * nMPs) {
+        if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
+          pLastNthKF = pLastNthKF->GetPrevKeyFrame();
+          tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
+        }  // must done before pKF->SetBadFlag()!
+
+        cout << pKF->mnId << "badflag" << endl;
+        pKF->SetBadFlag();
+      }
     }
-    }
-    
-    mpIMUInitiator->SetCopyInitKFs(false);
+  }
+
+  mpIMUInitiator->SetCopyInitKFs(false);
 }
 
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v)

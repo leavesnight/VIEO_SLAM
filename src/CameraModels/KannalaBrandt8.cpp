@@ -18,7 +18,6 @@
  */
 
 #include "KannalaBrandt8.h"
-#include "Converter.h"
 
 #include <boost/serialization/export.hpp>
 #include <iostream>
@@ -33,21 +32,10 @@ namespace VIEO_SLAM {
 bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,
                                        cv::Mat *pDistCoef) {
   string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
-  cv::FileNode node = fSettings[cam_name + ".fx"];
-  if (node.empty()) return false;
+  cv::FileNode node_tmp = fSettings[cam_name + ".k1"];
+  if (node_tmp.empty()) return false;
+
   bool b_miss_params = false;
-
-  float fx = fSettings[cam_name + ".fx"];
-  float fy = fSettings[cam_name + ".fy"];
-  float cx = fSettings[cam_name + ".cx"];
-  float cy = fSettings[cam_name + ".cy"];
-
-  cv::Mat K = cv::Mat::eye(3, 3, CV_32F);
-  K.at<float>(0, 0) = fx;
-  K.at<float>(1, 1) = fy;
-  K.at<float>(0, 2) = cx;
-  K.at<float>(1, 2) = cy;
-  if (pK) K.copyTo(*pK);
 
   cv::Mat DistCoef(4, 1, CV_32F);
   DistCoef.at<float>(0) = fSettings[cam_name + ".k1"];
@@ -56,16 +44,11 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   DistCoef.at<float>(3) = fSettings[cam_name + ".k4"];
   if (pDistCoef) DistCoef.copyTo(*pDistCoef);
 
-  vector<float> vCamCalib{
-      fx, fy, cx, cy, DistCoef.at<float>(0), DistCoef.at<float>(1), DistCoef.at<float>(2), DistCoef.at<float>(3)};
-
-  pCamInst = new KannalaBrandt8(vCamCalib);
+  pCamInst = new KannalaBrandt8(DistCoef, fSettings, id, b_miss_params);
+  if (b_miss_params) return false;
+  if (pK) pCamInst->toK().copyTo(*pK);
 
   cout << endl << cam_name << " (KB8) Parameters: " << endl;
-  cout << "- fx: " << fx << endl;
-  cout << "- fy: " << fy << endl;
-  cout << "- cx: " << cx << endl;
-  cout << "- cy: " << cy << endl;
   cout << "- k1: " << DistCoef.at<float>(0) << endl;
   cout << "- k2: " << DistCoef.at<float>(1) << endl;
   cout << "- k3: " << DistCoef.at<float>(2) << endl;
@@ -74,7 +57,7 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   int LappingBegin = -1;
   int LappingEnd = -1;
 
-  node = fSettings[cam_name + ".lappingBegin"];
+  cv::FileNode node = fSettings[cam_name + ".lappingBegin"];
   if (!node.empty() && node.isInt())
     LappingBegin = node.operator int();
   else
@@ -85,23 +68,6 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   else
     std::cout << "WARNING: Camera.lappingEnd not correctly defined" << std::endl;
 
-  node = fSettings[cam_name + ".Trc"];
-  cv::Mat &Trc = static_cast<KannalaBrandt8 *>(pCamInst)->Trc_;
-  Eigen::Matrix3d &Rcr =  static_cast<KannalaBrandt8 *>(pCamInst)->Rcr_;
-  Eigen::Vector3d &tcr =  static_cast<KannalaBrandt8 *>(pCamInst)->tcr_;
-  if (!node.empty()) {
-    Trc = node.mat();
-    if (Trc.rows != 3 || Trc.cols != 4) {
-      std::cerr << "*Trc matrix have to be a 3x4 transformation matrix*" << std::endl;
-      b_miss_params = true;
-    }
-    Rcr = Converter::toMatrix3d(Trc.rowRange(0, 3).colRange(0, 3)).transpose();
-    tcr = -Rcr * Converter::toVector3d(Trc.col(3));
-  } else {
-    std::cout << "Warning:*Trc matrix doesn't exist*" << std::endl;
-    Trc = cv::Mat::eye(3, 4, CV_32F);
-  }
-
   if (!b_miss_params) {
     static_cast<KannalaBrandt8 *>(pCamInst)->mvLappingArea[0] = LappingBegin;
     static_cast<KannalaBrandt8 *>(pCamInst)->mvLappingArea[1] = LappingEnd;
@@ -109,7 +75,6 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
     // mpFrameDrawer->both = true;
 
     std::cout << "- " << cam_name << " Lapping: " << LappingBegin << ", " << LappingEnd << std::endl;
-    std::cout << "- Trc: \n" << Trc << std::endl;
   }
 
   // TODO: check the input
@@ -302,18 +267,6 @@ cv::Mat KannalaBrandt8::unprojectJac(const cv::Point2f &p2D) { return cv::Mat();
 //        return tvr->Reconstruct(vKeysUn1,vKeysUn2,vMatches12,R21,t21,vP3D,vbTriangulated);
 //    }
 
-cv::Mat KannalaBrandt8::toK() {
-  cv::Mat K = (cv::Mat_<float>(3, 3) << mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3],
-               0.f, 0.f, 1.f);
-  return K;
-}
-
-cv::Matx33f KannalaBrandt8::toK_() {
-  cv::Matx33f K{mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3], 0.f, 0.f, 1.f};
-
-  return K;
-}
-
 bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                        const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel,
                                        const float unc) {
@@ -420,81 +373,6 @@ bool KannalaBrandt8::matchAndtriangulate(const cv::KeyPoint &kp1, const cv::KeyP
   return true;
 }
 
-float KannalaBrandt8::TriangulateMatches(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                         const float sigmaLevel, const float unc, cv::Mat &p3D, float *pz2) {
-  cv::Mat r1 = this->unprojectMat(kp1.pt);
-  cv::Mat r2 = pCamera2->unprojectMat(kp2.pt);
-
-  cv::Mat Rr1T = Trc_.rowRange(0, 3).colRange(0, 3).t();
-  cv::Mat R12 =
-       Rr1T * ((KannalaBrandt8 *)pCamera2)->Trc_.rowRange(0, 3).colRange(0, 3);
-  cv::Mat t12 = Rr1T * ((KannalaBrandt8 *)pCamera2)->Trc_.col(3) - Rr1T * Trc_.col(3);
-  // Check parallax
-  cv::Mat r21 = R12 * r2;
-
-  const float cosParallaxRays = r1.dot(r21) / (cv::norm(r1) * cv::norm(r21));
-
-  if (cosParallaxRays > 0.9998) {
-    return -1;
-  }
-
-  // Parallax is good, so we try to triangulate
-  cv::Point2f p11, p22;
-  const float *pr1 = r1.ptr<float>();
-  const float *pr2 = r2.ptr<float>();
-
-  p11.x = pr1[0];
-  p11.y = pr1[1];
-
-  p22.x = pr2[0];
-  p22.y = pr2[1];
-
-  cv::Mat x3D;
-  cv::Mat Tcw1 = (cv::Mat_<float>(3, 4) << 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f);
-  cv::Mat Tcw2;
-  cv::Mat R21 = R12.t();
-  cv::Mat t21 = -R21 * t12;
-  cv::hconcat(R21, t21, Tcw2);
-
-  Triangulate(p11, p22, Tcw1, Tcw2, x3D);
-  cv::Mat x3Dt = x3D.t();
-
-  float z1 = x3D.at<float>(2);
-  if (z1 <= 0) {
-    return -1;
-  }
-
-  float z2 = R21.row(2).dot(x3Dt) + t21.at<float>(2);
-  if (z2 <= 0) {
-    return -1;
-  }
-
-  // Check reprojection error
-  cv::Point2f uv1 = this->project(x3D);
-
-  float errX1 = uv1.x - kp1.pt.x;
-  float errY1 = uv1.y - kp1.pt.y;
-
-  if ((errX1 * errX1 + errY1 * errY1) > 5.991 * sigmaLevel) {  // Reprojection error is high
-    return -1;
-  }
-
-  cv::Mat x3D2 = R21 * x3D + t21;
-  cv::Point2f uv2 = pCamera2->project(x3D2);
-
-  float errX2 = uv2.x - kp2.pt.x;
-  float errY2 = uv2.y - kp2.pt.y;
-
-  if ((errX2 * errX2 + errY2 * errY2) > 5.991 * unc) {  // Reprojection error is high
-    return -1;
-  }
-
-  p3D = x3D.clone();
-
-  if (pz2) *pz2 = z2;
-  return z1;
-}
-
 float KannalaBrandt8::TriangulateMatches_(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                           const cv::Matx33f &R12, const cv::Matx31f &t12, const float sigmaLevel,
                                           const float unc, cv::Matx31f &p3D) {
@@ -580,21 +458,6 @@ std::istream &operator>>(std::istream &is, KannalaBrandt8 &kb) {
     kb.mvParameters[i] = nextParam;
   }
   return is;
-}
-
-void KannalaBrandt8::Triangulate(const cv::Point2f &p1, const cv::Point2f &p2, const cv::Mat &Tcw1, const cv::Mat &Tcw2,
-                                 cv::Mat &x3D) {
-  cv::Mat A(4, 4, CV_32F);
-
-  A.row(0) = p1.x * Tcw1.row(2) - Tcw1.row(0);
-  A.row(1) = p1.y * Tcw1.row(2) - Tcw1.row(1);
-  A.row(2) = p2.x * Tcw2.row(2) - Tcw2.row(0);
-  A.row(3) = p2.y * Tcw2.row(2) - Tcw2.row(1);
-
-  cv::Mat u, w, vt;
-  cv::SVD::compute(A, w, u, vt, cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
-  x3D = vt.row(3).t();
-  x3D = x3D.rowRange(0, 3) / x3D.at<float>(3);
 }
 
 void KannalaBrandt8::Triangulate_(const cv::Point2f &p1, const cv::Point2f &p2, const cv::Matx44f &Tcw1,

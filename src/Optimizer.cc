@@ -1268,8 +1268,9 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
   Pinhole CamInst;
+  bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
   {
-    if (!pFrame->mpCameras.size()) {
+    if (!usedistort) {
       CamInst.setParameter(pFrame->fx, 0);
       CamInst.setParameter(pFrame->fy, 1);
       CamInst.setParameter(pFrame->cx, 2);
@@ -1297,13 +1298,12 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         if (pFrame->mvuRight[i] < 0)  // this may happen in RGBD case!
         {
           g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
-          if (!pFrame->mpCameras.size())
+          if (!usedistort)
             e->SetParams(&CamInst, Rcb, tcb);
           else {
-            CV_Assert(pFrame->mapn2ijn_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2ijn_[i])], Rcb, tcb);
+            CV_Assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
           }
-          GeometricCamera* pCamInst = pFrame->mpCameras[get<0>(pFrame->mapn2ijn_[i])];
 
           // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
           e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
@@ -1312,7 +1312,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
 
           // optimization target block=|e'*Omiga(or Sigma^(-1))*e|
           Eigen::Matrix<double, 2, 1> obs;
-          const cv::KeyPoint& kpUn = pFrame->mvKeysUn[i];
+          const cv::KeyPoint& kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           obs << kpUn.pt.x, kpUn.pt.y;
           e->setMeasurement(obs);
           const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
@@ -1332,20 +1332,19 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         } else  // Stereo observation
         {
           g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
-          if (!pFrame->mpCameras.size())
+          if (!usedistort)
             e->SetParams(&CamInst, Rcb, tcb, &pFrame->mbf);
           else {
-            CV_Assert(pFrame->mapn2ijn_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2ijn_[i])], Rcb, tcb, &pFrame->mbf);
+            CV_Assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb, &pFrame->mbf);
           }
-          GeometricCamera* pCamInst = pFrame->mpCameras[get<0>(pFrame->mapn2ijn_[i])];
 
           e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
           e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
 
           // SET EDGE
           Eigen::Matrix<double, 3, 1> obs;
-          const cv::KeyPoint& kpUn = pFrame->mvKeysUn[i];
+          const cv::KeyPoint& kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           const float& kp_ur = pFrame->mvuRight[i];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
           e->setMeasurement(obs);  // edge parameter/measurement formula output z
@@ -1465,7 +1464,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();
     for (int i = 0, iend = vNeighKFs.size(); i < iend; i++) {
       KeyFrame* pKFi = vNeighKFs[i];
-      cout << "nb=" << pKFi->mnId<<endl;
       pKFi->mnBALocalForKF = pKF->mnId;
       if (!pKFi->isBad())
         lLocalKeyFrames.push_back(pKFi);  // no covisible KFs(mvpOrderedConnectedKeyFrames) are duplicated or pKF itself
@@ -1480,9 +1478,9 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       lLocalKeyFrames.push_front(pKFlocal);  // notice the order is opposite
       pKFlocal = pKFlocal->GetPrevKeyFrame();
     } while (--NlocalCnt > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
-    cout << blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
-         << endl;
   }
+  cout << blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
+       << endl;
 
   // Local MapPoints seen in Local KeyFrames
   list<MapPoint*> lLocalMapPoints;
@@ -1560,7 +1558,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     pKFi->UpdateNavStatePVRFromTcw(); //TODO: delete this
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
-    cout << "check kf id="<<pKFi->mnId<<";";
+    //cout << "check kf id="<<pKFi->mnId<<";";
     if (pKFi->mnId == 0) ++num_fixed_kf;
     vns->setFixed(pKFi->mnId == 0); // only fix the vertex of initial KF(KF.mnId==0)
     optimizer.addVertex(vns);
@@ -1573,7 +1571,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     pKFi->UpdateNavStatePVRFromTcw();
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
-    cout << "check fixed kf id="<<pKFi->mnId<<";";
+    //cout << "check fixed kf id="<<pKFi->mnId<<";";
     vns->setFixed(true);
     optimizer.addVertex(vns);
     if (pKFi->mnId > maxKFid) maxKFid = pKFi->mnId;
@@ -1662,10 +1660,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
+        bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
         auto idxs = mit->second;
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
           auto idx = *iter;
-          const cv::KeyPoint& kpUn = pKFi->mvKeysUn[idx];
+          const cv::KeyPoint& kpUn = !usedistort ? pKFi->mvKeysUn[idx] : pKFi->mvKeys[idx];
 
           // Monocular observation
           if (pKFi->mvuRight[idx] < 0) {
@@ -1684,7 +1683,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             e->setRobustKernel(rk);
             rk->setDelta(thHuberMono);  // similar to ||e||
 
-            if (!pKFi->mpCameras.size()) {
+            if (!usedistort) {
               if (!binitcaminst) {
                 CamInst.setParameter(pKFi->fx, 0);
                 CamInst.setParameter(pKFi->fy, 1);
@@ -1694,8 +1693,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
               }
               e->SetParams(&CamInst, Rcb, tcb);
             } else {
-              CV_Assert(pKFi->mapn2ijn_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2ijn_[idx])], Rcb, tcb);
+              CV_Assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
             }
 
             optimizer.addEdge(e);
@@ -1721,7 +1720,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             e->setRobustKernel(rk);
             rk->setDelta(thHuberStereo);
 
-            if (!pKFi->mpCameras.size()) {
+            if (!usedistort) {
               if (!binitcaminst) {
                 CamInst.setParameter(pKFi->fx, 0);
                 CamInst.setParameter(pKFi->fy, 1);
@@ -1731,8 +1730,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
               }
               e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
             } else {
-              CV_Assert(pKFi->mapn2ijn_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2ijn_[idx])], Rcb, tcb, &pKFi->mbf);
+              CV_Assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
             }
 
             optimizer.addEdge(e);
@@ -1759,11 +1758,12 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       bDoMore = false;
 
   if (bDoMore) {
+    //cout << "err=";
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
       g2o::EdgeReprojectPR *e = vpEdgesMono[i];
       MapPoint* pMP = vpMapPointEdgeMono[i];
-      cout << "err="<<e->chi2()<<endl;
+      //cout << e->chi2()<< " ";
 
       if (pMP->isBad())  // why this can be true?
         continue;
@@ -1775,6 +1775,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
       e->setRobustKernel(0);  // cancel RobustKernel
     }
+    //cout << endl;
 
     for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
       g2o::EdgeReprojectPRStereo *e = vpEdgesStereo[i];

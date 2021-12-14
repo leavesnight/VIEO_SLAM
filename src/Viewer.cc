@@ -134,8 +134,19 @@ void Viewer::Run()
 
         pangolin::FinishFrame();
 
-        cv::Mat im = mpFrameDrawer->DrawFrame();
-        cv::imshow("VIEO_SLAM: Current Frame",im);
+      cv::Mat toShow;
+      cv::Mat im = mpFrameDrawer->DrawFrame(0);
+      if(mpFrameDrawer->showallimages_) {
+        for (int i = 1; i < mpFrameDrawer->n_cams_; ++i) {
+          cv::Mat imRight = mpFrameDrawer->DrawFrame(i);
+          cv::hconcat(im, imRight, toShow);
+        }
+      }
+      else{
+        toShow = im;
+      }
+
+      cv::imshow("VIEO_SLAM: Current Frame",toShow);
         cv::waitKey(mT);
 
         if(menuReset)

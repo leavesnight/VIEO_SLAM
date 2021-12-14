@@ -39,9 +39,8 @@ class GeometricCamera {
  public:
   GeometricCamera() {}
   GeometricCamera(const std::vector<float>& _vParameters) : mvParameters(_vParameters) {}
-  ~GeometricCamera() {}
-
-  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance);
+  GeometricCamera(cv::FileStorage& fSettings, int id, bool &bmiss_param);
+  virtual ~GeometricCamera() {}
 
   virtual cv::Point2f project(const cv::Point3f& p3D) = 0;
   virtual cv::Point2f project(const cv::Matx31f& m3D) = 0;
@@ -65,14 +64,17 @@ class GeometricCamera {
   //                                       const std::vector<int>& vMatches12, cv::Mat& R21, cv::Mat& t21,
   //                                       std::vector<cv::Point3f>& vP3D, std::vector<bool>& vbTriangulated) = 0;
 
-  virtual cv::Mat toK() = 0;
-  virtual cv::Matx33f toK_() = 0;
+  virtual cv::Mat toK();
+  virtual cv::Matx33f toK_();
 
   virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                  const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc) = 0;
   virtual bool epipolarConstrain_(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                   const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel,
                                   const float unc) = 0;
+
+  virtual float TriangulateMatches(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
+                                   const float sigmaLevel, const float unc, cv::Mat& p3D, float* pz2 = nullptr);
 
   float getParameter(const int i) { return mvParameters[i]; }
   void setParameter(const float p, const size_t i) { mvParameters[i] = p; }
@@ -102,6 +104,9 @@ class GeometricCamera {
   unsigned int mnId;
 
   unsigned int mnType;
+
+  void Triangulate(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Mat& Tcw1, const cv::Mat& Tcw2,
+                   cv::Mat& x3D);
 };
 }  // namespace VIEO_SLAM
 

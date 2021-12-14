@@ -99,8 +99,8 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
   mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
   fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
-  mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-  mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),
+  mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), mpCameras(F.mpCameras), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
+  mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()), mapn2in_(F.mapn2in_),
   mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
   mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
   mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
@@ -109,21 +109,20 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mbToBeErased(false), mbBad(false), mHalfBaseline(F.mb/2), mpMap(pMap),
   mbPrior(false)//,mbPNChanging(false)//zzh
 {
-  if(pPrevKF)
-    pPrevKF->SetNextKeyFrame(this);
-  mpPrevKeyFrame=pPrevKF;mpNextKeyFrame=NULL;//zzh, constructor doesn't need to lock mutex
-  mNavState=F.mNavState;//we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
-  
-  mnId=nNextId++;
-  vgrids_ = F.vgrids_;
+  if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
+  mpPrevKeyFrame = pPrevKF;
+  mpNextKeyFrame = NULL;    // zzh, constructor doesn't need to lock mutex
+  mNavState = F.mNavState;  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
+
   vvkeys_ = F.vvkeys_;
-  vvkeys_un_ = F.vvkeys_un_;
   vdescriptors_.resize(F.vdescriptors_.size());
-  for (size_t i = 0; i < F.vdescriptors_.size(); ++i)
-    vdescriptors_[i] = F.vdescriptors_[i].clone();
-  SetPose(F.mTcw);//we have already used UpdatePoseFromNS() in Frame
-  
-  read(is);//set odom list & mState
+  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
+
+  mnId = nNextId++;
+  vgrids_ = F.vgrids_;
+  SetPose(F.mTcw);  // we have already used UpdatePoseFromNS() in Frame
+
+  read(is);  // set odom list & mState
 }
 bool KeyFrame::read(istream &is){
   //we've done ComputeBoW() in Frame!
@@ -211,7 +210,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
     fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
     mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), mpCameras(F.mpCameras), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()), mapn2ijn_(F.mapn2ijn_),
+    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()), mapn2in_(F.mapn2in_),
     mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
@@ -220,20 +219,25 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
     mbToBeErased(false), mbBad(false), mHalfBaseline(F.mb/2), mpMap(pMap),
     mState(state),mbPrior(false)//,mbPNChanging(false)//zzh
 {
-    if(pPrevKF)
-      pPrevKF->SetNextKeyFrame(this);
-    mpPrevKeyFrame=pPrevKF;mpNextKeyFrame=NULL;//zzh, constructor doesn't need to lock mutex
-    mNavState=F.mNavState;
-    // Set bias as bias+delta_bias, and reset the delta_bias term
-    mNavState.mbg+=mNavState.mdbg;mNavState.mba+=mNavState.mdba;
-    mNavState.mdbg=mNavState.mdba=Eigen::Vector3d::Zero();//update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
-//created by zzh over
-  
-    mnId=nNextId++;
+  if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
+  mpPrevKeyFrame = pPrevKF;
+  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mNavState = F.mNavState;
+  // Set bias as bias+delta_bias, and reset the delta_bias term
+  mNavState.mbg += mNavState.mdbg;
+  mNavState.mba += mNavState.mdba;
+  mNavState.mdbg = mNavState.mdba =
+      Eigen::Vector3d::Zero();  // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
 
-    vgrids_ = F.vgrids_;
+  vvkeys_ = F.vvkeys_;
+  vdescriptors_.resize(F.vdescriptors_.size());
+  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
+  // created by zzh over
 
-    SetPose(F.mTcw);    
+  mnId = nNextId++;
+  vgrids_ = F.vgrids_;
+
+  SetPose(F.mTcw);
 }
 
 void KeyFrame::ComputeBoW()
@@ -583,7 +587,6 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
             mpParent->AddChild(this);
             mbFirstConnection = false;
         }
-
     }
 }
 
@@ -830,45 +833,36 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
         UpdateBestCovisibles();
 }
 
-vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const
-{
-    vector<size_t> vIndices;
-    vIndices.reserve(N);
+vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
+  vector<size_t> vIndices;
+  vIndices.reserve(N);
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
-    if(nMinCellX>=mnGridCols)
-        return vIndices;
+  const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
+  if (nMinCellX >= mnGridCols) return vIndices;
 
-    const int nMaxCellX = min((int)mnGridCols-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
-    if(nMaxCellX<0)
-        return vIndices;
+  const int nMaxCellX = min((int)mnGridCols - 1, (int)ceil((x - mnMinX + r) * mfGridElementWidthInv));
+  if (nMaxCellX < 0) return vIndices;
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));
-    if(nMinCellY>=mnGridRows)
-        return vIndices;
+  const int nMinCellY = max(0, (int)floor((y - mnMinY - r) * mfGridElementHeightInv));
+  if (nMinCellY >= mnGridRows) return vIndices;
 
-    const int nMaxCellY = min((int)mnGridRows-1,(int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
-    if(nMaxCellY<0)
-        return vIndices;
+  const int nMaxCellY = min((int)mnGridRows - 1, (int)ceil((y - mnMinY + r) * mfGridElementHeightInv));
+  if (nMaxCellY < 0) return vIndices;
 
-    for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
-    {
-        for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
-        {
-            const vector<size_t> vCell = vgrids_[cami][ix][iy];
-            for(size_t j=0, jend=vCell.size(); j<jend; j++)
-            {
-                const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
-                const float distx = kpUn.pt.x-x;
-                const float disty = kpUn.pt.y-y;
+  for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
+    for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
+      const vector<size_t> vCell = vgrids_[cami][ix][iy];
+      for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
+        const cv::KeyPoint &kpUn = (!mpCameras.size() || !Frame::usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
+        const float distx = kpUn.pt.x - x;
+        const float disty = kpUn.pt.y - y;
 
-                if(fabs(distx)<r && fabs(disty)<r)
-                    vIndices.push_back(vCell[j]);
-            }
-        }
+        if (fabs(distx) < r && fabs(disty) < r) vIndices.push_back(vCell[j]);
+      }
     }
+  }
 
-    return vIndices;
+  return vIndices;
 }
 
 bool KeyFrame::IsInImage(const float &x, const float &y) const
@@ -878,6 +872,7 @@ bool KeyFrame::IsInImage(const float &x, const float &y) const
 
 cv::Mat KeyFrame::UnprojectStereo(int i)
 {
+  //TODO: if right u used for fisheye, change implementation here
     const float z = mvDepth[i];
     if(z>0)
     {

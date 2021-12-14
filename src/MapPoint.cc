@@ -97,7 +97,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
 
     cv::Mat PC = Pos - Ow;
     const float dist = cv::norm(PC);
-    const int level = pFrame->mvKeysUn[idxF].octave;
+    const int level = pFrame->mvKeys[idxF].octave;//Un
     const float levelScaleFactor =  pFrame->mvScaleFactors[level];
     const int nLevels = pFrame->mnScaleLevels;
 
@@ -405,7 +405,7 @@ void MapPoint::UpdateNormalAndDepth() {
     auto idxs = mit->second;
     for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
       auto idx = *iter;
-      size_t cami = !pKF->mapn2ijn_.size() ? 0 : get<0>(pKF->mapn2ijn_[idx]);
+      size_t cami = !pKF->mapn2in_.size() ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (pKF->mpCameras.size() > cami) {
         GeometricCamera* pcam1 = pKF->mpCameras[cami];
         const cv::Mat Rcrw = pKF->GetRotation();
@@ -421,7 +421,7 @@ void MapPoint::UpdateNormalAndDepth() {
   const float dist =
       cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
   CV_Assert(observations.find(pRefKF) != observations.end());
-  const int level = pRefKF->mvKeysUn[*observations[pRefKF].begin()].octave;
+  const int level = pRefKF->mvKeys[*observations[pRefKF].begin()].octave;//Un
   const float levelScaleFactor = pRefKF->mvScaleFactors[level];
   const int nLevels = pRefKF->mnScaleLevels;
 

@@ -23,6 +23,7 @@
 #include "ORBmatcher.h"
 #include <thread>
 #include "KannalaBrandt8.h"
+#include "Pinhole.h"
 
 namespace VIEO_SLAM
 {
@@ -32,6 +33,7 @@ Eigen::Matrix3d Frame::meigRcb;Eigen::Vector3d Frame::meigtcb;
 
 //For stereo fisheye matching
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
+bool Frame::usedistort_ = false;
 
 void Frame::UpdatePoseFromNS()
 {
@@ -236,7 +238,7 @@ Frame::Frame(const Frame &frame)
      mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mDistCoef(frame.mDistCoef.clone()),
      mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N), mvKeys(frame.mvKeys),
      mvKeysUn(frame.mvKeysUn), vvkeys_(frame.vvkeys_), vvkeys_un_(frame.vvkeys_un_), mvuRight(frame.mvuRight),
-     mvDepth(frame.mvDepth), vv_depth_(frame.vv_depth_),
+     mvDepth(frame.mvDepth), //vv_depth_(frame.vv_depth_),
      mDescriptors(frame.mDescriptors.clone()), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
      mvpMapPoints(frame.mvpMapPoints), mvbOutlier(frame.mvbOutlier), mnId(frame.mnId),
      mpReferenceKF(frame.mpReferenceKF), mnScaleLevels(frame.mnScaleLevels),
@@ -260,13 +262,14 @@ Frame::Frame(const Frame &frame)
 
 
 Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor*> extractors, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
-             const vector<GeometricCamera *> *pCamInsts)
+             const vector<GeometricCamera *> *pCamInsts, bool usedistort)
     :mpORBvocabulary(voc), mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
      mpReferenceKF(static_cast<KeyFrame*>(NULL)),
-     mbPrior(false)//zzh
+     mbPrior(false) //zzh
 {
-    // Frame ID
-    mnId=nNextId++;
+  // Frame ID
+  mnId=nNextId++;
+  usedistort_ = usedistort;
 
   CV_Assert(ims.size() == extractors.size());
   mpORBextractors.resize(extractors.size());
@@ -292,7 +295,13 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
     for (int i = 0; i <ims.size(); ++i) {
       if (pCamInsts) {
         CV_Assert(ims.size() == pCamInsts->size());
-        threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], &static_cast<KannalaBrandt8 *>((*pCamInsts)[i])->mvLappingArea);
+        if ((*pCamInsts)[i]->CAM_FISHEYE == (*pCamInsts)[i]->GetType())
+          threads[i] = thread(&Frame::ExtractORB, this, i, ims[i],
+                              &static_cast<KannalaBrandt8 *>((*pCamInsts)[i])->mvLappingArea);
+        else if ((*pCamInsts)[i]->CAM_PINHOLE == (*pCamInsts)[i]->GetType())
+          threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], nullptr);
+        else
+          CV_Assert(0 && "No such cam model");
       } else
         threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], nullptr);
     }
@@ -317,15 +326,8 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
         mpCameras[i] = (*pCamInsts)[i];
       }
 
-      size_t n_cams = mpCameras.size();
-      N = 0;
-      map<pair<size_t, size_t>, size_t> mps_used;
-      vector<size_t> count_used;
-      for (int i = 0; i < n_cams - 1; ++i)
-        for (int j = i + 1; j < n_cams; ++j) {
-          ComputeStereoFishEyeMatches(i, j, mps_used, count_used, i == n_cams - 2 && j == n_cams - 1);
-        }
-      UndistortKeyPoints();
+      ComputeStereoFishEyeMatches();
+      if (!usedistort_) UndistortKeyPoints();
     }
 
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(nullptr));
@@ -475,17 +477,20 @@ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extra
 void Frame::AssignFeaturesToGrid() {
   size_t n_cams = !mpCameras.size() ? 1 : vvkeys_.size();
   vgrids_.resize(n_cams, vector<vector<vector<size_t>>>(FRAME_GRID_COLS, vector<vector<size_t>>(FRAME_GRID_ROWS)));
-  int nReserve = 0.5f * N / (FRAME_GRID_COLS * FRAME_GRID_ROWS);
+  int nReserve = 0.5f * N / (FRAME_GRID_COLS * FRAME_GRID_ROWS * n_cams);
   for (size_t cami = 0; cami < n_cams; ++cami) {
     for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
       for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) vgrids_[cami][i][j].reserve(nReserve);
 
+    if (!mpCameras.size()) CV_Assert(vvkeys_[cami].size() == mvKeysUn.size());
     for (int i = 0; i < vvkeys_[cami].size(); i++) {
-      const cv::KeyPoint &kp = vvkeys_[cami][i];
+      const cv::KeyPoint &kp = (!mpCameras.size() || !usedistort_) ? mvKeysUn[i] : vvkeys_[cami][i];
 
       int nGridPosX, nGridPosY;
       size_t mapi = !mapin2n_.size() ? i : mapin2n_[cami][i];
-      if (PosInGrid(kp, nGridPosX, nGridPosY)) vgrids_[cami][nGridPosX][nGridPosY].push_back(mapi);
+      if (PosInGrid(kp, nGridPosX, nGridPosY)) {
+        vgrids_[cami][nGridPosX][nGridPosY].push_back(mapi);
+      }
     }
   }
 }
@@ -511,63 +516,70 @@ void Frame::UpdatePoseMatrices()
 //TODO:extend this to 4 cams
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   bool bret = false;
-  size_t n_cams = !mpCameras.size() ? 1 : vvkeys_.size();
+  size_t n_cams = !mpCameras.size() ? 1 : mpCameras.size();
   pMP->mbTrackInView = bret;
   pMP->vbtrack_inview.clear();
   pMP->vbtrack_inview.resize(n_cams, false);
   for (int i = 0; i < 3; ++i) {
-    pMP->vtrack_proj[i].resize(n_cams);
+    pMP->vtrack_proj[i].resize(n_cams, -1);
   }
   pMP->vtrack_scalelevel.resize(n_cams);
   pMP->vtrack_viewcos.resize(n_cams);
 
   // 3D in absolute coordinates
-  cv::Mat P = pMP->GetWorldPos();
-  // Check viewing angle
+  cv::Mat wP = pMP->GetWorldPos();
   cv::Mat Pn = pMP->GetNormal();
-  const cv::Mat PO = P - mOw;
-  const float dist = cv::norm(PO);
-  // Check distance is in the scale invariance region of the MapPoint
   const float maxDistance = pMP->GetMaxDistanceInvariance();
   const float minDistance = pMP->GetMinDistanceInvariance();
-  if (dist < minDistance || dist > maxDistance)  // if it's out of the frustum, image pyramid is not effective
-    return false;
-  // use nbar(P) instead of n(Frame) because the SBP() use the best descriptor of MapPoint
-  const float viewCos = PO.dot(Pn) / dist;
-  // if viewing angle(vec OP && vec nbar(P)) > arccos(viewingCosLimit)(here is 60 degrees), it's not in Frustum
-  if (viewCos < viewingCosLimit) return false;
-  // Predict scale in the image
-  const int nPredictedLevel = pMP->PredictScale(dist, this);
-
+  cv::Mat Rcrw = mTcw.rowRange(0,3).colRange(0,3);
   // 3D in camera coordinates
-  const cv::Mat Pcr = mRcw * P + mtcw;
+  const cv::Mat Pcr = mRcw * wP + mtcw;
   pMP->vtrack_cami.clear();
   for (size_t cami = 0; cami < n_cams; ++cami) {
+    // TODO: unify this cycle with SBP to one func
     Vector3d Pc = Converter::toVector3d(Pcr);
+    GeometricCamera *pcam1 = nullptr;
+    cv::Mat twc = mOw.clone(); // wO
     if (mpCameras.size() > cami) {
-      Pc = mpCameras[cami]->Rcr_ * Pc + mpCameras[cami]->tcr_;
+      pcam1 = mpCameras[cami];
+      Pc = pcam1->Rcr_ * Pc + pcam1->tcr_;
+      twc += Rcrw.t() * pcam1->Trc_.col(3);
     }
     const float &PcZ = Pc(2);
 
     // Check positive depth
-    if (PcZ < 0.0f) return false;
+    if (PcZ < 0.0f) continue;
 
     // Project in image and check it is not outside
     const float invz = 1.0f / PcZ;
     float u, v;
-    if (mpCameras.empty()) {
+    if (!mpCameras.size() || !usedistort_) {
       const float &PcX = Pc(0);
       const float &PcY = Pc(1);
       u = fx * PcX * invz + cx;  // K*Xc
       v = fy * PcY * invz + cy;
     } else {
-      auto pt = mpCameras[cami]->project(Pc);
+      CV_Assert(pcam1);
+      auto pt = pcam1->project(Pc);
       u = pt[0];
       v = pt[1];
     }
 
-    if (u < mnMinX || u > mnMaxX) return false;
-    if (v < mnMinY || v > mnMaxY) return false;
+    if (u < mnMinX || u > mnMaxX) continue;
+    if (v < mnMinY || v > mnMaxY) continue;
+
+    // Check viewing angle
+    const cv::Mat PO = wP - twc;
+    const float dist3D = cv::norm(PO);
+    // Check distance is in the scale invariance region of the MapPoint
+    // if it's out of the frustum, image pyramid is not effective
+    if (dist3D < minDistance || dist3D > maxDistance) continue;
+    // use nbar(P) instead of n(Frame) because the SBP() use the best descriptor of MapPoint
+    const float viewCos = PO.dot(Pn) / dist3D;
+    // if viewing angle(vec OP && vec nbar(P)) > arccos(viewingCosLimit)(here is 60 degrees), it's not in Frustum
+    if (viewCos < viewingCosLimit) continue;
+    // Predict scale in the image
+    const int nPredictedLevel = pMP->PredictScale(dist3D, this);
 
     // Data used by the tracking
     pMP->vbtrack_inview[cami] = true;
@@ -605,7 +617,7 @@ vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float
     if(nMaxCellY<0)
         return vIndices;
 
-    const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);//minLevel==0 don't need to judge
+    const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);//minLevel==0&&maxLevel<0 don't need to judge
 
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
@@ -617,7 +629,7 @@ vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float
 
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
-                const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
+                const cv::KeyPoint &kpUn = (!mpCameras.size() || !usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
                 if(bCheckLevels)//if the octave is out of level range
                 {
                     if(kpUn.octave<minLevel)//-1 is also ok,0 cannot be true
@@ -662,67 +674,81 @@ void Frame::ComputeBoW()
     }
 }
 
-void Frame::UndistortKeyPoints()
-{
-  if(mDistCoef.at<float>(0)==0.0) {
-    // TODO: now for AssignFeaturesToGrid and GetFreaturesInArea
+void Frame::UndistortKeyPoints() {
+  if (mDistCoef.at<float>(0) == 0.0 && !mpCameras.size()) {
     mvKeysUn = mvKeys;
     vvkeys_un_ = vvkeys_;
     return;
   }
 
-    // Fill matrix with points
-    cv::Mat mat(N,2,CV_32F);
-    for(int i=0; i<N; i++)
-    {
-        mat.at<float>(i,0)=mvKeys[i].pt.x;
-        mat.at<float>(i,1)=mvKeys[i].pt.y;
+  // Fill matrix with points
+  cv::Mat mat(N, 2, CV_32F);
+  if (!mpCameras.size()) {
+    for (int i = 0; i < N; i++) {
+      mat.at<float>(i, 0) = mvKeys[i].pt.x;
+      mat.at<float>(i, 1) = mvKeys[i].pt.y;
     }
-
     // Undistort points
-    mat=mat.reshape(2);
-    cv::undistortPoints(mat,mat,mK,mDistCoef,cv::Mat(),mK);
-    mat=mat.reshape(1);
-
-    // Fill undistorted keypoint vector
-    mvKeysUn.resize(N);
-    for(int i=0; i<N; i++)
-    {
-        cv::KeyPoint kp = mvKeys[i];
-        kp.pt.x=mat.at<float>(i,0);
-        kp.pt.y=mat.at<float>(i,1);
-        mvKeysUn[i]=kp;
+    mat = mat.reshape(2);
+    cv::undistortPoints(mat, mat, mK, mDistCoef, cv::Mat(), mK);
+    mat = mat.reshape(1);
+  } else {
+    for (int i = 0; i < N; ++i) {
+      size_t cami = get<0>(mapn2in_[i]);
+      cv::Mat mattmp = mpCameras[cami]->toK() * mpCameras[cami]->unprojectMat(mvKeys[i].pt);
+      mat.at<float>(i, 0) = mattmp.at<float>(0);
+      mat.at<float>(i, 1) = mattmp.at<float>(1);
     }
+  }
+
+  // Fill undistorted keypoint vector
+  mvKeysUn.resize(N);
+  for (int i = 0; i < N; i++) {
+    cv::KeyPoint kp = mvKeys[i];
+    kp.pt.x = mat.at<float>(i, 0);
+    kp.pt.y = mat.at<float>(i, 1);
+    mvKeysUn[i] = kp;
+  }
 }
 
-void Frame::ComputeImageBounds(const cv::Mat &imLeft)
-{
-    if(mDistCoef.at<float>(0)!=0.0)
-    {
-        cv::Mat mat(4,2,CV_32F);
-        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0;
-        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0;
-        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows;
-        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows;
+void Frame::ComputeImageBounds(const cv::Mat &imLeft) {
+  if (mDistCoef.at<float>(0) != 0.0 || (mpCameras.size() && !usedistort_)) {
+    cv::Mat mat(4, 2, CV_32F);
+    mat.at<float>(0, 0) = 0.0;
+    mat.at<float>(0, 1) = 0.0;
+    mat.at<float>(1, 0) = imLeft.cols;
+    mat.at<float>(1, 1) = 0.0;
+    mat.at<float>(2, 0) = 0.0;
+    mat.at<float>(2, 1) = imLeft.rows;
+    mat.at<float>(3, 0) = imLeft.cols;
+    mat.at<float>(3, 1) = imLeft.rows;
 
-        // Undistort corners
-        mat=mat.reshape(2);
-        cv::undistortPoints(mat,mat,mK,mDistCoef,cv::Mat(),mK);
-        mat=mat.reshape(1);
-
-        mnMinX = min(mat.at<float>(0,0),mat.at<float>(2,0));
-        mnMaxX = max(mat.at<float>(1,0),mat.at<float>(3,0));
-        mnMinY = min(mat.at<float>(0,1),mat.at<float>(1,1));
-        mnMaxY = max(mat.at<float>(2,1),mat.at<float>(3,1));
-
+    // Undistort corners
+    if (!mpCameras.size()) {
+      mat = mat.reshape(2);
+      cv::undistortPoints(mat, mat, mK, mDistCoef, cv::Mat(), mK);
+      mat = mat.reshape(1);
+    } else {
+      // TODO: limit different cam model's border
+      size_t cami = 0;
+      for (int i = 0; i < 4; ++i) {
+        cv::Mat mattmp = mpCameras[cami]->toK() *
+                         mpCameras[cami]->unprojectMat(cv::Point2f(mat.at<float>(i, 0), mat.at<float>(i, 1)));
+        mat.at<float>(i, 0) = mattmp.at<float>(0);
+        mat.at<float>(i, 1) = mattmp.at<float>(1);
+      }
     }
-    else
-    {
-        mnMinX = 0.0f;
-        mnMaxX = imLeft.cols;
-        mnMinY = 0.0f;
-        mnMaxY = imLeft.rows;
-    }
+
+    mnMinX = min(mat.at<float>(0, 0), mat.at<float>(2, 0));
+    mnMaxX = max(mat.at<float>(1, 0), mat.at<float>(3, 0));
+    mnMinY = min(mat.at<float>(0, 1), mat.at<float>(1, 1));
+    mnMaxY = max(mat.at<float>(2, 1), mat.at<float>(3, 1));
+  } else {
+    mnMinX = 0.0f;
+    mnMaxX = imLeft.cols;
+    mnMinY = 0.0f;
+    mnMaxY = imLeft.rows;
+  }
 }
 
 void Frame::ComputeStereoMatches()
@@ -901,140 +927,181 @@ void Frame::ComputeStereoMatches()
     }
 }
 
-size_t Frame::GetIndexIlessJ(int i, int j) {
-  if (i > j) swap(i, j);
-  size_t n = vvkeys_.size();
-  return (2 * n - 1 - i) * i / 2 + j - i - 1;
-}
+//size_t Frame::GetIndexIlessJ(int i, int j) {
+//  if (i > j) swap(i, j);
+//  size_t n = vvkeys_.size();
+//  return (2 * n - 1 - i) * i / 2 + j - i - 1;
+//}
 
-void Frame::ComputeStereoFishEyeMatches(int i, int j, map<pair<size_t, size_t>, size_t> &mps_used_id, vector<size_t> count_used, bool blast) {
+void Frame::ComputeStereoFishEyeMatches() {
+  // TODO: test 4 cams
+  CV_Assert(mpCameras.size() == 2);
   // Speed it up by matching keypoints in the lapping area
-  int monoLeft = num_mono[i], monoRight = num_mono[j];
-  vector<cv::KeyPoint> stereoLeft(vvkeys_[i].begin() + monoLeft, vvkeys_[i].end());
-  vector<cv::KeyPoint> stereoRight(vvkeys_[j].begin() + monoRight, vvkeys_[j].end());
-
-  cv::Mat stereoDescLeft = vdescriptors_[i].rowRange(monoLeft, vdescriptors_[i].rows);
-  cv::Mat stereoDescRight = vdescriptors_[j].rowRange(monoRight, vdescriptors_[j].rows);
-
-  size_t Nleft = vvkeys_[i].size(), Nright = vvkeys_[j].size();
   size_t n_cams = vvkeys_.size();
-  size_t ij = GetIndexIlessJ(i, j);
-  size_t num_IJ = n_cams * (n_cams - 1) / 2;
-  mccMatches.resize(2, vector<vector<int>>(num_IJ));
-  mccMatches[0][ij] = vector<int>(Nleft, -1);
-  mccMatches[1][ij] = vector<int>(Nright, -1);
-  vv_depth_.resize(2);
-  if (ij <= vv_depth_[0].size()) {
-    CV_Assert(vv_depth_[0].size() == mvStereo3Dpoints.size());
-    vv_depth_[0].resize(ij + 1);
-    vv_depth_[1].resize(ij + 1);
-    mvStereo3Dpoints.resize(ij + 1);
+
+  // Perform a brute force between Keypoint in the all images
+  vector<vector<vector<cv::DMatch>>> allmatches;
+  for (int i = 0; i < n_cams; ++i) CV_Assert(-1 != num_mono[i]);
+  for (int i = 0; i < n_cams - 1; ++i) {
+    for (int j = i + 1; j < n_cams; ++j) {
+      allmatches.push_back(vector<vector<cv::DMatch>>());
+      BFmatcher.knnMatch(vdescriptors_[i].rowRange(num_mono[i], vdescriptors_[i].rows),
+                         vdescriptors_[j].rowRange(num_mono[j], vdescriptors_[j].rows), allmatches.back(), 2);
+    }
   }
-  vv_depth_[0][ij] = vector<float>(Nleft, -1.0f);
-  vv_depth_[1][ij] = vector<float>(Nright, -1.0f);
-  mvStereo3Dpoints[ij] = vector<cv::Mat>(Nleft);
-  // mnCloseMPs = 0;
-
-  // Perform a brute force between Keypoint in the left and right image
-  vector<vector<cv::DMatch>> matches;
-
-  BFmatcher.knnMatch(stereoDescLeft, stereoDescRight, matches, 2);
 
   int nMatches = 0;
   int descMatches = 0;
 
   // Check matches using Lowe's ratio
-  for (vector<vector<cv::DMatch>>::iterator it = matches.begin(); it != matches.end(); ++it) {
-    if ((*it).size() >= 2 && (*it)[0].distance < (*it)[1].distance * 0.7) {
+  CV_Assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());
+  vector<vector<double>> lastdists;
+  aligned_vector<Vector3d> pts;
+  for (size_t i = 0, idmatches = 0; i < n_cams - 1; ++i) {
+    for (size_t j = i + 1; j < n_cams; ++j, ++idmatches) {
+      auto &matches = allmatches[idmatches];
+      for (vector<vector<cv::DMatch>>::iterator it = matches.begin(); it != matches.end(); ++it) {
+        if ((*it).size() >= 2 && (*it)[0].distance < (*it)[1].distance * 0.7) {
+          size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
+          auto camidxi = make_pair(i, idxi), camidxj = make_pair(j, idxj);
+          auto iteri = mapcamidx2idxs_.find(camidxi), iterj = mapcamidx2idxs_.find(camidxj);
+          if (iteri == mapcamidx2idxs_.end() && iterj != mapcamidx2idxs_.end()) {
+            iteri = iterj;
+          }
+          uint8_t checkdepth[2] = {0};  // 1 means create, 2 means replace
+          size_t ididxs;
+          if (iteri != mapcamidx2idxs_.end()) {
+            ididxs = iteri->second;
+            auto &idxs = mvidxsMatches[ididxs];
+            if (-1 == idxs[i]){// || lastdists[ididxs][i] > (*it)[0].distance) {
+              checkdepth[0] = 2;
+            }
+            //            else if (idxi != idxs[i])
+            //              goodmatches_[ididxs] = false;
+            if (-1 == idxs[j]){// || lastdists[ididxs][j] > (*it)[0].distance) {
+              checkdepth[1] = 2;
+            }
+            //            else if (idxj != idxs[j])
+            //              goodmatches_[ididxs] = false;
+          } else {
+            checkdepth[0] = 1;
+            checkdepth[1] = 1;
+          }
+          if (checkdepth[0] || checkdepth[1]) {
+            cv::Mat p3D;
+            vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
+            float depth2;
+            float depth1;
+            if (mpCameras[i]->CAM_FISHEYE == mpCameras[i]->GetType())
+            depth1 = static_cast<KannalaBrandt8 *>(mpCameras[i])
+                               ->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
+                                                    sigmas[1], p3D, &depth2);
+            else
+              depth1 = static_cast<Pinhole *>(mpCameras[i])
+                  ->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
+                                       sigmas[1], p3D, &depth2);
+            //cout << "dp21="<<depth2 <<" "<<depth1<<endl;
+            if (depth1 > 0.0001f && depth2 > 0.0001f) {
+              vector<size_t> idxs(n_cams, -1);
+              if (checkdepth[0]) {
+                idxs[i] = idxi;
+              }
+              if (checkdepth[1]) {
+                idxs[j] = idxj;
+              }
+              if (1 == checkdepth[0]) {
+                CV_Assert(1 == checkdepth[1]);
+                ididxs = mvidxsMatches.size();
+                mapcamidx2idxs_.emplace(camidxi, ididxs);
+                mapcamidx2idxs_.emplace(camidxj, ididxs);
+                mvidxsMatches.push_back(idxs);
+                mv3Dpoints.resize(mvidxsMatches.size());
+                goodmatches_.push_back(true);
+                vector<double> dists(n_cams, INFINITY);
+                dists[i] = (*it)[0].distance;
+                dists[j] = (*it)[0].distance;
+                lastdists.push_back(dists);
+              }
+              mv3Dpoints[ididxs] =
+                  Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
+              nMatches++;
+            }
+          }
+          descMatches++;
+        }
+      }
+    }
+  }
+  if (n_cams > 2) {
+    nMatches = 0;
+    for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
+      if (!goodmatches_[i]) continue;
       // For every good match, check parallax and reprojection error to discard spurious matches
       cv::Mat p3D;
-      descMatches++;
-      size_t k = (*it)[0].queryIdx + monoLeft;
-      size_t k2 = (*it)[0].trainIdx + monoRight;
-      float sigma1 = mvLevelSigma2[vvkeys_[i][k].octave], sigma2 = mvLevelSigma2[vvkeys_[j][k2].octave];
+      auto &idx = mvidxsMatches[i];
+      vector<float> sigmas;
+      for (int k = 0; k < idx.size(); ++k) sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
       float depth2;
-      float depth = static_cast<KannalaBrandt8 *>(mpCameras[i])
-                        ->TriangulateMatches(mpCameras[j], vvkeys_[i][k], vvkeys_[j][k2], sigma1, sigma2, p3D, &depth2);
-      //cout << "dp21="<<depth2 <<" "<<depth<<endl;
+      float depth = static_cast<KannalaBrandt8 *>(mpCameras[0])
+                        ->TriangulateMatches(mpCameras[1], vvkeys_[0][idx[0]], vvkeys_[1][idx[1]], sigmas[0], sigmas[1],
+                                             p3D, &depth2);
+      // cout << "dp21="<<depth2 <<" "<<depth<<endl;
       if (depth > 0.0001f && depth2 > 0.0001f) {
-        mccMatches[0][ij][k] = k2;
-        mccMatches[1][ij][k2] = k;
-        mvStereo3Dpoints[ij][k] = p3D.clone();
-        vv_depth_[0][ij][k] = depth;
-        vv_depth_[1][ij][k2] = depth2;
+        // mccMatches[0][ij][k] = k2;
+        // mccMatches[1][ij][k2] = k;
+        // mvStereo3Dpoints[ij][k] = p3D.clone();
+        mv3Dpoints[i] = Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
+        // vv_depth_[0][ij][k] = depth;
+        // vv_depth_[1][ij][k2] = depth2;
         nMatches++;
-      }
+      } else
+        goodmatches_[i] = false;
     }
   }
-  cout << "match num="<<nMatches<<endl;
+  cout << "match num=" << nMatches << endl;
 
-#define VIEO_SLAM_STEREO_NO_FUSE
-  // simple fuse to 1 dimension, no mp fusion
-  size_t last_size = N;
-  CV_Assert(last_size == mvDepth.size() && last_size == mvuRight.size());
+  CV_Assert(!mvDepth.size() && !mvuRight.size());
   size_t num_pt_added = 0;
-  bool bextend_descriptors = true;
-  if (mDescriptors.empty()) {
-    mDescriptors = vdescriptors_[i].clone();
-    bextend_descriptors = false;
-  }
-  for (size_t k = 0; k < Nleft; ++k) {
-#ifndef VIEO_SLAM_STEREO_NO_FUSE
-    auto iter = mps_used_id.find(make_pair(i, k));
-    if (mps_used_id.end() != iter) {  // fuse mps depth from different cams
-      CV_Assert(count_used.size() > iter->second && mapn2ijn_.size() > iter->second);
-      // we don't fuse j == get<1> for it will be seen in i == get<1>, e.g. 02<->12 <=> 01<->12
-      CV_Assert(i == get<0>(mapn2ijn_[iter->second]) || i == get<1>(mapn2ijn_[iter->second]));
-      float depth_tmp = vv_depth_[i == get<0>(mapn2ijn_[iter->second]) ? 0 : 1][ij][k];
-      if (0 < depth_tmp)
-        mvDepth[iter->second] =
-            (mvDepth[iter->second] * count_used[iter->second] + depth_tmp) / (++count_used[iter->second]);
-      continue;
-    }
-#endif
-    if (bextend_descriptors) cv::vconcat(mDescriptors, vdescriptors_[i].row(k), mDescriptors);
-    mps_used_id.emplace(make_pair(i, k), num_pt_added + last_size);
-    size_t k2 = mccMatches[0][ij][k];
-    mps_used_id.emplace(make_pair(j, k2), num_pt_added + last_size);
-    count_used.push_back(vv_depth_[0][ij][k] < 0 ? 0 : 1);
-    mvDepth.push_back(vv_depth_[0][ij][k]);
-    mvuRight.push_back(-1);
-    mvKeys.push_back(vvkeys_[i][k]);
-//    if (mvDepth.back() > 0) cout << i << ","<<k<<":"<<mvKeys.back().pt<<endl;
-    mapn2ijn_.push_back(make_tuple(i, j, k));
-    ++num_pt_added;
-  }
-  if (blast) {
-    for (size_t k2 = 0; k2 < Nright; ++k2) {
-      float depth_tmp = vv_depth_[1][ij][k2];
-#ifndef VIEO_SLAM_STEREO_NO_FUSE
-      if (0 >= depth_tmp) {
-#endif
-        cv::vconcat(mDescriptors, vdescriptors_[j].row(k2), mDescriptors);
-        size_t k = mccMatches[1][ij][k2];
-        mps_used_id.emplace(make_pair(i, k), num_pt_added + last_size);
-        mps_used_id.emplace(make_pair(j, k2), num_pt_added + last_size);
-        count_used.push_back(0);
-        mvDepth.push_back(depth_tmp);
-        mvuRight.push_back(-1);
-        mvKeys.push_back(vvkeys_[j][k2]);
-        mapn2ijn_.push_back(make_tuple(j, i, k2));
-        ++num_pt_added;
-#ifndef VIEO_SLAM_STEREO_NO_FUSE
+  for (size_t i = 0; i < n_cams; ++i) {
+    if (mDescriptors.empty() && vdescriptors_.size()) {
+      mDescriptors = vdescriptors_[i].clone();
+    } else
+      cv::vconcat(mDescriptors, vdescriptors_[i], mDescriptors);
+    for (size_t k = 0; k < vvkeys_[i].size(); ++k) {
+      auto camidx = make_pair(i, k);
+      auto iteridxs = mapcamidx2idxs_.find(camidx);
+      if (iteridxs != mapcamidx2idxs_.end()) {
+        auto &ididxs = iteridxs->second;
+        if (-1 != ididxs && goodmatches_[ididxs]) {
+          auto &idxs = mvidxsMatches[ididxs];
+          Matrix3d Rcr = ((KannalaBrandt8 *)mpCameras[i])->Rcr_;
+          Vector3d tcr = ((KannalaBrandt8 *)mpCameras[i])->tcr_;
+          Vector3d x3Dc = Rcr * mv3Dpoints[ididxs] + tcr;
+          mvDepth.push_back(x3Dc[2]);
+        } else
+          mvDepth.push_back(-1);
+      } else {
+        mvDepth.push_back(-1);
       }
-#endif
-    }
-
-    if (mapin2n_.size() < vvkeys_.size()) mapin2n_.resize(vvkeys_.size());
-    for (size_t k = 0; k < mvKeys.size(); ++k) {
-      size_t cami = get<0>(mapn2ijn_[k]);
-      CV_Assert(mapin2n_.size() > cami);
-      if (mapin2n_[cami].size() < vvkeys_[cami].size()) mapin2n_[cami].resize(vvkeys_[cami].size());
-      CV_Assert(mapin2n_[cami].size() > get<2>(mapn2ijn_[k]));
-      mapin2n_[cami][get<2>(mapn2ijn_[k])] = k;
+      mvuRight.push_back(-1);
+      mvKeys.push_back(vvkeys_[i][k]);
+      mapn2in_.push_back(make_pair(i, k));
+      ++num_pt_added;
     }
   }
-  N += num_pt_added;
+
+  if (mapin2n_.size() < vvkeys_.size()) mapin2n_.resize(vvkeys_.size());
+  mapidxs2n_.resize(mv3Dpoints.size(), -1);
+  for (size_t k = 0; k < mvKeys.size(); ++k) {
+    size_t cami = get<0>(mapn2in_[k]);
+    CV_Assert(mapin2n_.size() > cami);
+    if (mapin2n_[cami].size() < vvkeys_[cami].size()) mapin2n_[cami].resize(vvkeys_[cami].size());
+    CV_Assert(mapin2n_[cami].size() > get<1>(mapn2in_[k]));
+    mapin2n_[cami][get<1>(mapn2in_[k])] = k;
+    auto iteridxs = mapcamidx2idxs_.find(mapn2in_[k]);
+    if (iteridxs != mapcamidx2idxs_.end()) mapidxs2n_[iteridxs->second] = k;
+  }
+  N = num_pt_added;
   CV_Assert(N == mvKeys.size());
 }
 
@@ -1061,28 +1128,31 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
     }
 }
 
+size_t Frame::GetMapn2idxs(size_t i) {
+  auto iteridx = mapcamidx2idxs_.find(mapn2in_[i]);
+  if (iteridx == mapcamidx2idxs_.end())
+    return -1;
+  else
+    return iteridx->second;
+}
+
 cv::Mat Frame::UnprojectStereo(const int &i) {
-  if (mapn2ijn_.size() > i) {
+  //if (mapn2ijn_.size() > i) {
+  if (mapn2in_.size() > i) {
     const float z = mvDepth[i];
     if (z > 0) {
-      cv::Mat Rrc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2ijn_[i])])->Trc_.rowRange(0, 3).colRange(0, 3);
-      cv::Mat trc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2ijn_[i])])->Trc_.col(3);
-      cv::Mat x3Dc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2ijn_[i])])->unprojectMat(mvKeys[i].pt) * z;  // x_Cr
-      x3Dc = Rrc * x3Dc + trc;
+//      cv::Mat Rrc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->Trc_.rowRange(0, 3).colRange(0, 3);
+//      cv::Mat trc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->Trc_.col(3);
+//      cv::Mat x3Dc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->unprojectMat(mvKeys[i].pt) * z;  // x_Cr
+//      x3Dc = Rrc * x3Dc + trc;
 
-//      size_t ij = GetIndexIlessJ(get<0>(mapn2ijn_[i]), get<1>(mapn2ijn_[i])), k = get<2>(mapn2ijn_[i]);
-//      if (get<0>(mapn2ijn_[i]) > get<1>(mapn2ijn_[i])) {
-//        Rrc = ((KannalaBrandt8 *)mpCameras[get<1>(mapn2ijn_[i])])->Trc_.rowRange(0, 3).colRange(0, 3);
-//        trc = ((KannalaBrandt8 *)mpCameras[get<1>(mapn2ijn_[i])])->Trc_.col(3);
-//        k = mccMatches[1][ij][k];
-//      }
-//      CV_Assert(mvStereo3Dpoints.size() > ij);
-//      CV_Assert(mvStereo3Dpoints[ij].size() > k);
-//      cv::Mat x3Dw = mRwc * (Rrc * mvStereo3Dpoints[ij][k] + trc) + mOw;
-//      cout << "check w3Dw=" << (mRwc * x3Dc + mOw).t() << ", z=" << z << ", xy=" << mvKeys[i].pt << " " << x3Dw.t()
-//           << endl;
+      auto ididxs = GetMapn2idxs(i);
+      CV_Assert(-1 != ididxs && goodmatches_[ididxs]);
+      Vector3d x3Dw = Converter::toMatrix3d(mRwc) * mv3Dpoints[ididxs] + Converter::toVector3d(mOw);
+      // cout << "check w3Dw=" << x3Dw.transpose() << ", z=" << z << ", xy=" << mvKeys[i].pt << " " << endl;
+//           << (mRwc * x3Dc + mOw).t() << endl;
 
-      return mRwc * x3Dc + mOw;
+      return Converter::toCvMat(x3Dw);
     } else {
       return cv::Mat();
     }

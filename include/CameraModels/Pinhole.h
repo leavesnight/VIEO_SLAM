@@ -41,25 +41,35 @@ class Pinhole : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
-  Pinhole(const std::vector<float> _vParameters) : GeometricCamera(_vParameters) {  //, tvr(nullptr) {
-    assert(mvParameters.size() == 4);
+  //  Pinhole(const std::vector<float> _vParameters) : GeometricCamera(_vParameters) {  //, tvr(nullptr) {
+  //    assert(mvParameters.size() == 4);
+  //    mnId = nNextId++;
+  //    mnType = CAM_PINHOLE;
+  //  }
+  Pinhole(const cv::Mat& DistCoef, cv::FileStorage& fSettings, int id, bool& bmiss_param)
+      : GeometricCamera(fSettings, id, bmiss_param) {
+    CV_Assert((DistCoef.total() == 4 || DistCoef.total() == 5) && DistCoef.elemSize() == sizeof(float));
+    mvParameters.resize(4 + DistCoef.total());
+    for (int i = 0; i < DistCoef.total(); ++i) {
+      mvParameters[4 + i] = DistCoef.at<float>(i);
+    }
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
 
-  Pinhole(Pinhole* pPinhole) : GeometricCamera(pPinhole->mvParameters) {  //, tvr(nullptr) {
-    assert(mvParameters.size() == 4);
-    mnId = nNextId++;
-    mnType = CAM_PINHOLE;
-  }
+  //  Pinhole(Pinhole* pPinhole) : GeometricCamera(pPinhole->mvParameters) {  //, tvr(nullptr) {
+  //    assert(mvParameters.size() == 4);
+  //    mnId = nNextId++;
+  //    mnType = CAM_PINHOLE;
+  //  }
 
-  ~Pinhole() {
-    //            if(tvr) delete tvr;
-  }
+  ~Pinhole() {}
 
-  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat *pK,
-                                cv::Mat *pDistCoef);
+  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
+                                cv::Mat* pDistCoef);
 
+  Eigen::Vector2d distortPoints(float x, float y);
+  cv::Mat toDistortCoeff();
   cv::Point2f project(const cv::Point3f& p3D);
   cv::Point2f project(const cv::Matx31f& m3D);
   cv::Point2f project(const cv::Mat& m3D);
@@ -81,9 +91,6 @@ class Pinhole : public GeometricCamera {
   //        vKeys2, const std::vector<int> &vMatches12,
   //                                             cv::Mat &R21, cv::Mat &t21, std::vector<cv::Point3f> &vP3D,
   //                                             std::vector<bool> &vbTriangulated);
-
-  cv::Mat toK();
-  cv::Matx33f toK_();
 
   bool epipolarConstrain(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                          const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);

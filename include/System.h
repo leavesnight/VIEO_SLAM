@@ -75,6 +75,7 @@ public:
 
   // TODO: Save/Load functions
   void SaveKeyFrameTrajectoryNavState(const string &filename,bool bUseTbc=true);//we will save filename(like "KeyFrameTrajectoryIMU.txt")(including t,q,v,bg,ba) from Tcw by using Tbc or directly from Twb
+  void SaveTrajectoryNavState(const string &filename,bool bUseTbc=true);
   void SaveMap(const string &filename,bool bPCL=true,bool bUseTbc=true,bool bSaveBadKF=false);
   bool LoadMap(const string &filename,bool bPCL=true,bool bReadBadKF=false);//if read bad KFs, we correct mpTracker->mlpReferences
   void SaveFrame(string foldername,const cv::Mat& im,const cv::Mat& depthmap,double tm_stamp);
@@ -96,6 +97,7 @@ public:
         STEREO=1,
         RGBD=2
     };
+    static bool usedistort_;
 
 public:
     // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
@@ -208,7 +210,7 @@ private:
     // Tracking state
     int mTrackingState;
     std::vector<MapPoint*> mTrackedMapPoints;
-    std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
+    //std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
     std::mutex mMutexState;
 };
 
