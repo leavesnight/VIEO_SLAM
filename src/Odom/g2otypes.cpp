@@ -1,32 +1,7 @@
 #include "g2otypes.h"
 
 namespace g2o {
-    using namespace VIEO_SLAM;
-
-void EdgeSE3ProjectXYZOnlyPose::linearizeOplus() {//calculate Jacobian i par(e)/par(ksi).t()
-  VertexSE3Expmap * vi = static_cast<VertexSE3Expmap *>(_vertices[0]);
-  Vector3d xyz_trans = vi->estimate().map(Xw);
-
-  double x = xyz_trans[0];
-  double y = xyz_trans[1];
-  double invz = 1.0/xyz_trans[2];
-  double invz_2 = invz*invz;
-
-  //g2o is ksi=(phi,p), rotation first
-  _jacobianOplusXi(0,0) =  x*y*invz_2 *fx;
-  _jacobianOplusXi(0,1) = -(1+(x*x*invz_2)) *fx;
-  _jacobianOplusXi(0,2) = y*invz *fx;
-  _jacobianOplusXi(0,3) = -invz *fx;
-  _jacobianOplusXi(0,4) = 0;
-  _jacobianOplusXi(0,5) = x*invz_2 *fx;
-
-  _jacobianOplusXi(1,0) = (1+y*y*invz_2) *fy;
-  _jacobianOplusXi(1,1) = -x*y*invz_2 *fy;
-  _jacobianOplusXi(1,2) = -x*invz *fy;
-  _jacobianOplusXi(1,3) = 0;
-  _jacobianOplusXi(1,4) = -invz *fy;
-  _jacobianOplusXi(1,5) = y*invz_2 *fy;
-}
+using namespace VIEO_SLAM;
 
 //return normalized v(0:1)
 Vector2d project2d(const Vector3d& v)  {
@@ -36,36 +11,27 @@ Vector2d project2d(const Vector3d& v)  {
   return res;
 }
 
-Vector2d EdgeSE3ProjectXYZOnlyPose::cam_project(const Vector3d & trans_xyz) const{
-  Vector2d proj = project2d(trans_xyz);
-  Vector2d res;
-  res[0] = proj[0]*fx + cx;
-  res[1] = proj[1]*fy + cy;
-  return res;
+void EdgeNavStateBias::computeError() {
+    const VertexNavStateBias *vBiasi = static_cast<const VertexNavStateBias *>(_vertices[0]);
+    const VertexNavStateBias *vBiasj = static_cast<const VertexNavStateBias *>(_vertices[1]);
+    const NavState &NSi = vBiasi->estimate();
+    const NavState &NSj = vBiasj->estimate();
+
+    //rbij/eb=bj-bi see VIORBSLAM paper (6) or Manifold paper (48)
+    // residual error of Gyroscope's bias, Forster 15'RSS
+    Vector3d rBiasG = (NSj.mbg + NSj.mdbg) - (NSi.mbg + NSi.mdbg);
+    // residual error of Accelerometer's bias, Forster 15'RSS
+    Vector3d rBiasA = (NSj.mba + NSj.mdba) - (NSi.mba + NSi.mdba);//here is x(x)xa!!!
+    Vector6d err(Vector6d::Zero());
+    // 6-Dim error vector order: deltabiasGyr_i;deltabiasAcc_i, rBiasGi;rBiasAi
+    err.segment<3>(0) = rBiasG;
+    err.segment<3>(3) = rBiasA;
+    _error = err;
 }
-
-
-    void EdgeNavStateBias::computeError() {
-        const VertexNavStateBias *vBiasi = static_cast<const VertexNavStateBias *>(_vertices[0]);
-        const VertexNavStateBias *vBiasj = static_cast<const VertexNavStateBias *>(_vertices[1]);
-        const NavState &NSi = vBiasi->estimate();
-        const NavState &NSj = vBiasj->estimate();
-
-        //rbij/eb=bj-bi see VIORBSLAM paper (6) or Manifold paper (48)
-        // residual error of Gyroscope's bias, Forster 15'RSS
-        Vector3d rBiasG = (NSj.mbg + NSj.mdbg) - (NSi.mbg + NSi.mdbg);
-        // residual error of Accelerometer's bias, Forster 15'RSS
-        Vector3d rBiasA = (NSj.mba + NSj.mdba) - (NSi.mba + NSi.mdba);//here is x(x)xa!!!
-        Vector6d err(Vector6d::Zero());
-        // 6-Dim error vector order: deltabiasGyr_i;deltabiasAcc_i, rBiasGi;rBiasAi
-        err.segment<3>(0) = rBiasG;
-        err.segment<3>(3) = rBiasA;
-        _error = err;
-    }
-    void EdgeNavStateBias::linearizeOplus() {
-        _jacobianOplusXi = -Matrix<double, 6, 6>::Identity();//J_eb_bi=-I for eb=bj-bi
-        _jacobianOplusXj = Matrix<double, 6, 6>::Identity();//J_eb_bj=I
-    }
+void EdgeNavStateBias::linearizeOplus() {
+    _jacobianOplusXi = -Matrix<double, 6, 6>::Identity();//J_eb_bi=-I for eb=bj-bi
+    _jacobianOplusXj = Matrix<double, 6, 6>::Identity();//J_eb_bj=I
+}
 
     typedef Matrix<double, 15, 1> Vector15d;
 void EdgeNavStatePriorPRVBias::computeError()
@@ -131,47 +97,47 @@ void EdgeNavStatePriorPVRBias::linearizeOplus()
     _jacobianOplusXj.block<3,3>(9,0)= - Matrix3d::Identity();_jacobianOplusXj.block<3,3>(12,3)= - Matrix3d::Identity();
 }
 
-void EdgeEnc::computeError()
-{
-  const VertexSE3Expmap* vi=static_cast<const VertexSE3Expmap*>(_vertices[0]);
-  const VertexSE3Expmap* vj=static_cast<const VertexSE3Expmap*>(_vertices[1]);
-  Quaterniond qRiw=vi->estimate().rotation(),qRjw=vj->estimate().rotation();
-  Vector3d piw=vi->estimate().translation(),pjw=vj->estimate().translation();
-  Sophus::SO3exd so3Reiej=Sophus::SO3exd(qRce.conjugate()*qRiw*qRjw.conjugate()*qRce);
-  _error.segment<3>(0)=Sophus::SO3exd(Sophus::SO3exd::exp(_measurement.segment<3>(0)).inverse()*so3Reiej).log();//Log(delta~Rij.t()*Reiej)
-  Vector3d deltapij=qRce.conjugate()*(piw-qRiw*qRjw.conjugate()*pjw-pce+qRiw*qRjw.conjugate()*pce);//Rec*[pciw-Rciw*Rcjw.t()*pcjw-pce+Rciw*Rcjw.t()*pce]
-  _error.segment<3>(3)=deltapij-_measurement.segment<3>(3);//deltapij-delta~pij
-}
-
-void EdgeEnc::linearizeOplus()
-{
-  const VertexSE3Expmap* vi=static_cast<const VertexSE3Expmap*>(_vertices[0]);
-  const VertexSE3Expmap* vj=static_cast<const VertexSE3Expmap*>(_vertices[1]);
-  Quaterniond qRiw=vi->estimate().rotation(),qRjw=vj->estimate().rotation();
-  Vector3d piw=vi->estimate().translation(),pjw=vj->estimate().translation();
-  
-  //calculate Je_dxi xi=ksi=(phii,rhoi)
-  Matrix3d Rec=qRce.conjugate().toRotationMatrix();
-  Quaterniond qRij=qRiw*qRjw.conjugate();
-  Vector3d eR=_error.segment<3>(0);
-  Matrix3d JeR_dphii=Sophus::SO3exd::JacobianRInv(eR)*Rec*qRij.conjugate().toRotationMatrix();//JeR_dphii=Jrinv(eR)*(Rciw*Rwcj*Rce).t()
-  Matrix3d O3x3=Matrix3d::Zero();//JeR_drhoi/j=0
-  Matrix3d Jep_dphii=Rec*Sophus::SO3exd::hat(qRij*(pjw-pce)-piw);//Jep_dphii=Rec*[Rciw*Rwcj*(pcjw-pce)-pciw]^
-  Matrix3d Jep_drhoi=Rec;//Jep_drhoi=Rec
-  //calculate Je_dxj xj=ksj=(phij,rhoj)
-  Matrix3d JeR_dphij=-Sophus::SO3exd::JacobianRInv(eR)*Rec;//JeR_dphij=-Jrinv(eR)*Rec
-  Quaterniond qRecRij=qRce.conjugate()*qRij;
-  Matrix3d Jep_dphij=qRecRij.toRotationMatrix()*Sophus::SO3exd::hat(pce);//Jep_dphij=Rec*Rciw*Rwcj*pce^
-  Matrix3d Jep_drhoj=-qRecRij.toRotationMatrix();//Jep_drhoj=-Rec*Rciw*Rcjw.t()
-  
-  _jacobianOplusXi.block<3,3>(0,0)=JeR_dphii;
-  _jacobianOplusXi.block<3,3>(0,3)=O3x3;//JeR_drhoi
-  _jacobianOplusXi.block<3,3>(3,0)=Jep_dphii;
-  _jacobianOplusXi.block<3,3>(3,3)=Jep_drhoi;
-  _jacobianOplusXj.block<3,3>(0,0)=JeR_dphij;
-  _jacobianOplusXj.block<3,3>(0,3)=O3x3;//JeR_drhoj
-  _jacobianOplusXj.block<3,3>(3,0)=Jep_dphij;
-  _jacobianOplusXj.block<3,3>(3,3)=Jep_drhoj;
-}
+//void EdgeEnc::computeError()
+//{
+//  const VertexSE3Expmap* vi=static_cast<const VertexSE3Expmap*>(_vertices[0]);
+//  const VertexSE3Expmap* vj=static_cast<const VertexSE3Expmap*>(_vertices[1]);
+//  Quaterniond qRiw=vi->estimate().rotation(),qRjw=vj->estimate().rotation();
+//  Vector3d piw=vi->estimate().translation(),pjw=vj->estimate().translation();
+//  Sophus::SO3exd so3Reiej=Sophus::SO3exd(qRce.conjugate()*qRiw*qRjw.conjugate()*qRce);
+//  _error.segment<3>(0)=Sophus::SO3exd(Sophus::SO3exd::exp(_measurement.segment<3>(0)).inverse()*so3Reiej).log();//Log(delta~Rij.t()*Reiej)
+//  Vector3d deltapij=qRce.conjugate()*(piw-qRiw*qRjw.conjugate()*pjw-pce+qRiw*qRjw.conjugate()*pce);//Rec*[pciw-Rciw*Rcjw.t()*pcjw-pce+Rciw*Rcjw.t()*pce]
+//  _error.segment<3>(3)=deltapij-_measurement.segment<3>(3);//deltapij-delta~pij
+//}
+//
+//void EdgeEnc::linearizeOplus()
+//{
+//  const VertexSE3Expmap* vi=static_cast<const VertexSE3Expmap*>(_vertices[0]);
+//  const VertexSE3Expmap* vj=static_cast<const VertexSE3Expmap*>(_vertices[1]);
+//  Quaterniond qRiw=vi->estimate().rotation(),qRjw=vj->estimate().rotation();
+//  Vector3d piw=vi->estimate().translation(),pjw=vj->estimate().translation();
+//
+//  //calculate Je_dxi xi=ksi=(phii,rhoi)
+//  Matrix3d Rec=qRce.conjugate().toRotationMatrix();
+//  Quaterniond qRij=qRiw*qRjw.conjugate();
+//  Vector3d eR=_error.segment<3>(0);
+//  Matrix3d JeR_dphii=Sophus::SO3exd::JacobianRInv(eR)*Rec*qRij.conjugate().toRotationMatrix();//JeR_dphii=Jrinv(eR)*(Rciw*Rwcj*Rce).t()
+//  Matrix3d O3x3=Matrix3d::Zero();//JeR_drhoi/j=0
+//  Matrix3d Jep_dphii=Rec*Sophus::SO3exd::hat(qRij*(pjw-pce)-piw);//Jep_dphii=Rec*[Rciw*Rwcj*(pcjw-pce)-pciw]^
+//  Matrix3d Jep_drhoi=Rec;//Jep_drhoi=Rec
+//  //calculate Je_dxj xj=ksj=(phij,rhoj)
+//  Matrix3d JeR_dphij=-Sophus::SO3exd::JacobianRInv(eR)*Rec;//JeR_dphij=-Jrinv(eR)*Rec
+//  Quaterniond qRecRij=qRce.conjugate()*qRij;
+//  Matrix3d Jep_dphij=qRecRij.toRotationMatrix()*Sophus::SO3exd::hat(pce);//Jep_dphij=Rec*Rciw*Rwcj*pce^
+//  Matrix3d Jep_drhoj=-qRecRij.toRotationMatrix();//Jep_drhoj=-Rec*Rciw*Rcjw.t()
+//
+//  _jacobianOplusXi.block<3,3>(0,0)=JeR_dphii;
+//  _jacobianOplusXi.block<3,3>(0,3)=O3x3;//JeR_drhoi
+//  _jacobianOplusXi.block<3,3>(3,0)=Jep_dphii;
+//  _jacobianOplusXi.block<3,3>(3,3)=Jep_drhoi;
+//  _jacobianOplusXj.block<3,3>(0,0)=JeR_dphij;
+//  _jacobianOplusXj.block<3,3>(0,3)=O3x3;//JeR_drhoj
+//  _jacobianOplusXj.block<3,3>(3,0)=Jep_dphij;
+//  _jacobianOplusXj.block<3,3>(3,3)=Jep_drhoj;
+//}
 
 }

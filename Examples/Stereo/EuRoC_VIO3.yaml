@@ -64,7 +64,7 @@ IMU.SleepTime: 1.0
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10
 GBA.initIterations: 15
-GBA.finalIterations: 0
+GBA.finalIterations: 20
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!

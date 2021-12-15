@@ -79,8 +79,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
             if(indexKF1<0 || indexKF2<0)//it's for safe
                 continue;
 
-            const cv::KeyPoint &kp1 = pKF1->mvKeysUn[indexKF1];
-            const cv::KeyPoint &kp2 = pKF2->mvKeysUn[indexKF2];
+            //Un
+            const cv::KeyPoint &kp1 = pKF1->mvKeys[indexKF1];
+            const cv::KeyPoint &kp2 = pKF2->mvKeys[indexKF2];
 
             const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
             const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
@@ -165,20 +166,20 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
         vAvailableIndices = mvAllIndices;
 
         // Get min set of points
-        for(short i = 0; i < 3; ++i)
-        {
-            int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size()-1);
+        for(short i = 0; i < 3; ++i) {
+          int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size() - 1);
 
-            int idx = vAvailableIndices[randi];
+          int idx = vAvailableIndices[randi];
 
-            mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
-            mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
+          mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
+          mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
 
-            vAvailableIndices[randi] = vAvailableIndices.back();
-            vAvailableIndices.pop_back();
+          // don't pick the same point, so log(1-p)/log(1-w^n) is just the upper limit")" of the max iter.
+          vAvailableIndices[randi] = vAvailableIndices.back();
+          vAvailableIndices.pop_back();
         }
 
-        ComputeSim3(P3Dc1i,P3Dc2i);
+        ComputeSim3(P3Dc1i,P3Dc2i); // TODO: check the implementation
 
         CheckInliers();
 

@@ -43,7 +43,7 @@ void LoopClosing::CreateGBA()
   }else{
     // Launch a new thread to perform Global Bundle Adjustment
     mbRunningGBA = true;
-    assert(!mbStopGBA);//it's already false
+    CV_Assert(!mbStopGBA && mpCurrentKF);//it's already false
     mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment,this,mpCurrentKF->mnId);
   }
 }
@@ -719,21 +719,22 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
     int idx =  mnFullBAIdx;
     unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);//notice we cannot update scale during LoopClosing or LocalBA! 
     if (mpIMUInitiator->GetVINSInited()) {
-        if (!mpIMUInitiator->GetInitGBAOver()) {//if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
-            cerr << redSTR"Full BA just after IMU Initializated!" << whiteSTR << endl;
-            Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnInitIterations,
-                                                         &mbStopGBA, nLoopKF,
-                                                         false);//15 written in V-B of VIORBSLAM paper
-//        mbFixScale=true;//not good for V203 when used
-        } else {
-            Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnIterations,
-                                                         &mbStopGBA,
-                                                         nLoopKF, false);
-        }
-        bUseGBAPRV = true;
-    }else{
-      cerr<<redSTR"pure-vision GBA!"<<whiteSTR<<endl;
-      Optimizer::GlobalBundleAdjustment(mpMap,mnIterations,&mbStopGBA,nLoopKF,false,mpIMUInitiator->GetSensorEnc());//GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
+      if (!mpIMUInitiator->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
+        cerr << redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl;
+        // 15 written in V-B of VIORBSLAM paper
+        Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnInitIterations,
+                                                     &mbStopGBA, nLoopKF, false);
+        //        mbFixScale=true;//not good for V203 when used
+      } else {
+        Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnIterations, &mbStopGBA,
+                                                     nLoopKF, false);
+      }
+      bUseGBAPRV = true;
+    }else {
+      cerr << redSTR "pure-vision GBA!" << whiteSTR << endl;
+      Optimizer::GlobalBundleAdjustment(
+          mpMap, mnIterations, &mbStopGBA, nLoopKF, false,
+          mpIMUInitiator->GetSensorEnc());  // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
     }
     // Update all MapPoints and KeyFrames
     // Local Mapping was active during BA, that means that there might be new keyframes

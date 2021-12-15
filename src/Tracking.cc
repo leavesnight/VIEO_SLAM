@@ -643,7 +643,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
         break;
       }
     }
-    //pSys->usedistort_ = false;
+    pSys->usedistort_ = false;
     cout << "Cam size = " << mpCameras.size() << endl;
 
     mbf = fSettings["Camera.bf"];

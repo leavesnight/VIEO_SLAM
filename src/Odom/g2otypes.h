@@ -286,14 +286,43 @@ typedef VertexNavState<3> VertexNavStateV;
 typedef VertexNavState<9> VertexNavStatePVR; // TODO: delete this for code simplicity
 
 /**
+ * \brief template Vertex for VertexScale
+ */
+class VertexScale : public BaseVertex<1, double> {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  // default constructor is enough
+  virtual bool read(std::istream& is) {
+    is >> _estimate;
+    return true;
+  }
+
+  bool write(std::ostream& os) const {
+    os << estimate() << " ";
+    return os.good();
+  }
+
+  void setToOriginImpl() { _estimate = 1; }  // default scale_truth_from_currentworld=1
+  void oplusImpl(const double* update_) { _estimate += *update_; }
+};
+
+#ifdef USE_G2O_NEWEST
+typedef VertexPointXYZ VertexSBAPointXYZ;  // for their oplusImpl&&setToOriginImpl is the same/normal
+#endif
+
+/**
  * \brief template for EdgeProjectXYZ(binary edge, mono/stereo), similar to EdgeProjectXYZOnlyPose(change the parameter
  * Pw to optimized vertex _vertices[0] & Tbw to _vertices[1])
  */
-template <int DE, int DV, int NV>
+template <int DE, int DV, int NV, int MODE_OPT_VAR = 0>
 class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   using VectorDEd = Matrix<double, DE, 1>;
 
   typedef BaseMultiEdgeEx<DE, VectorDEd> Base;
+
+  const int offset_Tbh_ = (0 == MODE_OPT_VAR && 3 <= NV) ? 2 : -1;
+  const int offset_scale_ = (0 == MODE_OPT_VAR && 4 <= NV) ? 3 : ((1 == MODE_OPT_VAR && 3 <= NV) ?  2 : -1);
 
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -313,9 +342,15 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
     // Tbs_w, bs is b for slam
     const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
     const NavStated& ns = vNS->estimate();  // transform Xh to Xc through Tbw&&Tcb
-    Vector3d Xw = pXh->estimate();
-    if (3 <= NV) {
-      const VertexNavState<DV>* vNSh = static_cast<const VertexNavState<DV>*>(_vertices[2]);  // Tbw,handler
+    double scale = 1;
+    if (-1 != offset_scale_) {
+      const VertexScale* vScale;
+      vScale = static_cast<const VertexScale*>(_vertices[offset_scale_]);  // Scale
+      scale = vScale->estimate();
+    }
+    Vector3d Xw = pXh->estimate() * scale;
+    if (-1 != offset_Tbh_) {
+      const VertexNavState<DV>* vNSh = static_cast<const VertexNavState<DV>*>(_vertices[offset_Tbh_]);  // Tbw,handler
       const NavStated& nsh = vNSh->estimate();
       // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
       Xw = nsh.getRwb() * (Rbch_ * Xw + tbch_) + nsh.mpwb;
@@ -337,13 +372,18 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
     tbch_ = tbch;
   }
   bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
-    const VertexSBAPointXYZ *pXh = static_cast<const VertexSBAPointXYZ *>(_vertices[0]);          // Xh/Ph
-    const VertexNavState<DV> *vNS = static_cast<const VertexNavState<DV> *>(_vertices[1]);  // Tbw
-    const NavStated &ns = vNS->estimate();
-    Vector3d Xw = pXh->estimate();
-    if (3 <= NV) {
-      const VertexNavState<DV> *vNSh = static_cast<const VertexNavState<DV> *>(_vertices[2]);  // Tbw,handler
-      const NavStated &nsh = vNSh->estimate();
+    const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);    // Xh/Ph
+    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
+    const NavStated& ns = vNS->estimate();
+    double scale = 1;
+    if (-1 != offset_scale_) {
+      const VertexScale* vScale = static_cast<const VertexScale*>(_vertices[offset_scale_]);  // Scale
+      scale = vScale->estimate();
+    }
+    Vector3d Xw = pXh->estimate() * scale;
+    if (-1 != offset_Tbh_) {
+      const VertexNavState<DV>* vNSh = static_cast<const VertexNavState<DV>*>(_vertices[offset_Tbh_]);  // Tbw,handler
+      const NavStated& nsh = vNSh->estimate();
       // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
       Xw = nsh.getRwb() * (Rbch_ * Xw + tbch_) + nsh.mpwb;
     }
@@ -360,22 +400,29 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   using Base::_jacobianOplus;
   using Base::_vertices;
 };
-template <int DE, int DV, int NV>
-void EdgeReproject<DE, DV, NV>::linearizeOplus() {
-  const VertexSBAPointXYZ *pXh = static_cast<const VertexSBAPointXYZ *>(_vertices[0]);  // Xh/Ph
-  Vector3d Ph = pXh->estimate(), Pw = Ph, twh;
+template <int DE, int DV, int NV, int MODE_OPT_VAR>
+void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
+  const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xh/Ph
+  Vector3d twh;
   Matrix3d Rwh, Rwbh;
-  if (3 <= NV) {
-    const VertexNavState<DV> *vNSh = static_cast<const VertexNavState<DV> *>(_vertices[2]);  // Tbhw,bh for handler
-    const NavStated &nsh = vNSh->estimate();
+  double scale = 1;
+  if (-1 != offset_scale_) {
+    const VertexScale* vScale = static_cast<const VertexScale*>(_vertices[offset_scale_]);  // Scale
+    scale = vScale->estimate();
+  }
+  Vector3d Ph_unscale = pXh->estimate(), Ph = Ph_unscale * scale, Pw = Ph;
+  if (-1 != offset_Tbh_) {
+    const VertexNavState<DV>* vNSh =
+        static_cast<const VertexNavState<DV>*>(_vertices[offset_Tbh_]);  // Tbhw,bh for handler
+    const NavStated& nsh = vNSh->estimate();
     // wX=Twh*hX=Rwh*hX+twh=Rwb*Rbh*hX + (Rwb*tbh+twb)=Rwb(Rbh*hX + tbh) + twb
     Rwbh = nsh.getRwb();
     Rwh = Rwbh * Rbch_;
     twh = Rwbh * tbch_ + nsh.mpwb;
     Pw = Rwh * Ph + twh;
   }
-  const VertexNavState<DV> *vNS = static_cast<const VertexNavState<DV> *>(_vertices[1]);  // Tbw,slam
-  const NavStated &ns = vNS->estimate();
+  const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw,slam
+  const NavStated& ns = vNS->estimate();
   Matrix3d Rcw = Rcb * ns.getRwb().transpose();
 
   Vector3d Pc = Rcw * (Pw - ns.mpwb) + tcb;  // Pc=Rcb*Rbw*(Pw-twb)+tcb
@@ -407,72 +454,28 @@ void EdgeReproject<DE, DV, NV>::linearizeOplus() {
   // Jacobian of error(-pc) w.r.t dXh/dPh: J_e_dXh=JdXh=J_e_Pc*J_Pc_dPw*J_Pw_dPh=Jproj*Rcw*Rwh=-JdPwb*Rwh
   //        _jacobianOplus[0] = -JdPwb*Rwb.transpose();//for (p<-p+R*dp)
   _jacobianOplus[0] = -JdPwb;  // Jproj*Rcb*Rwb.transpose()*Rwh; it's a fast form for (p<-p+dp);Rwh=I for NV==2
-  if (3 <= NV) {
+  if (-1 != offset_Tbh_) {
     // J_e_dPwb = J_e_dXw * J_Xw_dPwbh = Jproj*Rcw*I
-    _jacobianOplus[2].template block<DE, 3>(0, 0) = _jacobianOplus[0];
+    _jacobianOplus[offset_Tbh_].template block<DE, 3>(0, 0) = _jacobianOplus[0];
     // J_e_dRwb = J_e_dXw * J_Xw_dRwbh = Jproj*Rcw*(-Rwbh*(Rbh*hX+tbh)^), or J_Xw_dRwbh= -(Rwh(hX-thb)^Rwb)
-    _jacobianOplus[2].template block<DE, 3>(0, DV - 3) =
+    _jacobianOplus[offset_Tbh_].template block<DE, 3>(0, DV - 3) =
         _jacobianOplus[0] * (Rwbh * Sophus::SO3exd::hat(-(Rbch_ * Ph + tbch_)));
     _jacobianOplus[0] *= Rwh;
   }
+  if (-1 != offset_scale_) {
+    // Jacobian of error(-pc) w.r.t ds: J_e_ds=Jds=J_e_Pc*J_Pc_ds
+    _jacobianOplus[offset_scale_] = _jacobianOplus[0] * Ph_unscale; // J_Pc_ds=Rcw*Pw, easy to prove
+  }
+  _jacobianOplus[0] *= scale; // chain rule, for wX= s*hX now
 }
 
 typedef EdgeReproject<2, 6, 2> EdgeReprojectPR;
 typedef EdgeReproject<2, 6, 3> EdgeReprojectPR3V; // designed for 3d points with known model coordinates
 typedef EdgeReproject<3, 6, 2> EdgeReprojectPRStereo;
-
-// we move the vertex here for stereo fisheye cams
-class  EdgeSE3ProjectXYZOnlyPose: public  BaseUnaryEdge<2, Vector2d, VertexSE3Expmap>{
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  EdgeSE3ProjectXYZOnlyPose(){}
-
-  bool read(std::istream& is);
-
-  bool write(std::ostream& os) const;
-
-  void computeError()  {
-    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
-    Vector2d obs(_measurement);
-    _error = obs-cam_project(v1->estimate().map(Xw));
-  }
-
-  bool isDepthPositive() {//unused in motion-only BA
-    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
-    return (v1->estimate().map(Xw))(2)>0.0;
-  }
-
-
-  virtual void linearizeOplus();//calculate the 2*6 jacobian matrix(here is partial(e)/partial(ksi), exactly is par(e)/par(ksi.t()))
-
-  Vector2d cam_project(const Vector3d & trans_xyz) const;
-
-  Vector3d Xw;
-  double fx, fy, cx, cy;
-};
-
-/**
- * \brief template Vertex for VertexScale
- */
-class VertexScale : public BaseVertex<1, double> {
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  // default constructor is enough
-  virtual bool read(std::istream& is) {
-    is >> _estimate;
-    return true;
-  }
-
-  bool write(std::ostream& os) const {
-    os << estimate() << " ";
-    return os.good();
-  }
-
-  void setToOriginImpl() { _estimate = 1; }  // default scale_truth_from_currentworld=1
-  void oplusImpl(const double* update_) { _estimate += *update_; }
-};
+typedef EdgeReproject<2, 9, 2> EdgeReprojectPVR;
+typedef EdgeReproject<3, 9, 2> EdgeReprojectPVRStereo;
+typedef EdgeReproject<2, 6, 3, 1> EdgeReprojectPRS;
+typedef EdgeReproject<3, 6, 3, 1> EdgeReprojectPRSStereo;
 
 // have to define Bias independently for it has the same dimension with PR
 class VertexNavStateBias : public BaseVertex<6, NavState> {
@@ -511,343 +514,25 @@ bool writeEdge(std::ostream& os, const Matrix<double, DE, 1>& measurement, const
     for (int j = i; j <= 2; j++) os << " " << information(i, j);
   return os.good();
 }
-template <int DE, int DV>
-class EdgeNavStateProjectXYZOnlyPose : public BaseUnaryEdgeEx<DE, Matrix<double, DE, 1>, VertexNavState<DV> > {
-  Matrix<double, DE, 1> cam_project(const Vector3d& trans_xyz) const {
-    const float invz = 1.0f / trans_xyz[2];  // normalize
-    Matrix<double, DE, 1> res;
-    res[0] = trans_xyz[0] * invz * fx + cx;
-    res[1] = trans_xyz[1] * invz * fy + cy;
-    if (DE == 3) res[2] = res[0] - bf * invz;  // ur=ul-b*fx/dl or u in right image
-    return res;
-  }
 
-  typedef BaseUnaryEdge<DE, Matrix<double, DE, 1>, VertexNavState<DV> > Base;
-
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  bool read(std::istream& is) { return readEdge<DE>(is, this->_measurement, this->information()); }
-  bool write(std::ostream& os) const { return writeEdge<DE>(os, this->measurement(), this->information()); }
-  virtual void computeError() {
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[0]);  // Tbw
-    const NavState& ns = vNS->estimate();  // transform Xw to Xc through Tbw&&Tcb
-    this->_error =
-        this->_measurement -
-        cam_project(Rcb * ns.getRwb().transpose() * (Pw - ns.mpwb) +
-                    tcb);  // Pc=Tcb*Tbw*Pw=Rcb*Rbw*Pw+Rcb*tbw(-Rcb*Rbw*twb)+tcb(-Rcb*tbc)=Rcb*Rbw*(Pw-twb)+tcb;
-  }
-  virtual void linearizeOplus();
-
-  void SetParams(const double& fx_, const double& fy_, const double& cx_, const double& cy_, const Matrix3d& Rcb_,
-                 const Vector3d& tcb_, const Vector3d& Pw_,
-                 const float* bf_ = NULL) {  // if u use const double*, u have to do some extra work
-    fx = fx_;
-    fy = fy_;
-    cx = cx_;
-    cy = cy_;
-    Rcb = Rcb_;
-    tcb = tcb_;
-    Pw = Pw_;
-    if (bf_ != NULL) bf = *bf_;
-  }
-  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[0]);  // Tbw
-    const NavState& ns = vNS->estimate();
-    return (Rcb * ns.getRwb().transpose() * (Pw - ns.mpwb) + tcb)(2) > 0.0;  // Xc.z>0
-  }
-
- protected:
-  double fx, fy, cx, cy, bf;  // Camera intrinsics
-  Matrix3d Rcb;
-  Vector3d tcb;  // Camera-IMU extrinsics
-  Vector3d Pw;   // Point position in world frame
-
-  using Base::_jacobianOplusXi;
-  using Base::_vertices;
-};
-template <int DE, int DV>
-void EdgeNavStateProjectXYZOnlyPose<DE, DV>::linearizeOplus() {
-  const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[0]);
-  const NavState& ns = vNS->estimate();
-  Matrix3d Rwb = ns.getRwb();
-
-  Vector3d Pc = Rcb * Rwb.transpose() * (Pw - ns.mpwb) + tcb;  // Pc=Rcb*Rbw*(Pw-twb)+tcb
-  double x = Pc[0], y = Pc[1], invz = 1 / Pc[2], invz_2 = invz * invz;
-
-  // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
-  Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
-  Jproj.template block<2, 3>(0, 0) << -fx * invz, 0, x * fx * invz_2, 0, -fy * invz, y * fy * invz_2;
-  if (DE > 2)
-    Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), 0,
-        Jproj(0, 2) - bf * invz_2;  // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0
-                                    // -fx*x/z^2+bf/z^2]
-
-  // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notice we use pwb->pwb+dpwb increment model in the
-  // corresponding Vertex, so here is the same, a bit dfferent from (21)
-  //   Matrix<double,DE,3> JdPwb=Jproj*(-Rcb);//J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
-  Matrix<double, DE, 3> JdPwb = Jproj * (-Rcb * Rwb.transpose());  // J_Pc_dPwb = -Rcw(p<-p+dp)
-
-  // Jacobian of error w.r.t dRwb
-  Vector3d Paux = Rcb * Rwb.transpose() *
-                  (Pw - ns.mpwb);  // J_Pc_dRwb=(Rcw*(Pw-twb))^Rcb, using right disturbance model/Rwb->Rwb*Exp(dphi) or
-                                   // Rbw->Exp(-dphi)*Rbw, see Manifold paper (20)
-  Matrix<double, DE, 3> JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb);
-
-  // Jacobian of error w.r.t NavStatePR, order in 'update_': dP, dPhi
-  Matrix<double, DE, DV> JNavState = Matrix<double, DE, DV>::Zero();
-  JNavState.template block<DE, 3>(0, 0) = JdPwb;       // J_error_dnotPR=0 so we'd better use PR&V instead of PVR/PVRB
-  JNavState.template block<DE, 3>(0, DV - 3) = JdRwb;  // only for 9(J_e_dV=0)/6
-  _jacobianOplusXi = JNavState;
-}
-
-typedef EdgeNavStateProjectXYZOnlyPose<2, 6> EdgeNavStatePRPointXYZOnlyPose;
-typedef EdgeNavStateProjectXYZOnlyPose<3, 6> EdgeStereoNavStatePRPointXYZOnlyPose;
-typedef EdgeNavStateProjectXYZOnlyPose<2, 9> EdgeNavStatePVRPointXYZOnlyPose;
-typedef EdgeNavStateProjectXYZOnlyPose<3, 9> EdgeStereoNavStatePVRPointXYZOnlyPose;
-
-#ifdef USE_G2O_NEWEST
-typedef VertexPointXYZ VertexSBAPointXYZ;  // for their oplusImpl&&setToOriginImpl is the same/normal
-#endif
-
-/**
- * \brief template for EdgeProjectXYZ(binary edge, mono/stereo), similar to EdgeProjectXYZOnlyPose(change the parameter
- * Pw to optimized vertex _vertices[0] & Tbw to _vertices[1])
- */
-template <int DE, int DV>
-class EdgeNavStateProjectXYZ
-    : public BaseBinaryEdge<DE, Matrix<double, DE, 1>, VertexSBAPointXYZ, VertexNavState<DV> > {
-  Matrix<double, DE, 1> cam_project(const Vector3d& trans_xyz) const {
-    const float invz = 1.0f / trans_xyz[2];  // normalize
-    Matrix<double, DE, 1> res;
-    res[0] = trans_xyz[0] * invz * fx + cx;
-    res[1] = trans_xyz[1] * invz * fy + cy;
-    if (DE == 3) res[2] = res[0] - bf * invz;  // ur=ul-b*fx/dl or u in right image
-    return res;
-  }
-
-  typedef BaseBinaryEdge<DE, Matrix<double, DE, 1>, VertexSBAPointXYZ, VertexNavState<DV> > Base;
-
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  bool read(std::istream& is) { return readEdge<DE>(is, this->_measurement, this->information()); }
-  bool write(std::ostream& os) const { return writeEdge<DE>(os, this->measurement(), this->information()); }
-  virtual void computeError() {
-    const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);    // Xw/Pw
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-    const NavState& ns = vNS->estimate();  // transform Xw to Xc through Tbw&&Tcb
-    this->_error =
-        this->_measurement -
-        cam_project(Rcb * ns.getRwb().transpose() * (pXw->estimate() - ns.mpwb) +
-                    tcb);  // Pc=Tcb*Tbw*Pw=Rcb*Rbw*Pw+Rcb*tbw(-Rcb*Rbw*twb)+tcb(-Rcb*tbc)=Rcb*Rbw*(Pw-twb)+tcb;
-  }
-  virtual void linearizeOplus();
-
-  void SetParams(const double& fx_, const double& fy_, const double& cx_, const double& cy_, const Matrix3d& Rcb_,
-                 const Vector3d& tcb_, const float* bf_ = NULL) {
-    fx = fx_;
-    fy = fy_;
-    cx = cx_;
-    cy = cy_;
-    Rcb = Rcb_;
-    tcb = tcb_;
-    if (bf_ != NULL) bf = *bf_;
-  }
-  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
-    const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);    // Xw/Pw
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-    const NavState& ns = vNS->estimate();
-    return (Rcb * ns.getRwb().transpose() * (pXw->estimate() - ns.mpwb) + tcb)(2) > 0.0;  // Xc.z>0
-  }
-
- protected:
-  double fx, fy, cx, cy, bf;  // Camera intrinsics
-  Matrix3d Rcb;
-  Vector3d tcb;  // Camera-IMU extrinsics
-
-  using Base::_jacobianOplusXi;
-  using Base::_jacobianOplusXj;
-  using Base::_vertices;
-};
-template <int DE, int DV>
-void EdgeNavStateProjectXYZ<DE, DV>::linearizeOplus() {
-  const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xw/Pw
-  const Vector3d& Pw = pXw->estimate();
-  const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-  const NavState& ns = vNS->estimate();
-  Matrix3d Rwb = ns.getRwb();
-
-  Vector3d Pc = Rcb * ns.getRwb().transpose() * (Pw - ns.mpwb) + tcb;  // Pc=Rcb*Rbw*(Pw-twb)+tcb
-  double x = Pc[0], y = Pc[1], invz = 1 / Pc[2], invz_2 = invz * invz;
-
-  // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
-  Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
-  Jproj.template block<2, 3>(0, 0) << -fx * invz, 0, x * fx * invz_2, 0, -fy * invz, y * fy * invz_2;
-  if (DE > 2)
-    Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), 0,
-        Jproj(0, 2) - bf * invz_2;  // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0
-                                    // -fx*x/z^2+bf/z^2]
-
-  // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
-  // corresponding Vertex, so here is the same, a bit dfferent from (21)
-  //   Matrix<double,DE,3> JdPwb=Jproj*(-Rcb);//J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
-  Matrix<double, DE, 3> JdPwb = Jproj * (-Rcb * Rwb.transpose());  // J_Pc_dPwb = -Rcw(p<-p+dp)
-
-  // Jacobian of error w.r.t dRwb
-  Vector3d Paux = Rcb * Rwb.transpose() *
-                  (Pw - ns.mpwb);  // J_Pc_dRwb=(Rcw*(Pw-twb))^Rcb, using right disturbance model/Rwb->Rwb*Exp(dphi) or
-                                   // Rbw->Exp(-dphi)*Rbw, see Manifold paper (20)
-  Matrix<double, DE, 3> JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb);
-
-  // Jacobian of error w.r.t NavStatePR, order in 'update_': dP, dPhi
-  Matrix<double, DE, DV> JNavState = Matrix<double, DE, DV>::Zero();
-  JNavState.template block<DE, 3>(0, 0) = JdPwb;       // J_error_dnotPR=0 so we'd better use PR&V instead of PVR/PVRB
-  JNavState.template block<DE, 3>(0, DV - 3) = JdRwb;  // only for 9(J_e_dV=0)/6
-  _jacobianOplusXj = JNavState;
-
-  // Jacobian of error(-pc) w.r.t dXw/dPw: J_e_dXw=JdXw=J_e_Pc*J_Pc_dPw=Jproj*Rcw=-JdPwb
-  //   _jacobianOplusXi=-JdPwb*Rwb.transpose();//for (p<-p+R*dp)
-  _jacobianOplusXi = -JdPwb;  // Jproj*Rcb*Rwb.transpose(); it's a fast form for (p<-p+dp)
-}
-
-typedef EdgeNavStateProjectXYZ<2, 6> EdgeNavStatePRPointXYZ;
-typedef EdgeNavStateProjectXYZ<3, 6> EdgeStereoNavStatePRPointXYZ;
-typedef EdgeNavStateProjectXYZ<2, 9> EdgeNavStatePVRPointXYZ;
-typedef EdgeNavStateProjectXYZ<3, 9> EdgeStereoNavStatePVRPointXYZ;
-
-/**
- * \brief template for EdgeProjectXYZ(trinary edge, mono/stereo), similar to EdgeProjectXYZ(binary edge, just add one
- * VertexScale)
- */
-template <int DE, int DV>
-class EdgeNavStateProjectXYZWithScale : public BaseMultiEdge<DE, Matrix<double, DE, 1> > {
-  Matrix<double, DE, 1> cam_project(const Vector3d& trans_xyz) const {
-    const float invz = 1.0f / trans_xyz[2];  // normalize
-    Matrix<double, DE, 1> res;
-    res[0] = trans_xyz[0] * invz * fx + cx;
-    res[1] = trans_xyz[1] * invz * fy + cy;
-    if (DE == 3) res[2] = res[0] - bf * invz;  // ur=ul-b*fx/dl or u in right image
-    return res;
-  }
-
-  typedef BaseMultiEdge<DE, Matrix<double, DE, 1> > Base;
-
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  EdgeNavStateProjectXYZWithScale() : Base() { this->resize(3); }
-  bool read(std::istream& is) { return readEdge<DE>(is, this->_measurement, this->information()); }
-  bool write(std::ostream& os) const { return writeEdge<DE>(os, this->measurement(), this->information()); }
-  virtual void computeError() {
-    const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);    // Xw/Pw
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-    const NavState& ns = vNS->estimate();                                       // transform Xw to Xc through Tbw&&Tcb
-    const VertexScale* vScale = static_cast<const VertexScale*>(_vertices[2]);  // Scale
-    double scale = vScale->estimate();
-    Matrix3d Rcw = Rcb * ns.getRwb().transpose();
-    // here we use Xw_truescale=s*Xw_currentscale;twb is nearly true scale at the end of execution, so here we don't use
-    // twb_true=s*twc+Rwc*tcb=s*(twb_current-Rwc*tcb)+Rwc*tcb for normal fast speed
-    this->_error =
-        this->_measurement -
-        cam_project(
-            Rcw * (scale * pXw->estimate() - ns.mpwb) +
-            tcb);  // Pc=Tcb*Tbw*Pw=Rcb*Rbw*Pw+Rcb*tbw(-Rcb*Rbw*twb)+tcb(-Rcb*tbc)=Rcb*Rbw*(Pw_true-twb_true)+tcb;
-  }
-  virtual void linearizeOplus();
-
-  void SetParams(const double& fx_, const double& fy_, const double& cx_, const double& cy_, const Matrix3d& Rcb_,
-                 const Vector3d& tcb_, const float* bf_ = NULL) {
-    fx = fx_;
-    fy = fy_;
-    cx = cx_;
-    cy = cy_;
-    Rcb = Rcb_;
-    tcb = tcb_;
-    if (bf_ != NULL) bf = *bf_;
-  }
-  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
-    const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);    // Xw/Pw
-    const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-    const NavState& ns = vNS->estimate();
-    const VertexScale* vScale = static_cast<const VertexScale*>(_vertices[2]);  // Scale
-    double scale = vScale->estimate();
-    Matrix3d Rcw = Rcb * ns.getRwb().transpose();
-    return (Rcw * (scale * pXw->estimate() - ns.mpwb) + tcb)(2) > 0.0;  // Xc.z>0
-  }
-
- protected:
-  double fx, fy, cx, cy, bf;  // Camera intrinsics
-  Matrix3d Rcb;
-  Vector3d tcb;  // Camera-IMU extrinsics
-
-  using Base::_jacobianOplus;
-  using Base::_vertices;
-};
-template <int DE, int DV>
-void EdgeNavStateProjectXYZWithScale<DE, DV>::linearizeOplus() {
-  const VertexSBAPointXYZ* pXw = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xw/Pw
-  const Vector3d& Pw = pXw->estimate();
-  const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);  // Tbw
-  const NavState& ns = vNS->estimate();
-  Matrix3d Rwb = ns.getRwb();
-  const VertexScale* vScale = static_cast<const VertexScale*>(_vertices[2]);  // Scale
-  double scale = vScale->estimate();
-
-  Matrix3d Rcw = Rcb * Rwb.transpose();
-  Vector3d Pc = Rcw * (scale * Pw - ns.mpwb) + tcb;  // Pc=Rcb*Rbw*(Pw_true-twb_true)+tcb
-  double x = Pc[0], y = Pc[1], invz = 1 / Pc[2], invz_2 = invz * invz;
-
-  // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
-  Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
-  Jproj.template block<2, 3>(0, 0) << -fx * invz, 0, x * fx * invz_2, 0, -fy * invz, y * fy * invz_2;
-  if (DE > 2)
-    Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), 0,
-        Jproj(0, 2) - bf * invz_2;  // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0
-                                    // -fx*x/z^2+bf/z^2]
-
-  // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
-  // corresponding Vertex, so here is the same, a bit dfferent from (21)
-  //   Matrix<double,DE,3> JdPwb=Jproj*(-Rcb);//J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
-  Matrix<double, DE, 3> JdPwb = Jproj * (-Rcw);  // J_Pc_dPwb = -Rcw(p<-p+dp)
-  // Jacobian of error w.r.t dRwb
-  Vector3d Paux = Rcb * Rwb.transpose() *
-                  (scale * Pw - ns.mpwb);  // J_Pc_dRwb=(Rcw*(s*Pw-twb))^Rcb, using right disturbance
-                                           // model/Rwb->Rwb*Exp(dphi) or Rbw->Exp(-dphi)*Rbw, see Manifold paper (20)
-  Matrix<double, DE, 3> JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb);
-
-  // Jacobian of error w.r.t NavStatePR, order in 'update_': dP, dPhi
-  Matrix<double, DE, DV> JNavState = Matrix<double, DE, DV>::Zero();
-  JNavState.template block<DE, 3>(0, 0) = JdPwb;       // J_error_dnotPR=0 so we'd better use PR&V instead of PVR/PVRB
-  JNavState.template block<DE, 3>(0, DV - 3) = JdRwb;  // only for 9(J_e_dV=0)/6
-  _jacobianOplus[1] = JNavState;
-
-  // Jacobian of error(-pc) w.r.t dXw/dPw: J_e_dXw=JdXw=J_e_Pc*J_Pc_dPw=Jproj*Rcw*scale=-JdPwb*scale
-  _jacobianOplus[0] = JdPwb * (-scale);  // Jproj*Rcw*scale; Pw<-Pw+dPw, Pw_true=sPw
-
-  // Jacobian of error(-pc) w.r.t ds: J_e_ds=Jds=J_e_Pc*J_Pc_ds
-  _jacobianOplus[2] = Jproj * Rcw * Pw;  // J_Pc_ds=Rcw*Pw, easy to prove
-}
-
-typedef EdgeNavStateProjectXYZWithScale<2, 6> EdgeNavStatePRSPointXYZ;
-typedef EdgeNavStateProjectXYZWithScale<3, 6> EdgeStereoNavStatePRSPointXYZ;
-// typedef EdgeNavStateProjectXYZWithScale<2,6,true> EdgeNavStatePRSPointXYZStable;
-
-/**
- * \brief template for EdgeEnc(binary edge)
- */
-class EdgeEnc : public BaseBinaryEdge<6, Vector6d, VertexSE3Expmap, VertexSE3Expmap> {
- public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  bool read(std::istream& is) { return true; }
-  bool write(std::ostream& os) const { return true; }
-
-  void computeError();
-  virtual void linearizeOplus();
-
-  Quaterniond qRce;
-  Vector3d pce;
-
- protected:
-};
+///**
+// * \brief template for EdgeEnc(binary edge)
+// */
+//class EdgeEnc : public BaseBinaryEdge<6, Vector6d, VertexSE3Expmap, VertexSE3Expmap> {
+// public:
+//  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+//
+//  bool read(std::istream& is) { return true; }
+//  bool write(std::ostream& os) const { return true; }
+//
+//  void computeError();
+//  virtual void linearizeOplus();
+//
+//  Quaterniond qRce;
+//  Vector3d pce;
+//
+// protected:
+//};
 template <int DV>
 class EdgeEncNavState : public BaseBinaryEdgeEx<6, Vector6d, VertexNavState<DV>, VertexNavState<DV> > {
  public:
