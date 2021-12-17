@@ -192,7 +192,16 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint*> &vpMapPoints1, c
       }
     }
     if (only1match && bestDistInCams <= th_bestdist) {
-      vnMatch1[i1].insert(bestIdxInCams);
+      auto pMP2 = pKF->GetMapPoint(bestIdxInCams);
+      if (pMP2) {
+        auto idxsOf1mp = pMP2->GetIndexInKeyFrame(pKF);
+        bool check = false;
+        for (auto iter = idxsOf1mp.begin(), iterend = idxsOf1mp.end(); iter != iterend; ++iter) {
+          if (bestIdxInCams == *iter) check = true;
+          vnMatch1[i1].insert(*iter);
+        }
+        CV_Assert(check);
+      } else vnMatch1[i1].insert(bestIdxInCams);
     }
   }
 }
@@ -1161,10 +1170,10 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
 
     vector<set<int>> vnMatch[2];
     // Transform from KF1 to KF2 and search
-    SearchByProjectionBase(vpMapPoints1,sR21 * R1w, sR21 * t1w + t21, pKF2, th, TH_HIGH, vnMatch[0], &vbAlreadyMatched1, true);
+    SearchByProjectionBase(vpMapPoints1,sR21 * R1w, sR21 * t1w + t21, pKF2, th, TH_HIGH, vnMatch[0], &vbAlreadyMatched1, false, nullptr, false);//true);
 
     // Transform from KF2 to KF1 and search
-    SearchByProjectionBase(vpMapPoints2,sR12 * R2w, sR12 * t2w + t12, pKF1, th, TH_HIGH, vnMatch[1], &vbAlreadyMatched2, true);
+    SearchByProjectionBase(vpMapPoints2,sR12 * R2w, sR12 * t2w + t12, pKF1, th, TH_HIGH, vnMatch[1], &vbAlreadyMatched2, false, nullptr, false);//true);
 
     // Check agreement
     int nFound = 0;

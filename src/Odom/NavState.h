@@ -32,7 +32,8 @@ public:
   Vector3d mdba;  	// delta bias of accelerometer
   
   NavState():mpwb(0,0,0),mvwb(0,0,0),mbg(0,0,0),mba(0,0,0),mdbg(0,0,0),mdba(0,0,0){}
-  NavState(const NavState &x):mpwb(x.mpwb),mvwb(x.mvwb),mRwb(x.mRwb),mbg(x.mbg),mba(x.mba),mdbg(x.mdbg),mdba(x.mdba){}//though Eigen has deep copy, use initialization list to speed up
+  // for Eigen has deep copy, we don't define default copy constructor and operator= and we don't need ~NavState(),
+  // so move copy constructor and move operator= will also be default
 
   Matrix3d getRwb() const{return mRwb.matrix();}//get rotation matrix of Rwbj, const is very important!
   //if SO3exd could be used, it will be safer here

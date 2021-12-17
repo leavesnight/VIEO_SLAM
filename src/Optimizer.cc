@@ -2251,10 +2251,6 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 #endif
   optimizer.setAlgorithm(solver);
 
-  // Calibration
-  const cv::Mat& K1 = pKF1->mK;
-  const cv::Mat& K2 = pKF2->mK;
-
   // Camera poses
   const cv::Mat R1w = pKF1->GetRotation();
   const cv::Mat t1w = pKF1->GetTranslation();
@@ -2262,27 +2258,29 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
   const cv::Mat t2w = pKF2->GetTranslation();
 
   // Set Sim3 vertex
-  g2o::VertexSim3Expmap* vSim3 = new g2o::VertexSim3Expmap();
-  vSim3->_fix_scale = bFixScale;
-  vSim3->setEstimate(g2oS12);                        // this vertex showing the relative Sim3 transform/g2o:
-                                                     // S12/ScurrentKF_maploopcandidateKF(enough consistent)
-  vSim3->setId(0);                                   // same as PoseOptimization()
-  vSim3->setFixed(false);                            // S12 to be optimized
-  vSim3->_principle_point1[0] = K1.at<float>(0, 2);  // cx1
-  vSim3->_principle_point1[1] = K1.at<float>(1, 2);  // cy1
-  vSim3->_focal_length1[0] = K1.at<float>(0, 0);     // fx1
-  vSim3->_focal_length1[1] = K1.at<float>(1, 1);     // fy1
-  vSim3->_principle_point2[0] = K2.at<float>(0, 2);  // cx2
-  vSim3->_principle_point2[1] = K2.at<float>(1, 2);  // cy2
-  vSim3->_focal_length2[0] = K2.at<float>(0, 0);     // fx2
-  vSim3->_focal_length2[1] = K2.at<float>(1, 1);     // fy2
-  optimizer.addVertex(vSim3);
+  g2o::VertexNavStatePR* pvSE3;
+  NavStated ns;
+  ns.mRwb = Sophus::SO3exd(g2oS12.rotation()).inverse();
+  ns.mpwb = -(ns.mRwb * g2oS12.translation());
+  pvSE3 = new g2o::VertexNavStatePR();
+  pvSE3->setEstimate(ns);
+  pvSE3->setId(0);
+  pvSE3->setFixed(false);
+  optimizer.addVertex(pvSE3);
+  g2o::VertexScale* pvScale = new g2o::VertexScale();
+  pvScale->setEstimate(g2oS12.scale());
+  pvScale->setId(1);
+  if (bFixScale)
+    pvScale->setFixed(true);
+  else
+    pvScale->setFixed(false);
+  optimizer.addVertex(pvScale);
 
   // Set MapPoint vertices
   const int N = vpMatches1.size();
   const vector<MapPoint*> vpMapPoints1 = pKF1->GetMapPointMatches();
-  vector<g2o::EdgeSim3ProjectXYZ*> vpEdges12;
-  vector<g2o::EdgeInverseSim3ProjectXYZ*> vpEdges21;
+  vector<g2o::EdgeReprojectPRS*> vpEdges12;
+  vector<g2o::EdgeReprojectPRSInv*> vpEdges21;
   vector<size_t> vnIndexEdge;
 
   vnIndexEdge.reserve(2 * N);
@@ -2293,16 +2291,29 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
   int nCorrespondences = 0;
 
+  bool usedistort = Frame::usedistort_ && pKF1->mpCameras.size() && pKF2->mpCameras.size();
+  Pinhole CamInst;
+  if (!usedistort) {
+    CamInst.setParameter(pKF1->fx, 0);
+    CamInst.setParameter(pKF1->fy, 1);
+    CamInst.setParameter(pKF1->cx, 2);
+    CamInst.setParameter(pKF1->cy, 3);
+    CV_Assert(pKF2->fx == pKF1->fx);
+    CV_Assert(pKF2->fy == pKF1->fy);
+    CV_Assert(pKF2->cx == pKF1->cx);
+    CV_Assert(pKF2->cy == pKF1->cy);
+  }
   for (int i = 0; i < N; i++) {
     if (!vpMatches1[i]) continue;
 
     MapPoint* pMP1 = vpMapPoints1[i];
     MapPoint* pMP2 = vpMatches1[i];  // pMP1's matched MP
 
-    const int id1 = 2 * i + 1;  // different from PoseOptimization()
-    const int id2 = 2 * (i + 1);
+    // old +1;+2
+    const int id1 = 2 * i + 2;  // different from PoseOptimization()
+    const int id2 = 2 * i + 3;
 
-    //TODO: check if needed to extend for 4 cams
+    // TODO: check if needed to extend for 4 cams
     const auto idxs2 = pMP2->GetIndexInKeyFrame(pKF2);
     const int i2 = !idxs2.size() ? -1 : *idxs2.begin();
 
@@ -2316,8 +2327,8 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
         cv::Mat P3D1c = R1w * P3D1w + t1w;
         vPoint1->setEstimate(Converter::toVector3d(P3D1c));
         vPoint1->setId(id1);
-        vPoint1->setFixed(true);  // don't optimize the position of matched MapPoints(pKF1,pKF2), just contribute to the
-                                  // target function
+        // don't optimize the position of matched MapPoints(pKF1,pKF2), just contribute to the target function
+        vPoint1->setFixed(true);
         optimizer.addVertex(vPoint1);
 
         g2o::VertexSBAPointXYZ* vPoint2 = new g2o::VertexSBAPointXYZ();
@@ -2336,16 +2347,22 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
     // Set edge x1 = S12*X2
     Eigen::Matrix<double, 2, 1> obs1;
-    const cv::KeyPoint& kpUn1 = pKF1->mvKeysUn[i];
+    const cv::KeyPoint& kpUn1 = !usedistort ? pKF1->mvKeysUn[i] : pKF1->mvKeys[i];
     obs1 << kpUn1.pt.x, kpUn1.pt.y;
 
-    // TODO: for fisheye
-    g2o::EdgeSim3ProjectXYZ* e12 = new g2o::EdgeSim3ProjectXYZ();  //_vertices[0] VertexSBAPointXYZ; 1 VertexSim3Expmap
-    e12->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id2)));  // 0 Xc2
+    g2o::EdgeReprojectPRS* e12 = new g2o::EdgeReprojectPRS();
+    e12->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id2)));  // 0 c2X2
     e12->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));    // 1 S12
-    e12->setMeasurement(obs1);                                                               //[u1;v1]
+    e12->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(1)));
+    e12->setMeasurement(obs1);
     const float& invSigmaSquare1 = pKF1->mvInvLevelSigma2[kpUn1.octave];
     e12->setInformation(Eigen::Matrix2d::Identity() * invSigmaSquare1);  // Omega/Sigma^(-1)
+    if (!usedistort) {
+      e12->SetParams(&CamInst);
+    } else {
+      CV_Assert(pKF1->mapn2in_.size() > i);
+      e12->SetParams(pKF1->mpCameras[get<0>(pKF1->mapn2in_[i])]);
+    }
 
     g2o::RobustKernelHuber* rk1 = new g2o::RobustKernelHuber;
     e12->setRobustKernel(rk1);
@@ -2354,16 +2371,22 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
     // Set edge x2 = S21*X1
     Eigen::Matrix<double, 2, 1> obs2;
-    const cv::KeyPoint& kpUn2 = pKF2->mvKeysUn[i2];
+    const cv::KeyPoint& kpUn2 = !usedistort ? pKF2->mvKeysUn[i2] : pKF2->mvKeys[i2];
     obs2 << kpUn2.pt.x, kpUn2.pt.y;
 
-    g2o::EdgeInverseSim3ProjectXYZ* e21 = new g2o::EdgeInverseSim3ProjectXYZ();
-
-    e21->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id1)));  // 0 Xc1
-    e21->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));    // 1 S12/S21
-    e21->setMeasurement(obs2);                                                               //[u2;v2]
+    g2o::EdgeReprojectPRSInv* e21 = new g2o::EdgeReprojectPRSInv();
+    e21->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id1)));  // 0 c1X1
+    e21->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));    // 1 S12&Inv
+    e21->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(1)));
+    e21->setMeasurement(obs2);
     float invSigmaSquare2 = pKF2->mvInvLevelSigma2[kpUn2.octave];
     e21->setInformation(Eigen::Matrix2d::Identity() * invSigmaSquare2);  // Omega
+    if (!usedistort) {
+      e21->SetParams(&CamInst);
+    } else {
+      CV_Assert(pKF2->mapn2in_.size() > i2);
+      e21->SetParams(pKF2->mpCameras[get<0>(pKF2->mapn2in_[i2])]);
+    }
 
     g2o::RobustKernelHuber* rk2 = new g2o::RobustKernelHuber;
     e21->setRobustKernel(rk2);
@@ -2382,20 +2405,21 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
   // Check inliers
   int nBad = 0;
   for (size_t i = 0; i < vpEdges12.size(); i++) {
-    g2o::EdgeSim3ProjectXYZ* e12 = vpEdges12[i];
-    g2o::EdgeInverseSim3ProjectXYZ* e21 = vpEdges21[i];
+    g2o::EdgeReprojectPRS* e12 = vpEdges12[i];
+    g2o::EdgeReprojectPRSInv* e21 = vpEdges21[i];
     if (!e12 || !e21)  // I think this cannot be true, need test!
       continue;
 
+    // about 99% inliers are right, chi2(0.01,2)=9.21, looser then localBA
     if (e12->chi2() > th2 || e21->chi2() > th2) {
       size_t idx = vnIndexEdge[i];
       vpMatches1[idx] = static_cast<MapPoint*>(NULL);  // erase outlier matches immediately
       optimizer.removeEdge(e12);  // erase e12 from the HyperGraph::EdgeSet _edges && HyperGraph::Vertex::EdgeSet _edges
       optimizer.removeEdge(e21);
-      vpEdges12[i] = static_cast<g2o::EdgeSim3ProjectXYZ*>(NULL);
-      vpEdges21[i] = static_cast<g2o::EdgeInverseSim3ProjectXYZ*>(NULL);
+      vpEdges12[i] = nullptr;
+      vpEdges21[i] = nullptr;
       nBad++;  // the number of outliers
-    }          // about 99% inliers are right, chi2(0.01,2)=9.21, looser then localBA
+    }
   }
 
   int nMoreIterations;
@@ -2404,10 +2428,9 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
   else
     nMoreIterations = 5;  // 5+5=10, always 10 iterations including only inliers
 
-  if (nCorrespondences - nBad <
-      10)  //if the number of inliers <10 directly regard it's an unbelievable loop candidate match, \
-      half of the used threshold in ComputeSim3() in LoopClosing, same as nGood<10 then continue threshold in Relocalization()
-    return 0;
+  // if the number of inliers <10 directly regard it's an unbelievable loop candidate match, half of the used threshold
+  // in ComputeSim3() in LoopClosing, same as nGood<10 then continue threshold in Relocalization()
+  if (nCorrespondences - nBad < 10) return 0;
 
   // Optimize again only with inliers
   optimizer.initializeOptimization();
@@ -2415,24 +2438,30 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
   int nIn = 0;  // the number of inliers
   for (size_t i = 0; i < vpEdges12.size(); i++) {
-    g2o::EdgeSim3ProjectXYZ* e12 = vpEdges12[i];
-    g2o::EdgeInverseSim3ProjectXYZ* e21 = vpEdges21[i];
-    if (!e12 || !e21)  // here maybe true for outliers checked before
-      continue;
+    g2o::EdgeReprojectPRS* e12 = vpEdges12[i];
+    g2o::EdgeReprojectPRSInv* e21 = vpEdges21[i];
+    // here maybe true for outliers checked before
+    if (!e12 || !e21) continue;
 
     if (e12->chi2() > th2 || e21->chi2() > th2)  // if outliers
     {
       // size_t idx = vnIndexEdge[i];
-      vpMatches1[vnIndexEdge[i]] =
-          static_cast<MapPoint*>(NULL);  // erase outlier matches immediately, rectified by zzh, here vnIndexEdge[i]==i
-                                         // if vpMatches1[i] is always two good MPs' match
+      // erase outlier matches immediately, rectified by zzh, here vnIndexEdge[i]==i
+      // if vpMatches1[i] is always two good MPs' match
+      vpMatches1[vnIndexEdge[i]] = nullptr;
     } else
       nIn++;
   }
 
   // Recover optimized Sim3
-  g2o::VertexSim3Expmap* vSim3_recov = static_cast<g2o::VertexSim3Expmap*>(optimizer.vertex(0));  // get optimized S12
-  g2oS12 = vSim3_recov->estimate();  // rectify g2o: S12 to the optimized S12
+  // get optimized S12
+  g2o::VertexNavStatePR* pSim3_recov = static_cast<g2o::VertexNavStatePR*>(optimizer.vertex(0));
+  g2o::VertexScale* pScale_recov = static_cast<g2o::VertexScale*>(optimizer.vertex(1));
+  // rectify g2o: S12 to the optimized S12
+  // g2oS12 = vSim3_recov->estimate();
+  ns = pSim3_recov->estimate();
+  auto R12 = ns.mRwb.inverse();
+  g2oS12 = g2o::Sim3(R12.unit_quaternion(), -(R12 * ns.mpwb), pScale_recov->estimate());
 
   return nIn;
 }
