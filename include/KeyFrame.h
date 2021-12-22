@@ -21,13 +21,16 @@
 #ifndef KEYFRAME_H
 #define KEYFRAME_H
 
+#include "FrameBase.h"
+#include "MultiThreadBase.h"
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
 #include "ORBextractor.h"
-#include "Frame.h"
 #include "KeyFrameDatabase.h"
+#include "NavState.h"
+#include "OdomPreIntegrator.h"
 
 #include <mutex>
 
@@ -37,11 +40,10 @@ namespace VIEO_SLAM
 
 class Map;
 class MapPoint;
-class Frame;
 class KeyFrameDatabase;
 class GeometricCamera;
 
-class KeyFrame
+class KeyFrame : public FrameBase, public MutexUsed
 {
   char mState;
 //   std::mutex mMutexState;
@@ -238,14 +240,15 @@ public:
     std::set<KeyFrame*> GetLoopEdges();//mspLoopEdges
 
     // MapPoint observation functions
-    void AddMapPoint(MapPoint* pMP, const size_t &idx);//mvpMapPoints[idx]=pMP
-    void EraseMapPointMatch(const size_t &idx);//mvpMapPoints[idx]=nullptr
+    void AddMapPoint(MapPoint* pMP, const size_t &idx) override;//mvpMapPoints[idx]=pMP
+    void EraseMapPointMatch(const size_t &idx) override;//mvpMapPoints[idx]=nullptr
     void EraseMapPointMatch(MapPoint* pMP);//mvpMapPoints[idx corresp. pMP]=nullptr
-    void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
-    std::set<MapPoint*> GetMapPoints();//make set from good mvpMapPoints
-    std::vector<MapPoint*> GetMapPointMatches();//mvpMapPoints
+    std::set<MapPoint*> GetMapPoints() override;//make set from good mvpMapPoints
+    std::set<std::pair<MapPoint*, size_t>> GetMapPointsCami() override;
+    const std::vector<MapPoint*> &GetMapPointMatches() override;//mvpMapPoints
     int TrackedMapPoints(const int &minObs);//return the number of good mvpMapPoints whose nObs>=minObs
     MapPoint* GetMapPoint(const size_t &idx);//mvpMapPoints[idx]
+    void FuseMP(size_t idx, MapPoint* pMP);
 
     // KeyPoint functions
     std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float  &y, const float  &r) const;//return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
@@ -310,7 +313,6 @@ public:
 
     // Calibration parameters
     const float fx, fy, cx, cy, invfx, invfy, mbf, mb, mThDepth;
-    vector<GeometricCamera*> mpCameras;
 
     // Number of KeyPoints
     const int N;
@@ -323,7 +325,6 @@ public:
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
   std::vector<cv::Mat> vdescriptors_;
-  std::vector<std::pair<size_t, size_t>> mapn2in_;
 
     //BoW
     DBoW2::BowVector mBowVec;
@@ -347,7 +348,6 @@ public:
     const int mnMaxY;
     const cv::Mat mK;
 
-
     // The following variables need to be accessed trough a mutex to be thread safe.
 protected:
 
@@ -356,9 +356,6 @@ protected:
     cv::Mat Twc;
     cv::Mat Ow;
     cv::Mat Cw; // Stereo middel point. Only for visualization
-
-    // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;
 
     // BoW
     KeyFrameDatabase* mpKeyFrameDB;

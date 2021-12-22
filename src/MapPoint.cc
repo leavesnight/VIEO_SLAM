@@ -21,6 +21,7 @@
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
+#include "log.h"
 
 #include<mutex>
 
@@ -143,8 +144,10 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   if (mObservations.count(pKF)) {
     indexes = mObservations[pKF];
   }
+  CV_Assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
+  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", imu_tightly_debug_path, "debug.txt");
 
   if (pKF->mvuRight[idx] >= 0)
     nObs += 2;
@@ -211,21 +214,23 @@ void MapPoint::SetBadFlag() {
   mpMap->EraseMapPoint(this);
 }
 
-MapPoint* MapPoint::GetReplaced()
-{
-    unique_lock<mutex> lock1(mMutexFeatures);
-    unique_lock<mutex> lock2(mMutexPos);
-    return mpReplaced;
+MapPoint* MapPoint::GetReplaced() {
+  unique_lock<mutex> lock1(mMutexFeatures);
+  unique_lock<mutex> lock2(mMutexPos);
+  return mpReplaced;
 }
 
 void MapPoint::Replace(MapPoint* pMP) {
   if (pMP->mnId == this->mnId) return;
 
+  PRINT_DEBUG_INFO_MUTEX(pMP->mnId<<"replace" <<mnId<<" ", imu_tightly_debug_path, "debug.txt");
   int nvisible, nfound;
   map<KeyFrame*, set<size_t>> obs;
   {
     unique_lock<mutex> lock1(mMutexFeatures);
     unique_lock<mutex> lock2(mMutexPos);
+    // for lba may eraseobs which may setbad mp then gba may replace bad mp, causing mpReplaced->mpReplaced to form a dead cycle
+    if (pMP->isBad()) return;
     obs = mObservations;
     mObservations.clear();
     mbBad = true;
@@ -238,21 +243,27 @@ void MapPoint::Replace(MapPoint* pMP) {
     // Replace measurement in keyframe
     KeyFrame* pKF = mit->first;
 
-    if (!pMP->IsInKeyFrame(pKF)) {
-      auto idxs = mit->second;
-      for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-        auto idx = *iter;
-        pKF->ReplaceMapPointMatch(idx, pMP);
-        pMP->AddObservation(pKF, idx);
-      }
-    } else {
-      // just erase pKF->mvpMapPoints[mit->second] for it already exists/matches in another pKF->mvpMapPoints[idx](idx!=mit->second)
-      auto idxs = mit->second;
-      for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-        auto idx = *iter;
-        auto idxs_old = pMP->GetObservations()[pKF];
-        CV_Assert(idxs_old.end() == idxs_old.find(idx));
-        pKF->EraseMapPointMatch(idx);
+    size_t n_cams = !pKF->mpCameras.size() ? 1 : pKF->mpCameras.size();
+    for (size_t cami = 0; cami < n_cams; ++cami) {
+      if (!pMP->IsInKeyFrame(pKF, -1, cami)) {
+        auto idxs = mit->second;
+        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+          auto idx = *iter;
+          if (pKF->mapn2in_.size() > idx && cami != get<0>(pKF->mapn2in_[idx])) continue;
+          pKF->ReplaceMapPointMatch(idx, pMP);
+          pMP->AddObservation(pKF, idx);
+        }
+      } else {
+        // just erase pKF->mvpMapPoints[mit->second] for it already exists/matches in another pKF->mvpMapPoints[idx](idx!=mit->second)
+        auto idxs = mit->second;
+        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+          auto idx = *iter;
+          if (pKF->mapn2in_.size() > idx && cami != get<0>(pKF->mapn2in_[idx])) continue;
+          auto idxs_old = pMP->GetObservations()[pKF];
+          CV_Assert(idxs_old.end() == idxs_old.find(idx));
+          pKF->EraseMapPointMatch(idx);
+          PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, imu_tightly_debug_path, "debug.txt");
+        }
       }
     }
   }
@@ -374,10 +385,34 @@ set<size_t> MapPoint::GetIndexInKeyFrame(KeyFrame *pKF) {
     return set<size_t>();
 }
 
-bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    return (mObservations.count(pKF));
+bool MapPoint::IsInKeyFrame(KeyFrame *pKF, size_t idx, size_t cami) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  auto iter = mObservations.find(pKF);
+  if (mObservations.end() == iter) return false;
+  if (-1 == idx) {
+    if (-1 == cami)
+      return true;
+    else {
+      if (!pKF->mapn2in_.size()) return 0 == cami;
+      bool ret = false;
+      for (auto iteridx : iter->second) {
+        if (cami == get<0>(pKF->mapn2in_[iteridx])) {
+          ret = true;
+          break;
+        }
+      }
+      return ret;
+    }
+  } else if (iter->second.end() == iter->second.find(idx))
+    return false;
+  else if (-1 == cami)
+    return true;
+  else {
+    if (pKF->mapn2in_.size() > idx) {
+      return cami == get<0>(pKF->mapn2in_[idx]);
+    } else
+      return 0 == cami;
+  }
 }
 
 void MapPoint::UpdateNormalAndDepth() {

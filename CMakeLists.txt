@@ -127,6 +127,7 @@ add_library(${PROJECT_NAME} SHARED
         src/FrameDrawer.cc
         src/Converter.cc
         src/MapPoint.cc
+        src/FrameBase.cpp
         src/KeyFrame.cc
         src/Map.cc
         src/MapDrawer.cc
@@ -137,6 +138,7 @@ add_library(${PROJECT_NAME} SHARED
         src/Sim3Solver.cc
         src/Initializer.cc
         src/Viewer.cc
+        src/log.cpp
 
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp

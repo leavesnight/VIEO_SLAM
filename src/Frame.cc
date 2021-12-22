@@ -24,6 +24,7 @@
 #include <thread>
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
+#include "log.h"
 
 namespace VIEO_SLAM
 {
@@ -229,18 +230,22 @@ float Frame::cx, Frame::cy, Frame::fx, Frame::fy, Frame::invfx, Frame::invfy;
 float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
 float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 
-Frame::Frame()
-{}
+Frame::Frame(){}
 
 //Copy Constructor
 Frame::Frame(const Frame &frame)
-    :mpORBvocabulary(frame.mpORBvocabulary), mpORBextractors(frame.mpORBextractors),
+    : FrameBase(frame), mpORBvocabulary(frame.mpORBvocabulary), mpORBextractors(frame.mpORBextractors),
      mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mDistCoef(frame.mDistCoef.clone()),
-     mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N), mvKeys(frame.mvKeys),
-     mvKeysUn(frame.mvKeysUn), vvkeys_(frame.vvkeys_), vvkeys_un_(frame.vvkeys_un_), mvuRight(frame.mvuRight),
-     mvDepth(frame.mvDepth), //vv_depth_(frame.vv_depth_),
-     mDescriptors(frame.mDescriptors.clone()), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
-     mvpMapPoints(frame.mvpMapPoints), mvbOutlier(frame.mvbOutlier), mnId(frame.mnId),
+     mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N),
+      num_mono(frame.num_mono), mvidxsMatches(frame.mvidxsMatches), goodmatches_(frame.goodmatches_),
+      mapcamidx2idxs_(frame.mapcamidx2idxs_), mapidxs2n_(frame.mapidxs2n_),
+      mv3Dpoints(frame.mv3Dpoints),
+      mvKeys(frame.mvKeys), mvKeysUn(frame.mvKeysUn), vvkeys_(frame.vvkeys_), vvkeys_un_(frame.vvkeys_un_),
+      mapin2n_(frame.mapin2n_),
+      mvuRight(frame.mvuRight), mvDepth(frame.mvDepth),
+     mDescriptors(frame.mDescriptors.clone()),
+      mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
+     mvbOutlier(frame.mvbOutlier), mnId(frame.mnId),
      mpReferenceKF(frame.mpReferenceKF), mnScaleLevels(frame.mnScaleLevels),
      mfScaleFactor(frame.mfScaleFactor), mfLogScaleFactor(frame.mfLogScaleFactor),
      mvScaleFactors(frame.mvScaleFactors), mvInvScaleFactors(frame.mvInvScaleFactors),
@@ -668,7 +673,6 @@ void Frame::ComputeBoW()
 {
     if(mBowVec.empty())
     {
-      std::cout <<"Bow"<<mDescriptors.size()<<std::endl;
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);//transform Mat(N*32*8U) to vec<Mat>(N*1*32*8U)
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);//compute mBowVec && mFeatVec(at level (d-levelsup)6-4) of this Frame
     }
@@ -1058,7 +1062,7 @@ void Frame::ComputeStereoFishEyeMatches() {
         goodmatches_[i] = false;
     }
   }
-  cout << "match num=" << nMatches << endl;
+  PRINT_DEBUG_INFO_MUTEX("match num=" << nMatches << endl, imu_tightly_debug_path, "debug.txt");
 
   CV_Assert(!mvDepth.size() && !mvuRight.size());
   size_t num_pt_added = 0;

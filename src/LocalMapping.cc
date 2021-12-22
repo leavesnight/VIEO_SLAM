@@ -22,6 +22,7 @@
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
+#include "log.h"
 
 #include<mutex>
 
@@ -67,9 +68,9 @@ void LocalMapping::Run()
         // Check if there are keyframes in the queue
         if(CheckNewKeyFrames()) {
             // BoW conversion and insertion in Map
-            cout << "Processing New KF...";
+            PRINT_DEBUG_INFO_MUTEX("Processing New KF...", imu_tightly_debug_path, "debug.txt");
             ProcessNewKeyFrame();
-            cout << mpCurrentKeyFrame->mnId << " Over" << endl;
+            PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
             mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);//zzh
 
             // Check recent added MapPoints
@@ -229,25 +230,24 @@ void LocalMapping::ProcessNewKeyFrame()
     // Associate MapPoints to the new keyframe and update normal and descriptor
     const vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
 
-    for(size_t i=0; i<vpMapPointMatches.size(); i++)
-    {
-        MapPoint* pMP = vpMapPointMatches[i];
-        if(pMP)
-        {
-            if(!pMP->isBad())
-            {
-                if(!pMP->IsInKeyFrame(mpCurrentKeyFrame))//when this MP is not created by mpCurrentKeyFrame
-                {
-                    pMP->AddObservation(mpCurrentKeyFrame, i);//the only pMP->AddObservation() except new MP() && LoopClosing, it means pMP->mObservations/covisibility graph only have local KFs' info and no loop KFs' info
-                    pMP->UpdateNormalAndDepth();
-                    pMP->ComputeDistinctiveDescriptors();
-                }
-                else // this can only happen for new stereo points inserted by the Tracking
-                {
-                    mlpRecentAddedMapPoints.push_back(pMP);
-                }
-            }
+    for(size_t i=0; i<vpMapPointMatches.size(); i++) {
+      MapPoint *pMP = vpMapPointMatches[i];
+      if (pMP) {
+        if (!pMP->isBad()) {
+          // to solve the problem 2features in the same frame could see the same mp, caused by replace op.
+          if (!pMP->IsInKeyFrame(mpCurrentKeyFrame, i))  // when this MP is not created by mpCurrentKeyFrame
+          {
+            // the only pMP->AddObservation() except new MP() && LoopClosing, it means pMP->mObservations/covisibility graph only have local KFs' info and no loop KFs' info
+            pMP->AddObservation(mpCurrentKeyFrame, i);
+            pMP->UpdateNormalAndDepth();
+            pMP->ComputeDistinctiveDescriptors();
+          }
+          else  // this can only happen for new stereo points inserted by the Tracking
+          {
+            mlpRecentAddedMapPoints.push_back(pMP);
+          }
         }
+      }
     }
     // Update links in the Covisibility Graph
     mpCurrentKeyFrame->UpdateConnections(mpLastCamKF);
@@ -301,7 +301,6 @@ void LocalMapping::CreateNewMapPoints()
     if(mbMonocular)
         nn=20;
     const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
-    cout << "check neigh kf num="<<vpNeighKFs.size() <<endl;
 
     ORBmatcher matcher(0.6,false);
 
@@ -357,7 +356,6 @@ void LocalMapping::CreateNewMapPoints()
         // Search matches that fullfil epipolar constraint(with 2 sigma rule)
         vector<pair<size_t,size_t> > vMatchedIndices;
         matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,F12,vMatchedIndices,false);//matching method is like SBBoW
-        cout << "triangulate match num="<<vMatchedIndices.size()<<endl;
 
         cv::Mat Rcw2 = pKF2->GetRotation();
         cv::Mat Rwc2 = Rcw2.t();
@@ -562,6 +560,7 @@ void LocalMapping::CreateNewMapPoints()
             pMP->AddObservation(mpCurrentKeyFrame,idx1);            
             pMP->AddObservation(pKF2,idx2);
 
+            PRINT_DEBUG_INFO_MUTEX("addmp1"<<endl, imu_tightly_debug_path, "debug.txt");
             mpCurrentKeyFrame->AddMapPoint(pMP,idx1);
             pKF2->AddMapPoint(pMP,idx2);
 
@@ -575,7 +574,6 @@ void LocalMapping::CreateNewMapPoints()
             nnew++;
         }
     }
-    cout << "check nnew = "<< nnew<<endl;
 }
 
 void LocalMapping::SearchInNeighbors()
@@ -616,7 +614,7 @@ void LocalMapping::SearchInNeighbors()
         KeyFrame* pKFi = *vit;
         num_fused = matcher.Fuse(pKFi,vpMapPointMatches);
     }
-  cout << "over2 fused num = "<< num_fused << endl;
+  PRINT_DEBUG_INFO_MUTEX("over2 fused num = "<< num_fused << endl, imu_tightly_debug_path, "debug.txt");
 
     // Search matches by projection from target KFs in current KF
     vector<MapPoint*> vpFuseCandidates;
@@ -641,7 +639,7 @@ void LocalMapping::SearchInNeighbors()
     }
 
     num_fused = matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
-  cout << "over3, fused2= "<<num_fused << endl;
+  PRINT_DEBUG_INFO_MUTEX("over3, fused2= "<<num_fused << endl, imu_tightly_debug_path, "debug.txt");
 
 
     // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
@@ -801,7 +799,8 @@ void LocalMapping::KeyFrameCulling() {
     for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
-      if (pKF->mnId == 0) continue;  // cannot erase the initial KF
+      // pKF is bad check for loop closing thread setnoterase and check can speed up
+      if (pKF->mnId == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
 
       // timespan restriction is implemented as the VIORBSLAM paper III-B
       double tmNext = -1;

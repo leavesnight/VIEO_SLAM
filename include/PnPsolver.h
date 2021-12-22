@@ -54,6 +54,7 @@
 #include <opencv2/core/core.hpp>
 #include "MapPoint.h"
 #include "Frame.h"
+#include "GeometricCamera.h"
 
 namespace VIEO_SLAM
 {
@@ -142,6 +143,9 @@ class PnPsolver {
 
   // 3D Points
   vector<cv::Point3f> mvP3Dw;
+  vector<GeometricCamera *> pcams_;
+  vector<size_t> mapidx2cami_;
+  bool usedistort_;
 
   // Index in Frame
   vector<size_t> mvKeyPointIndices;

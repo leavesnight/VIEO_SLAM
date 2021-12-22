@@ -19,6 +19,7 @@
  */
 
 #include "Optimizer.h"
+#include "log.h"
 
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
@@ -198,10 +199,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
        lit++) {
     KeyFrame* pKF1 = *lit;                     // Current KF, store the IMU pre-integration between previous-current
     KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
+    if (!pKF0) continue;
     IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
-    if (!pKF0 || imupreint.mdeltatij == 0)
-      continue;  //if no KFi/IMUPreInt's info, this IMUPreInt edge cannot be added for lack of vertices i / edge ij, \
-    notice we don't exclude the situation that KFi has no imupreint but KFj has for KFi's NavState is updated in TrackLocalMapWithIMU()
+    CV_Assert(!pKF0->isBad());
+    CV_Assert(!pKF1->isBad());
+    if (imupreint.mdeltatij == 0) continue;
     // IMU_I/PRV(B) edges
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
     g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
@@ -233,6 +235,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     // Set Enc edge(binary edge) between LastF-Frame
     const EncPreIntegrator encpreint = pKF1->GetEncPreInt();
+    CV_Assert(!pKF0->isBad());
+    CV_Assert(!pKF1->isBad());
     if (encpreint.mdeltatij == 0) continue;
     g2o::EdgeEncNavStatePR* eEnc = new g2o::EdgeEncNavStatePR();
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // lastF,i
@@ -462,7 +466,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        cout << "2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ";
+        PRINT_DEBUG_INFO_MUTEX("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ", imu_tightly_debug_path, "debug.txt");
       }
     }
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
@@ -470,10 +474,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        cout << "2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ";
+        PRINT_DEBUG_INFO_MUTEX("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ", imu_tightly_debug_path, "debug.txt");
       }
     }
-    cout << endl;
   }
 #endif
 
@@ -603,13 +606,20 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   Vector3d tbe = Converter::toVector3d(Tbe.rowRange(0, 3).col(3));  // for Enc
   for (size_t i = 0; i < vpKFs.size(); i++) {
     KeyFrame* pKF1 = vpKFs[i];  // KFj, store the IMU pre-integration between previous-current
-    if (pKF1->isBad())          // don't add the bad KFs to optimizer
-      continue;
+    // way0 to avoid mutex problem is to judge if bad after accessing all pKF1 data which may be changed after set bad
+    // way1 to update the may-be-changed data together and judge them to avoid bugs (both used)
     KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
-    IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
-    if (!pKF0 || imupreint.mdeltatij == 0)
-      continue;  //if no KFi/IMUPreInt's info, this IMUPreInt edge cannot be added for lack of vertices i / edge ij, \
+    //if no KFi/IMUPreInt's info, this IMUPreInt edge cannot be added for lack of vertices i / edge ij, \
     notice we don't exclude the situation that KFi has no imupreint but KFj has for KFi's NavState is updated in TrackLocalMapWithIMU()
+    if (!pKF0) continue;
+    IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
+    while (!pKF1->isBad() && pKF0->isBad()) { // to ensure imupreint is matched with pKF0
+      pKF0 = pKF1->GetPrevKeyFrame();
+      imupreint = pKF1->GetIMUPreInt();
+    }
+    // don't add the bad KFs to optimizer
+    if (pKF1->isBad()) continue; // way0
+    if (imupreint.mdeltatij == 0) continue; // way1
     // IMU_I/PRV(B) edges
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
     g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
@@ -642,7 +652,14 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     optimizer.addEdge(ebias);
 
     // Set Enc edge(binary edge) between LastF-Frame
-    const EncPreIntegrator encpreint = pKF1->GetEncPreInt();
+    EncPreIntegrator encpreint = pKF1->GetEncPreInt();
+    while (!pKF1->isBad() && pKF0->isBad()) { // to ensure encpreint is matched with pKF0
+      pKF0 = pKF1->GetPrevKeyFrame();
+      idKF0 = 3 * pKF0->mnId;
+      encpreint = pKF1->GetEncPreInt();
+    }
+    // don't add the bad KFs to optimizer
+    if (pKF1->isBad()) continue;
     if (encpreint.mdeltatij == 0) continue;
     g2o::EdgeEncNavStatePR* eEnc = new g2o::EdgeEncNavStatePR();
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // lastF,i
@@ -983,12 +1000,16 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
 
     for (size_t i = 0; i < vpKFs.size(); i++) {
       KeyFrame* pKF1 = vpKFs[i];  // KFj, store the Enc pre-integration between previous-current
-      if (pKF1->isBad())          // don't add the bad KFs to optimizer
-        continue;
       KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
+      // if no KFi/EncPreInt's info, this EncPreInt edge cannot be added for lack of vertices i / edge ij
+      if (!pKF0) continue;
       EncPreIntegrator encpreint = pKF1->GetEncPreInt();
-      if (!pKF0 || encpreint.mdeltatij == 0)
-        continue;  // if no KFi/EncPreInt's info, this EncPreInt edge cannot be added for lack of vertices i / edge ij
+      while (!pKF1->isBad() && pKF0->isBad()) { // to ensure encpreint is matched with pKF0
+        pKF0 = pKF1->GetPrevKeyFrame();
+        encpreint = pKF1->GetEncPreInt();
+      }
+      if (pKF1->isBad()) continue;
+      if (encpreint.mdeltatij == 0) continue;
       // Enc edges
       int idKF0 = pKF0->mnId, idKF1 = pKF1->mnId;
       g2o::EdgeEncNavStatePR* eEnc = new g2o::EdgeEncNavStatePR();
@@ -1271,8 +1292,9 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints
     int id_mp_beg = 2;
 
+    const auto &frame_mps = pFrame->GetMapPointMatches();
     for (int i = 0; i < N; i++) {
-      MapPoint* pMP = pFrame->mvpMapPoints[i];
+      MapPoint* pMP = frame_mps[i];
       if (pMP) {
         // add fixed mp vertices for motion_only BA
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
@@ -1445,7 +1467,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   KeyFrame* pKFlocal = NULL;  // for Nlocal
   // Local KeyFrames: First Breath Search from Current Keyframe
   list<KeyFrame*> lLocalKeyFrames;
-  cout << "enter LBA" << "Nl="<<Nlocal << endl;
 
   if (Nlocal == 0) {
     lLocalKeyFrames.push_back(pKF);
@@ -1568,7 +1589,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     if (pKFi->mnId > maxKFid) maxKFid = pKFi->mnId;
     ++num_fixed_kf;
   }
-  cout << "check fixed kf num="<<num_fixed_kf<<endl;
 
   vector<g2o::EdgeEncNavStatePR*> vpEdgesEnc;  // Enc edges
   if (Nlocal > 0) {
@@ -1582,8 +1602,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       KeyFrame* pKF1 = *lit;                     // Current KF, store the Enc pre-integration between previous-current
       KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
       EncPreIntegrator encpreint = pKF1->GetEncPreInt();
-      if (!pKF0 || encpreint.mdeltatij == 0)
-        continue;  // if no KFi/EncPreInt's info, this EncPreInt edge cannot be added for lack of vertices i / edge ij
+      // if no KFi/EncPreInt's info, this EncPreInt edge cannot be added for lack of vertices i / edge ij
+      if (!pKF0 || encpreint.mdeltatij == 0) continue;
+      CV_Assert(!pKF0->isBad());
+      CV_Assert(!pKF1->isBad());
       // Enc edges
       int idKF0 = pKF0->mnId, idKF1 = pKF1->mnId;
       g2o::EdgeEncNavStatePR *eEnc = new g2o::EdgeEncNavStatePR();
@@ -1766,7 +1788,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
       e->setRobustKernel(0);  // cancel RobustKernel
     }
-    //cout << endl;
 
     for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
       g2o::EdgeReprojectPRStereo *e = vpEdgesStereo[i];
@@ -1825,7 +1846,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
         cout << "Enc edge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ";
       }
     }
-    cout << endl;
   }
 #endif
 
@@ -2176,6 +2196,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
   for (size_t i = 0; i < vpKFs.size(); i++)  // all KFs in pMap
   {
     KeyFrame* pKFi = vpKFs[i];
+    if (pKFi->isBad()) continue;
 
     const int nIDi = pKFi->mnId;
 

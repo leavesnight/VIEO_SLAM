@@ -69,13 +69,16 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
     mnIterations(0), mnBestInliers(0), N(0)
 {
     mvpMapPointMatches = vpMapPointMatches;
-    mvP2D.reserve(F.mvpMapPoints.size());
-    mvSigma2.reserve(F.mvpMapPoints.size());
-    mvP3Dw.reserve(F.mvpMapPoints.size());
-    mvKeyPointIndices.reserve(F.mvpMapPoints.size());
-    mvAllIndices.reserve(F.mvpMapPoints.size());
+    const auto &frame_mps = F.GetMapPointMatches();
+    mvP2D.reserve(frame_mps.size());
+    mvSigma2.reserve(frame_mps.size());
+    mvP3Dw.reserve(frame_mps.size());
+    mvKeyPointIndices.reserve(frame_mps.size());
+    mvAllIndices.reserve(frame_mps.size());
 
     int idx=0;
+    usedistort_ = Frame::usedistort_ && F.mpCameras.size();
+    if (usedistort_) pcams_ = F.mpCameras;
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
         MapPoint* pMP = vpMapPointMatches[i];
@@ -84,7 +87,7 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
         {
             if(!pMP->isBad())
             {
-                const cv::KeyPoint &kp = F.mvKeysUn[i];
+                const cv::KeyPoint &kp = !usedistort_ ? F.mvKeysUn[i] : F.mvKeys[i];
 
                 mvP2D.push_back(kp.pt);
                 mvSigma2.push_back(F.mvLevelSigma2[kp.octave]);
@@ -93,7 +96,8 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
                 mvP3Dw.push_back(cv::Point3f(Pos.at<float>(0),Pos.at<float>(1), Pos.at<float>(2)));
 
                 mvKeyPointIndices.push_back(i);
-                mvAllIndices.push_back(idx);               
+                mvAllIndices.push_back(idx);
+                if (usedistort_) mapidx2cami_.push_back(get<0>(F.mapn2in_[i]));
 
                 idx++;
             }
@@ -316,10 +320,18 @@ void PnPsolver::CheckInliers()
 
         float Xc = mRi[0][0]*P3Dw.x+mRi[0][1]*P3Dw.y+mRi[0][2]*P3Dw.z+mti[0];
         float Yc = mRi[1][0]*P3Dw.x+mRi[1][1]*P3Dw.y+mRi[1][2]*P3Dw.z+mti[1];
-        float invZc = 1/(mRi[2][0]*P3Dw.x+mRi[2][1]*P3Dw.y+mRi[2][2]*P3Dw.z+mti[2]);
+        float Zc = (mRi[2][0]*P3Dw.x+mRi[2][1]*P3Dw.y+mRi[2][2]*P3Dw.z+mti[2]);
 
-        double ue = uc + fu * Xc * invZc;
-        double ve = vc + fv * Yc * invZc;
+        double ue, ve;
+        if (!usedistort_) {
+          float invZc = 1./Zc;
+          ue = uc + fu * Xc * invZc;
+          ve = vc + fv * Yc * invZc;
+        } else {
+          auto pt = pcams_[mapidx2cami_[i]]->project(Vector3d(Xc, Yc, Zc));
+          ue = pt[0];
+          ve = pt[1];
+        }
 
         float distX = P2D.x-ue;
         float distY = P2D.y-ve;

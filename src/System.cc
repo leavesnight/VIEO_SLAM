@@ -701,7 +701,7 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
-    mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
+    mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
     //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvvKeysUn[0];
     return Tcw;
 }
@@ -753,7 +753,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
-    mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
+    mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
     //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
     return Tcw;
 }
@@ -804,7 +804,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
-    mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
+    mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
     //mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
 
     return Tcw;

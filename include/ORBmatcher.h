@@ -37,15 +37,18 @@ namespace VIEO_SLAM
 class ORBmatcher
 {    
 public:
+  enum ModeSBP { SBPFuseLater = 0x1,
+    SBPMatchMultiCam = 0x2};
 
     ORBmatcher(float nnratio=0.6, bool checkOri=true);
 
     // Computes the Hamming distance between two ORB descriptors(1*256bit/32*8bit)
     static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
   static void SearchByProjectionBase(const vector<MapPoint*> &vpMapPoints1, cv::Mat Rcrw, cv::Mat tcrw, KeyFrame *pKF,
-                                                 const float th_radius, const float th_bestdist,
-                                       vector<set<int>> &vnMatch1, vector<bool> *pvbAlreadyMatched1 = nullptr,
-                                       bool bCheckViewingAngle = false, const float *pbf = nullptr, bool only1match = false);
+                                       const float th_radius, const float th_bestdist, bool bCheckViewingAngle = false,
+                                       const float *pbf = nullptr, int* pnfused = nullptr,
+                                       char mode = (char)SBPMatchMultiCam, vector<vector<bool>> *pvbAlreadyMatched1 = nullptr,
+                                       vector<set<int>> *pvnMatch1 = nullptr);
 
     // Search matches between Frame keypoints and projected MapPoints. Returns number of additional matches
     // Used to track the local map (Tracking)

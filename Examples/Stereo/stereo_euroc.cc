@@ -267,14 +267,14 @@ int main(int argc, char **argv) {
     unique_lock<mutex> lock(g_mutex);
     g_brgbdFinished = true;
   }
-  if (SLAM.MapChanged()) {
-    cout << "Map is changing!Please enter s to stop!" << endl;
-    //       while (cin.get()!='s') {sleep(1);}
-    sleep(5);
-  }
+  //    if (SLAM.MapChanged()) { // done in Shutdown()
+  //      cout << "Map is changing!Please enter s to stop!" << endl;
+  //      //       while (cin.get()!='s') {sleep(1);}
+  //      sleep(5);
+  //    }
   // zzh over
 
-  // Stop all threads
+  // Stop all threads, gba waited in Shutdown() and won't be forced stop in Shutdown()
   SLAM.Shutdown();
 
   // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the

@@ -360,8 +360,9 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
     int id_mp_beg = 4;
 
+    const auto& frame_mps = pFrame->GetMapPointMatches();
     for (int i = 0; i < N; i++) {
-      MapPoint *pMP = pFrame->mvpMapPoints[i];
+      MapPoint *pMP = frame_mps[i];
       if (pMP) {
         // add fixed mp vertices for motion_only BA
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw

@@ -30,6 +30,7 @@
 
 #include<mutex>
 #include<thread>
+#include "log.h"
 
 namespace VIEO_SLAM
 {
@@ -144,7 +145,7 @@ bool LoopClosing::DetectLoop()
             mpKeyFrameDB->add(mpCurrentKF);
             return false;
         }
-        cout<<"SetNotErase"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("SetNotErase"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetNotErase();
     }
 
@@ -152,7 +153,7 @@ bool LoopClosing::DetectLoop()
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);//add CurrentKF into KFDataBase
-        cout<<"Too close, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("Too close, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetErase();//allow CurrentKF to be erased
         return false;
     }
@@ -183,7 +184,7 @@ bool LoopClosing::DetectLoop()
     {
         mpKeyFrameDB->add(mpCurrentKF);
         mvConsistentGroups.clear();//for it hasn't loop candidate KFs, it breaks the rule of "consecutive" new KFs condition for loop validation/roubst loop detection->restart mvConsistentGroups' counter
-	cout<<"Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+      PRINT_DEBUG_INFO_MUTEX("Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetErase();
         return false;
     }
@@ -254,21 +255,19 @@ bool LoopClosing::DetectLoop()
     // Add Current Keyframe to database, always done before return
     mpKeyFrameDB->add(mpCurrentKF);//addition to KFDB only here(LoopClosing)
 
-    if(mvpEnoughConsistentCandidates.empty())
-    {
-        cout<<"Final Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
-        mpCurrentKF->SetErase();
-        return false;
+    if(mvpEnoughConsistentCandidates.empty()) {
+      PRINT_DEBUG_INFO_MUTEX(
+          "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+          imu_tightly_debug_path, "debug.txt");
+      mpCurrentKF->SetErase();
+      return false;
     }
     else//if any candidate group is enough(counter >=3) consistent with any previous group
-    {//first some detection()s won't go here
-        cout<<"DetectLoop!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
-        return true;//keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
+    {       // first some detection()s won't go here
+      PRINT_DEBUG_INFO_MUTEX("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+                             imu_tightly_debug_path, "debug.txt");
+      return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
     }
-
-    //unused
-    //mpCurrentKF->SetErase();
-    //return false;
 }
 
 bool LoopClosing::ComputeSim3()
@@ -398,7 +397,7 @@ bool LoopClosing::ComputeSim3()
 
     if(!bMatch)//if BA inliers validation is not passed
     {
-        cout<<"bMatch==false, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("bMatch==false, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         for(int i=0; i<nInitialCandidates; i++)
              mvpEnoughConsistentCandidates[i]->SetErase();//allow loop candidate KFs && mpCurrentKF to be erased for KF.mspLoopEdges is only added in CorrectLoop()
         mpCurrentKF->SetErase();
@@ -589,8 +588,10 @@ void LoopClosing::CorrectLoop()
             {
                 MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];//matched MP of pCurMP
                 MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i);
-                if(pCurMP)
-                    pCurMP->Replace(pLoopMP);//use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected by Sim3Motion-only BA optimized S12
+                if(pCurMP) {
+                  PRINT_DEBUG_INFO_MUTEX("cl"<<endl, imu_tightly_debug_path, "debug.txt");
+                  pCurMP->Replace(pLoopMP);  // use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected by Sim3Motion-only BA optimized S12
+                }
                 else//may happen for additional matched MPs by last SBP() in ComputeSim3()
                 {//add loop matched MPs to mpCurrentKF and update MPs' mObservations and descriptor
                     mpCurrentKF->AddMapPoint(pLoopMP,i);
@@ -606,7 +607,6 @@ void LoopClosing::CorrectLoop()
     // into the current keyframe and neighbors using corrected poses.
     // Fuse duplications.
     SearchAndFuse(CorrectedSim3);
-
 
     // After the MapPoint fusion, new links in the covisibility graph will appear attaching both sides of the loop
     map<KeyFrame*, set<KeyFrame*> > LoopConnections;//new links from mvpCurrentConnectedKFs to its new neighbors/loop KFs(set)
@@ -672,6 +672,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
             MapPoint* pRep = vpReplacePoints[i];
             if(pRep)
             {
+              PRINT_DEBUG_INFO_MUTEX("saf"<<endl, imu_tightly_debug_path, "debug.txt");
                 pRep->Replace(mvpLoopMapPoints[i]);//replace vpReplacePoints[i]/pKF->mvpMapPoints[bestIdx] by mvpLoopMapPoints[i]
             }
         }

@@ -185,9 +185,10 @@ void FrameDrawer::Update(Tracking *pTracker)
     }
     else if(pTracker->mLastProcessedState==Tracking::OK)
     {
+      const auto &curfmps = pTracker->mCurrentFrame.GetMapPointMatches();
         for(int i=0;i<N;i++)
         {
-            MapPoint* pMP = pTracker->mCurrentFrame.mvpMapPoints[i];
+            MapPoint* pMP = curfmps[i];
             if(pMP)
             {
                 if(!pTracker->mCurrentFrame.mvbOutlier[i])

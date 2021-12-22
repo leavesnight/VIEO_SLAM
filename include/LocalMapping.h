@@ -23,11 +23,9 @@
 
 #include "IMUInitialization.h"//zzh
 
-#include "KeyFrame.h"
 #include "Map.h"
 #include "LoopClosing.h"
 #include "Tracking.h"
-//#include "KeyFrameDatabase.h"//unused
 
 #include <mutex>
 
@@ -40,6 +38,7 @@ class IMUInitialization;//zzh, for they includes each other
 class Tracking;
 class LoopClosing;
 class Map;
+class KeyFrame;
 
 class LocalMapping
 {

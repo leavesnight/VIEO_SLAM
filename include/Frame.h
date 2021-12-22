@@ -26,11 +26,11 @@
 
 #include<vector>
 
+#include "FrameBase.h"
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
-#include "KeyFrame.h"
 #include "ORBextractor.h"
 
 #include <opencv2/opencv.hpp>
@@ -40,11 +40,11 @@ namespace VIEO_SLAM
 #define FRAME_GRID_ROWS 48
 #define FRAME_GRID_COLS 64
 
-class MapPoint;
 class KeyFrame;
+class MapPoint;
 class GeometricCamera;
 
-class Frame
+class Frame : public FrameBase
 { 
 public:
   //const Tbc,Tce, so it can be used in multi threads
@@ -103,6 +103,8 @@ public:
 
     // Constructor for Monocular cameras.
     Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+
+    std::vector<MapPoint*> &GetMapPointsRef() { return mvpMapPoints; }
 
     // Extract ORB on the image. 0 for left image and 1 for right image.
     void ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea = nullptr);
@@ -166,7 +168,6 @@ public:
     static float invfx;
     static float invfy;
     cv::Mat mDistCoef;
-    vector<GeometricCamera*> mpCameras;
 
     // Stereo baseline multiplied by fx.
     float mbf;
@@ -183,8 +184,6 @@ public:
     //Number of Non Lapping Keypoints
     vector<size_t> num_mono = vector<size_t>(1);
     //For stereo matching
-    //1st dim means the order ij like 01,02,03,12,13,23 through GetIndexIlessJ, 0th dim 0 means i->j, 1 means j->i
-    //std::vector<std::vector<std::vector<int>>> mccMatches;
   vector<vector<size_t>> mvidxsMatches;
   vector<bool> goodmatches_; // keep same size with mvidxsMatches
   map<pair<size_t, size_t>, size_t> mapcamidx2idxs_; // final size_t max < mvidxsMatches.size()
@@ -194,10 +193,7 @@ public:
     static cv::BFMatcher BFmatcher;
     //Triangulated stereo observations using as reference the left camera. These are
     //computed during ComputeStereoFishEyeMatches
-    //order like 01,02,03,12,13,23 through GetIndexIlessJ
-    //std::vector<std::vector<cv::Mat>> mvStereo3Dpoints;
     aligned_vector<Vector3d> mv3Dpoints; // keep same size with mvidxsMatches
-    //size_t GetIndexIlessJ(int i, int j);
 
   // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
   // In the stereo case, mvKeysUn is redundant as images must be rectified.
@@ -207,15 +203,11 @@ public:
   std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
   std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
   std::vector<std::vector<size_t>> mapin2n_; // mapcamidx2n_ for addobs func.
-  //std::vector<std::tuple<size_t, size_t, size_t>> mapn2ijn_;
-  std::vector<std::pair<size_t, size_t>> mapn2in_;
 
   // Corresponding stereo coordinate and depth for each keypoint.
   // "Monocular" keypoints have a negative value.
   std::vector<float> mvuRight;
   std::vector<float> mvDepth;
-  //0 means depth in i, 1 means in j, order like 01,02,03,12,13,23 through GetIndexIlessJ
-  //std::vector<std::vector<std::vector<float>>> vv_depth_;
 
   // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
@@ -224,9 +216,6 @@ public:
     // ORB descriptor, each row associated to a keypoint.
     cv::Mat mDescriptors;
     std::vector<cv::Mat> vdescriptors_ = std::vector<cv::Mat>(1);
-
-    // MapPoints associated to keypoints, NULL pointer if no association.
-    std::vector<MapPoint*> mvpMapPoints;
 
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
