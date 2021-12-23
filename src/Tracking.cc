@@ -423,7 +423,8 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated){
   if(mnMatchesInliers<6)//30)//notice it's a class data member, changed by JingWang
       return false;
   else{
-    if (mCurrentFrame.mOdomPreIntIMU.mdeltatij==0&&mnMatchesInliers<30)//if no imudata then it degenerates to TrackLocalMap()
+    double threInliers=15;//30;//TODO: check
+    if (mCurrentFrame.mOdomPreIntIMU.mdeltatij==0&&mnMatchesInliers<threInliers)//if no imudata then it degenerates to TrackLocalMap()
       return false;
     else
       return true;
@@ -1797,7 +1798,7 @@ bool Tracking::TrackLocalMap()
       threInlierReloc=25;
       threInliers=15;
     }
-    //threInliers=15;//TODO: check
+    threInliers=15;//TODO: check
     if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<threInlierReloc)
         return false;
 

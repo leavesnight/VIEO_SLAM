@@ -28,7 +28,8 @@ IMU.SigmaI:
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
 # [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
- [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+ [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
 
 IMU.freq_hz: 1000.0
 IMU.dt_cov_noise_fix: 1

@@ -213,7 +213,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
     eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
     eprv->setMeasurement(imupreint);
-    eprv->setInformation(imupreint.mSigmaijPRV.inverse());
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      eprv->setInformation(imupreint.mSigmaijPRV.inverse() * 1e-2);
+    else
+      eprv->setInformation(imupreint.mSigmaijPRV.inverse());
     eprv->SetParams(GravityVec);
     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
     eprv->setRobustKernel(rk);
@@ -225,8 +228,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-    ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij * 1e-2);
+    else
+      // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
+      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
     rk = new g2o::RobustKernelHuber;
     ebias->setRobustKernel(rk);
     rk->setDelta(thHuberNavStateBias);
@@ -242,9 +248,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // lastF,i
     eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));  // curF,j
     eEnc->setMeasurement(encpreint.mdelxEij);
-    eEnc->setInformation(
-        encpreint.mSigmaEij.inverse());  // no vbgba problem(camera could not give enough restriction on vbgba) but
-                                         // calibration for enc is worse so we add robust kernel here
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      eEnc->setInformation(encpreint.mSigmaEij.inverse() * 1e-2);
+    else
+      // no vbgba problem(camera could not give enough restriction on vbgba) but
+      eEnc->setInformation(encpreint.mSigmaEij.inverse());
+    // calibration for enc is worse so we add robust kernel here
     rk = new g2o::RobustKernelHuber;
     eEnc->setRobustKernel(rk);
     rk->setDelta(sqrt(12.592));  // chi2(0.05,6)=12.592//chi2(0.05,3)=7.815
@@ -632,7 +641,10 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
     eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
     eprv->setMeasurement(imupreint);
-    eprv->setInformation(imupreint.mSigmaijPRV.inverse());
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      eprv->setInformation(imupreint.mSigmaijPRV.inverse() * 1e-2);
+    else
+      eprv->setInformation(imupreint.mSigmaijPRV.inverse());
     eprv->SetParams(GravityVec);
     if (bRobust) {
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -645,8 +657,11 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    ebias->setInformation(InvCovBgaRW /
-                          imupreint.mdeltatij);  // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij * 1e-2);
+    else
+      // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
+      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
     if (bRobust) {
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
       ebias->setRobustKernel(rk);
@@ -668,7 +683,10 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // lastF,i
     eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));  // curF,j
     eEnc->setMeasurement(encpreint.mdelxEij);
-    eEnc->setInformation(encpreint.mSigmaEij.inverse());
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      eEnc->setInformation(encpreint.mSigmaEij.inverse() * 1e-2);
+    else
+      eEnc->setInformation(encpreint.mSigmaEij.inverse());
     eEnc->qRbe = qRbe;
     eEnc->pbe = tbe;  // SetParams
     if (bRobust) {
@@ -1019,7 +1037,10 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
       eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // Ti 0
       eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));  // Tj 1
       eEnc->setMeasurement(encpreint.mdelxEij);
-      eEnc->setInformation(encpreint.mSigmaEij.inverse());
+      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+        eEnc->setInformation(encpreint.mSigmaEij.inverse() * 1e-2);
+      else
+        eEnc->setInformation(encpreint.mSigmaEij.inverse());
       eEnc->qRbe = qRbe;
       eEnc->pbe = tbe;  // SetParams
       if (bRobust) {
@@ -1613,7 +1634,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // Ti 0
       eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));  // Tj 1
       eEnc->setMeasurement(encpreint.mdelxEij);
-      eEnc->setInformation(encpreint.mSigmaEij.inverse());
+      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+        eEnc->setInformation(encpreint.mSigmaEij.inverse() * 1e-2);
+      else
+        eEnc->setInformation(encpreint.mSigmaEij.inverse());
       eEnc->qRbe = qRbe;
       eEnc->pbe = tbe;  // SetParams
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
