@@ -30,7 +30,7 @@
 
 #include<mutex>
 #include<thread>
-#include "log.h"
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {
@@ -464,7 +464,7 @@ void LoopClosing::CorrectLoop()
       mnCovisibilityConsistencyTh=3;//return back
     }
   
-    cout << "Loop detected!" << endl;
+    PRINT_INFO_MUTEX( "Loop detected!" << endl);
 
     // Send a stop signal to Local Mapping
     // Avoid new keyframes are inserted while correcting the loop
@@ -714,7 +714,7 @@ void LoopClosing::ResetIfRequested()
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here is mpCurrentKF
 {
     std::chrono::steady_clock::time_point begin= std::chrono::steady_clock::now();
-    cout <<redSTR "Starting Global Bundle Adjustment" << whiteSTR<<endl;
+    PRINT_INFO_MUTEX(redSTR "Starting Global Bundle Adjustment" << whiteSTR<<endl);
 
     bool bUseGBAPRV=false;
     int idx =  mnFullBAIdx;
@@ -748,8 +748,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 
         if(!mbStopGBA)//I think it's useless for when mbStopGBA==true, idx!=mnFullBAIdx
         {
-            cout << "Global Bundle Adjustment finished" << endl;
-            cout << "Updating map ..." << endl;
+            PRINT_INFO_MUTEX( "Global Bundle Adjustment finished" << endl);
+            PRINT_INFO_MUTEX( "Updating map ..." << endl);
             mpLocalMapper->RequestStop();//same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
             // Wait until Local Mapping has effectively stopped
 
@@ -849,7 +849,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
             
 	    if (bUseGBAPRV) mpIMUInitiator->SetInitGBAOver(true);//should be put after 1st visual-inertial full BA!
 
-            cout << redSTR<<"Map updated!" <<whiteSTR<< endl;//if GBA/loop correction successed, this word should appear!
+            PRINT_INFO_MUTEX( redSTR<<"Map updated!" <<whiteSTR<< endl);//if GBA/loop correction successed, this word should appear!
             
             cout<<azureSTR"Used time in propagation="<<chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now()-t1).count()<<whiteSTR<<endl;//test time used
         }

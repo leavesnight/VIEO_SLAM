@@ -21,7 +21,7 @@
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
-#include "log.h"
+#include "common/log.h"
 
 #include<mutex>
 

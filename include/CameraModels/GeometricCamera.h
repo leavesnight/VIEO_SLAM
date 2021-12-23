@@ -33,6 +33,7 @@
 #include <boost/serialization/assume_abstract.hpp>
 
 #include <Eigen/Geometry>
+#include "common/log.h"
 
 namespace VIEO_SLAM {
 class GeometricCamera {

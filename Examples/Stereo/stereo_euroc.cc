@@ -85,7 +85,7 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
   }
   delete[] odomdata;
   finOdomdata.close();
-  cout << greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl;
+  PRINT_INFO_MUTEX( greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 // zzh over
 
@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
   thread *pOdomThread = NULL;
   ifstream finOdomdata;
   int totalNum = 0;
-  cout << fixed << setprecision(6) << endl;
+  PRINT_INFO_MUTEX( fixed << setprecision(6) << endl);
 
   switch (argc) {
     case 6:
@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
       string strTmp;
       getline(finOdomdata, strTmp);                                    // EuRoC's data.csv only has one unused line
       pOdomThread = new thread(&odomRun, ref(finOdomdata), totalNum);  // must use ref()
-      cout << "OdomThread created!" << endl;
+      PRINT_INFO_MUTEX( "OdomThread created!" << endl);
     } break;
     default:
       cerr << endl
@@ -196,9 +196,9 @@ int main(int argc, char **argv) {
   vector<float> vTimesTrack;
   vTimesTrack.resize(nImages);
 
-  cout << endl << "-------" << endl;
-  cout << "Start processing sequence ..." << endl;
-  cout << "Images in the sequence: " << nImages << endl << endl;
+  PRINT_INFO_MUTEX( endl << "-------" << endl);
+  PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
+  PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
   // Main loop
   cv::Mat imLeft, imRight, imLeftRect, imRightRect;
@@ -267,8 +267,8 @@ int main(int argc, char **argv) {
     unique_lock<mutex> lock(g_mutex);
     g_brgbdFinished = true;
   }
-  //    if (SLAM.MapChanged()) { // done in Shutdown()
-  //      cout << "Map is changing!Please enter s to stop!" << endl;
+  //    if (SLAM.MapChanged()) { // done in Shutdown(), but this sleep could give map observation time in Viewer
+  //      PRINT_INFO_MUTEX( "Map is changing!Please enter s to stop!" << endl);
   //      //       while (cin.get()!='s') {sleep(1);}
   //      sleep(5);
   //    }
@@ -285,10 +285,10 @@ int main(int argc, char **argv) {
   if (!fnFBA.empty()) {
     if ((int)fnFBA) {
       SLAM.FinalGBA(fnFBA);
-      cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
+      PRINT_INFO_MUTEX( azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
     }
   } else {
-    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
+    PRINT_INFO_MUTEX( redSTR "No FullBA at the end!" << whiteSTR << endl);
   }
 
   // Tracking time statistics
@@ -297,8 +297,8 @@ int main(int argc, char **argv) {
   for (int ni = 0; ni < nImages; ni++) {
     totaltime += vTimesTrack[ni];
   }
-  cout << "-------" << endl << endl;
-  cout << "mean tracking time: " << totaltime / nImages << endl;
+  PRINT_INFO_MUTEX( "-------" << endl << endl);
+  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImages << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");

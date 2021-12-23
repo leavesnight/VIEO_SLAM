@@ -18,8 +18,8 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "log.h"
-#include "common.h"
+#include "common/log.h"
+#include "common/common.h"
 #include "Tracking.h"
 
 #include<opencv2/core/core.hpp>
@@ -243,7 +243,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated){
     // Update current frame pose according to last frame or keyframe when last KF is changed by LocalMapping/LoopClosing threads
     // unadded code: Create "visual odometry" points if in Localization Mode
     if (!PredictNavStateByIMU(bMapUpdated)) {
-        cout << redSTR"CurF.mdeltatij==0! we have to TrackWithMotionModel()!" << whiteSTR << endl;
+        PRINT_INFO_MUTEX( redSTR"CurF.mdeltatij==0! we have to TrackWithMotionModel()!" << whiteSTR << endl);
         if (!mVelocity.empty()) {
             bool bOK = TrackWithMotionModel();//maybe track failed then call pure-vision TrackWithMotionModel
             if (bOK)
@@ -547,167 +547,167 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpMap(pMap), mnLastRelocFrameId(0),
     mbRelocBiasPrepare(false),mnLastOdomKFId(0),mbKeyFrameCreated(false)//zzh
 {
-    // Load camera parameters from settings file
-    cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
+  // Load camera parameters from settings file
+  cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
 
-    //load Tbc,Tbo refer the Jing Wang's configparam.cpp
-    cv::FileNode fnT[2]={fSettings["Camera.Tbc"],fSettings["Camera.Tce"]};
-    Eigen::Matrix3d eigRtmp;
-    mTbc=cv::Mat::eye(4,4,CV_32F);
-    for (int i=0;i<2;++i){
-      if (fnT[i].empty()){
-	cout<<redSTR"No Tbc/Tce, please check if u wanna use VIO!"<<whiteSTR<<endl;
-      }else{
-	eigRtmp<<fnT[i][0],fnT[i][1],fnT[i][2],fnT[i][4],fnT[i][5],fnT[i][6],fnT[i][8],fnT[i][9],fnT[i][10];
-	eigRtmp=Eigen::Quaterniond(eigRtmp).normalized().toRotationMatrix();
-	if (i==0){
-	  for (int j=0;j<3;++j){
-	    mTbc.at<float>(j,3)=fnT[i][j*4+3];
-	    for (int k=0;k<3;++k) mTbc.at<float>(j,k)=eigRtmp(j,k);
-	  }
-	}else{
-	  mTce=cv::Mat::eye(4,4,CV_32F);
-	  for (int j=0;j<3;++j){
-	    mTce.at<float>(j,3)=fnT[i][j*4+3];
-	    for (int k=0;k<3;++k) mTce.at<float>(j,k)=eigRtmp(j,k);
-	  }
-	  Frame::mTce=mTce.clone();
-	}
-      }
-    }
-    cout<<"Tbc:"<<mTbc<<endl;
-    Frame::mTbc=mTbc.clone();cv::Mat Tcb=Converter::toCvMatInverse(mTbc);
-    Frame::meigRcb=Converter::toMatrix3d(Tcb.rowRange(0,3).colRange(0,3));Frame::meigtcb=Converter::toVector3d(Tcb.rowRange(0,3).col(3));
-    //load Sigma etad & etawi & gd,ad,bgd,bad & if accelerate needs to *9.81
-    cv::FileNode fnSig[3]={fSettings["IMU.SigmaI"],fSettings["IMU.sigma"],fSettings["IMU.dMultiplyG"]};
-    if (fnSig[0].empty()||fnSig[1].empty()||fnSig[2].empty())
-      cout<<redSTR"No IMU.sigma or IMU.dMultiplyG!"<<whiteSTR<<endl;
-    else{
-      for (int i=0;i<3;++i) for (int j=0;j<3;++j) eigRtmp(i,j)=fnSig[0][i*3+j];
-      double sigma2tmp[4]={fnSig[1][0],fnSig[1][1],fnSig[1][2],fnSig[1][3]};
-      for (int i = 0; i < 4; ++i)
-          sigma2tmp[i] *= sigma2tmp[i];
-      IMUDataDerived::SetParam(eigRtmp,sigma2tmp,fnSig[2],
-                               fSettings["IMU.dt_cov_noise_fix"].empty() ? 0 : fSettings["IMU.dt_cov_noise_fix"],
-                               fSettings["IMU.freq_hz"].empty() ? 0 : fSettings["IMU.freq_hz"]);
-    }
-    //load rc,vscale,Sigma etad
-    cv::FileNode fnEnc[4]={fSettings["Encoder.scale"],fSettings["Encoder.rc"],fSettings["Encoder.sigma"]};
-    if (fnEnc[0].empty()||fnEnc[1].empty()||fnEnc[2].empty())
-      cout<<redSTR"No Encoder.simga or Encoder.scale or Encoder.rc!"<<whiteSTR<<endl;
-    else{
-        Eigen::Vector2d eig2tmp;
-        eig2tmp << fnEnc[2][0], fnEnc[2][1];
-        Eigen::DiagonalMatrix<double, 2, 2> Sigma_2tmp(eig2tmp.cwiseProduct(eig2tmp));
-        Eigen::Matrix<double,6,1> eig6tmp;
-        eig6tmp << fnEnc[2][2], fnEnc[2][3], fnEnc[2][4], fnEnc[2][5], fnEnc[2][6], fnEnc[2][7];
-        Eigen::DiagonalMatrix<double, 6, 6> Sigma_6tmp(eig6tmp.cwiseProduct(eig6tmp));
-        EncData::SetParam(fnEnc[0],fnEnc[1],Sigma_2tmp,Sigma_6tmp,
-                          fSettings["Encoder.dt_cov_noise_fix"].empty() ? 0 : fSettings["Encoder.dt_cov_noise_fix"],
-                          fSettings["Encoder.freq_hz"].empty() ? 0 : fSettings["Encoder.freq_hz"]);
-    }
-    //load delay
-    cv::FileNode fnDelay[3]={fSettings["Camera.delaytoimu"],fSettings["Camera.delaytoenc"],fSettings["Camera.delayForPolling"]};
-    if (fnDelay[0].empty()||fnDelay[1].empty()||fnDelay[2].empty()){
-      cout<<redSTR"No Camera.delaytoimu & delaytoenc & delayForPolling!"<<whiteSTR<<endl;
-      mDelayCache=mDelayToIMU=mDelayToIMU=0;
-    }else{
-      mDelayCache=(double)fnDelay[2];
-      mDelayToIMU=fnDelay[0];mDelayToEnc=fnDelay[1];
-    }
-    //load mdErrIMUImg
-    float fps = fSettings["Camera.fps"];
-    if(fps==0) fps=30;
-    cv::FileNode fnErrIMUImg=fSettings["ErrIMUImg"];
-    if (fnErrIMUImg.empty()){
-      cout<<redSTR"No ErrIMUImg!"<<whiteSTR<<endl;
-      mdErrIMUImg=1./fps;
-    }else{
-      mdErrIMUImg=(double)fnErrIMUImg;
-    }
-
-//created by zzh over.
-
-    cv::FileNode nodeCameraName = fSettings["Camera.type"];
-    string sCameraName = "Pinhole";
-    if (!nodeCameraName.empty()) sCameraName = string(nodeCameraName);
-    cout << "Camera.type=" << sCameraName << endl;
-    mpCameras.resize(4); // TODO: detect the size
-    mDistCoef = cv::Mat::zeros(4,1,CV_32F);
-    for (int i = 0; i < 4; ++i) {
-      bool bexist_cam = false;
-      if (sCameraName == "Pinhole") {
-        cv::Mat* pDistCoef = (!pSys->usedistort_ && !i) ? &mDistCoef : nullptr;
-        bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+  // load Tbc,Tbo refer the Jing Wang's configparam.cpp
+  cv::FileNode fnT[2] = {fSettings["Camera.Tbc"], fSettings["Camera.Tce"]};
+  Eigen::Matrix3d eigRtmp;
+  mTbc = cv::Mat::eye(4, 4, CV_32F);
+  for (int i = 0; i < 2; ++i) {
+    if (fnT[i].empty()) {
+      PRINT_INFO_MUTEX( redSTR "No Tbc/Tce, please check if u wanna use VIO!" << whiteSTR << endl);
+    } else {
+      eigRtmp << fnT[i][0], fnT[i][1], fnT[i][2], fnT[i][4], fnT[i][5], fnT[i][6], fnT[i][8], fnT[i][9], fnT[i][10];
+      eigRtmp = Eigen::Quaterniond(eigRtmp).normalized().toRotationMatrix();
+      if (i == 0) {
+        for (int j = 0; j < 3; ++j) {
+          mTbc.at<float>(j, 3) = fnT[i][j * 4 + 3];
+          for (int k = 0; k < 3; ++k) mTbc.at<float>(j, k) = eigRtmp(j, k);
+        }
       } else {
-        mpFrameDrawer->showallimages_ = true;
-        pSys->usedistort_ = true; // TODO: now fisheye only support usedistort_
-        bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, nullptr);
-      }
-      if (!bexist_cam) {
-        mpCameras.resize(i);
-        break;
+        mTce = cv::Mat::eye(4, 4, CV_32F);
+        for (int j = 0; j < 3; ++j) {
+          mTce.at<float>(j, 3) = fnT[i][j * 4 + 3];
+          for (int k = 0; k < 3; ++k) mTce.at<float>(j, k) = eigRtmp(j, k);
+        }
+        Frame::mTce = mTce.clone();
       }
     }
-    //pSys->usedistort_ = false;
-    cout << "Cam size = " << mpCameras.size() << endl;
-    CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
+  }
+  PRINT_INFO_MUTEX( "Tbc:" << mTbc << endl);
+  Frame::mTbc = mTbc.clone();
+  cv::Mat Tcb = Converter::toCvMatInverse(mTbc);
+  Frame::meigRcb = Converter::toMatrix3d(Tcb.rowRange(0, 3).colRange(0, 3));
+  Frame::meigtcb = Converter::toVector3d(Tcb.rowRange(0, 3).col(3));
+  // load Sigma etad & etawi & gd,ad,bgd,bad & if accelerate needs to *9.81
+  cv::FileNode fnSig[3] = {fSettings["IMU.SigmaI"], fSettings["IMU.sigma"], fSettings["IMU.dMultiplyG"]};
+  if (fnSig[0].empty() || fnSig[1].empty() || fnSig[2].empty())
+    PRINT_INFO_MUTEX( redSTR "No IMU.sigma or IMU.dMultiplyG!" << whiteSTR << endl);
+  else {
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j) eigRtmp(i, j) = fnSig[0][i * 3 + j];
+    double sigma2tmp[4] = {fnSig[1][0], fnSig[1][1], fnSig[1][2], fnSig[1][3]};
+    for (int i = 0; i < 4; ++i) sigma2tmp[i] *= sigma2tmp[i];
+    IMUDataDerived::SetParam(eigRtmp, sigma2tmp, fnSig[2],
+                             fSettings["IMU.dt_cov_noise_fix"].empty() ? 0 : fSettings["IMU.dt_cov_noise_fix"],
+                             fSettings["IMU.freq_hz"].empty() ? 0 : fSettings["IMU.freq_hz"]);
+  }
+  // load rc,vscale,Sigma etad
+  cv::FileNode fnEnc[4] = {fSettings["Encoder.scale"], fSettings["Encoder.rc"], fSettings["Encoder.sigma"]};
+  if (fnEnc[0].empty() || fnEnc[1].empty() || fnEnc[2].empty())
+    PRINT_INFO_MUTEX( redSTR "No Encoder.simga or Encoder.scale or Encoder.rc!" << whiteSTR << endl);
+  else {
+    Eigen::Vector2d eig2tmp;
+    eig2tmp << fnEnc[2][0], fnEnc[2][1];
+    Eigen::DiagonalMatrix<double, 2, 2> Sigma_2tmp(eig2tmp.cwiseProduct(eig2tmp));
+    Eigen::Matrix<double, 6, 1> eig6tmp;
+    eig6tmp << fnEnc[2][2], fnEnc[2][3], fnEnc[2][4], fnEnc[2][5], fnEnc[2][6], fnEnc[2][7];
+    Eigen::DiagonalMatrix<double, 6, 6> Sigma_6tmp(eig6tmp.cwiseProduct(eig6tmp));
+    EncData::SetParam(fnEnc[0], fnEnc[1], Sigma_2tmp, Sigma_6tmp,
+                      fSettings["Encoder.dt_cov_noise_fix"].empty() ? 0 : fSettings["Encoder.dt_cov_noise_fix"],
+                      fSettings["Encoder.freq_hz"].empty() ? 0 : fSettings["Encoder.freq_hz"]);
+  }
+  // load delay
+  cv::FileNode fnDelay[3] = {fSettings["Camera.delaytoimu"], fSettings["Camera.delaytoenc"],
+                             fSettings["Camera.delayForPolling"]};
+  if (fnDelay[0].empty() || fnDelay[1].empty() || fnDelay[2].empty()) {
+    PRINT_INFO_MUTEX( redSTR "No Camera.delaytoimu & delaytoenc & delayForPolling!" << whiteSTR << endl);
+    mDelayCache = mDelayToIMU = mDelayToIMU = 0;
+  } else {
+    mDelayCache = (double)fnDelay[2];
+    mDelayToIMU = fnDelay[0];
+    mDelayToEnc = fnDelay[1];
+  }
+  // load mdErrIMUImg
+  float fps = fSettings["Camera.fps"];
+  if (fps == 0) fps = 30;
+  cv::FileNode fnErrIMUImg = fSettings["ErrIMUImg"];
+  if (fnErrIMUImg.empty()) {
+    PRINT_INFO_MUTEX( redSTR "No ErrIMUImg!" << whiteSTR << endl);
+    mdErrIMUImg = 1. / fps;
+  } else {
+    mdErrIMUImg = (double)fnErrIMUImg;
+  }
 
-    mbf = fSettings["Camera.bf"];
+  // created by zzh over.
 
-    // Max/Min Frames to insert keyframes and to check relocalisation
-    mMinFrames = 0;
-    mMaxFrames = fps;
+  cv::FileNode nodeCameraName = fSettings["Camera.type"];
+  string sCameraName = "Pinhole";
+  if (!nodeCameraName.empty()) sCameraName = string(nodeCameraName);
+  PRINT_INFO_MUTEX( "Camera.type=" << sCameraName << endl);
+  mpCameras.resize(4);  // TODO: detect the size
+  mDistCoef = cv::Mat::zeros(4, 1, CV_32F);
+  mpFrameDrawer->showallimages_ = true;
+  for (int i = 0; i < 4; ++i) {
+    bool bexist_cam = false;
+    if (sCameraName == "Pinhole") {
+      cv::Mat* pDistCoef = (!pSys->usedistort_ && !i) ? &mDistCoef : nullptr;
+      bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+    } else {
+      pSys->usedistort_ = true;  // TODO: now fisheye only support usedistort_
+      bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, nullptr);
+    }
+    if (!bexist_cam) {
+      mpCameras.resize(i);
+      break;
+    }
+  }
+  // pSys->usedistort_ = false;
+  PRINT_INFO_MUTEX( "Cam size = " << mpCameras.size() << endl);
+  CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
 
-    cout << "- fps: " << fps << endl;
+  mbf = fSettings["Camera.bf"];
 
+  // Max/Min Frames to insert keyframes and to check relocalisation
+  mMinFrames = 0;
+  mMaxFrames = fps;
 
-    int nRGB = fSettings["Camera.RGB"];
-    mbRGB = nRGB;
+  PRINT_INFO_MUTEX( "- fps: " << fps << endl);
 
-    if(mbRGB)
-        cout << "- color order: RGB (ignored if grayscale)" << endl;
+  int nRGB = fSettings["Camera.RGB"];
+  mbRGB = nRGB;
+
+  if (mbRGB)
+    PRINT_INFO_MUTEX( "- color order: RGB (ignored if grayscale)" << endl);
+  else
+    PRINT_INFO_MUTEX( "- color order: BGR (ignored if grayscale)" << endl);
+
+  // Load ORB parameters
+
+  int nFeatures = fSettings["ORBextractor.nFeatures"];
+  float fScaleFactor = fSettings["ORBextractor.scaleFactor"];
+  int nLevels = fSettings["ORBextractor.nLevels"];
+  int fIniThFAST = fSettings["ORBextractor.iniThFAST"];
+  int fMinThFAST = fSettings["ORBextractor.minThFAST"];
+
+  mpORBextractorLeft = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+
+  if (sensor == System::STEREO)
+    mpORBextractorRight = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+
+  if (sensor == System::MONOCULAR)
+    mpIniORBextractor = new ORBextractor(2 * nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+
+  PRINT_INFO_MUTEX( endl << "ORB Extractor Parameters: " << endl);
+  PRINT_INFO_MUTEX( "- Number of Features: " << nFeatures << endl);
+  PRINT_INFO_MUTEX( "- Scale Levels: " << nLevels << endl);
+  PRINT_INFO_MUTEX( "- Scale Factor: " << fScaleFactor << endl);
+  PRINT_INFO_MUTEX( "- Initial Fast Threshold: " << fIniThFAST << endl);
+  PRINT_INFO_MUTEX( "- Minimum Fast Threshold: " << fMinThFAST << endl);
+
+  if (sensor == System::STEREO || sensor == System::RGBD) {
+    mThDepth = mbf * (float)fSettings["ThDepth"] / mK.at<float>(0, 0);
+    PRINT_INFO_MUTEX( endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl);
+  }
+
+  if (sensor == System::RGBD) {
+    mDepthMapFactor = fSettings["DepthMapFactor"];
+    if (fabs(mDepthMapFactor) < 1e-5)
+      mDepthMapFactor = 1;
     else
-        cout << "- color order: BGR (ignored if grayscale)" << endl;
-
-    // Load ORB parameters
-
-    int nFeatures = fSettings["ORBextractor.nFeatures"];
-    float fScaleFactor = fSettings["ORBextractor.scaleFactor"];
-    int nLevels = fSettings["ORBextractor.nLevels"];
-    int fIniThFAST = fSettings["ORBextractor.iniThFAST"];
-    int fMinThFAST = fSettings["ORBextractor.minThFAST"];
-
-    mpORBextractorLeft = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
-
-    if(sensor==System::STEREO)
-        mpORBextractorRight = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
-
-    if(sensor==System::MONOCULAR)
-        mpIniORBextractor = new ORBextractor(2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
-
-    cout << endl  << "ORB Extractor Parameters: " << endl;
-    cout << "- Number of Features: " << nFeatures << endl;
-    cout << "- Scale Levels: " << nLevels << endl;
-    cout << "- Scale Factor: " << fScaleFactor << endl;
-    cout << "- Initial Fast Threshold: " << fIniThFAST << endl;
-    cout << "- Minimum Fast Threshold: " << fMinThFAST << endl;
-
-    if(sensor==System::STEREO || sensor==System::RGBD)
-    {
-        mThDepth = mbf*(float)fSettings["ThDepth"]/mK.at<float>(0,0);
-        cout << endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl;
-    }
-
-    if(sensor==System::RGBD)
-    {
-        mDepthMapFactor = fSettings["DepthMapFactor"];
-        if(fabs(mDepthMapFactor)<1e-5)
-            mDepthMapFactor=1;
-        else
-            mDepthMapFactor = 1.0f/mDepthMapFactor;
-    }
-
+      mDepthMapFactor = 1.0f / mDepthMapFactor;
+  }
 }
 
 void Tracking::SetLocalMapper(LocalMapping *pLocalMapper)
@@ -1179,7 +1179,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
             bool autoreset=mpIMUInitiator->GetSensorIMU()&&!mpIMUInitiator->mbUsePureVision?!mpIMUInitiator->GetVINSInited():mpMap->KeyFramesInMap()<=5;
             if(autoreset)
             {
-                cout << redSTR"Track lost soon after initialisation, reseting..." <<whiteSTR<< endl;
+                PRINT_INFO_MUTEX( redSTR"Track lost soon after initialisation, reseting..." <<whiteSTR<< endl);
                 mpSystem->Reset();
                 return;
             }
@@ -1281,7 +1281,7 @@ void Tracking::StereoInitialization(cv::Mat img[2])
           }
         }
 
-        cout << "New map created with " << mpMap->MapPointsInMap() << " points" << endl;
+        PRINT_INFO_MUTEX( "New map created with " << mpMap->MapPointsInMap() << " points" << endl);
 
         mpLocalMapper->InsertKeyFrame(pKFini);//add it to the local mapper KF list
 
@@ -1425,7 +1425,7 @@ void Tracking::CreateInitialMapMonocular()
     pKFcur->UpdateConnections();
 
     // Bundle Adjustment
-    cout << "New Map created with " << mpMap->MapPointsInMap() << " points" << endl;
+    PRINT_INFO_MUTEX( "New Map created with " << mpMap->MapPointsInMap() << " points" << endl);
 
     Optimizer::GlobalBundleAdjustment(mpMap,20);
 
@@ -1435,7 +1435,7 @@ void Tracking::CreateInitialMapMonocular()
 
     if(medianDepth<0 || pKFcur->TrackedMapPoints(1)<100)
     {
-        cout << "Wrong initialization, reseting..." << endl;
+        PRINT_INFO_MUTEX( "Wrong initialization, reseting..." << endl);
         Reset();
         return;
     }
@@ -1692,11 +1692,6 @@ bool Tracking::TrackWithMotionModel()
     mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);//Tc2c1*Tc1w
 
   //fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));//already initialized in Frame constructor if this Track function is firstly called
-    for (int i = 0; i < mCurrentFrame.GetMapPointsRef().size(); ++i) {
-      if (mCurrentFrame.GetMapPointsRef()[i])
-        cout << "i=" << i << "," << mCurrentFrame.GetMapPointsRef()[i]->mnId << endl;
-      CV_Assert(!mCurrentFrame.GetMapPointsRef()[i]);
-    }
 
     // Project points seen in previous frame
     int th;
@@ -2031,7 +2026,6 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2])
                     size_t ididxs = mCurrentFrame.GetMapn2idxs(i);
                     PRINT_DEBUG_INFO_MUTEX("mp0["<<pKF->mnId<<","<<i<<"]:", imu_tightly_debug_path, "debug.txt");
                     if (-1 == ididxs) {
-                      if (pmps[0]) cout << pmps[0]->Observations();
                       pNewMP->AddObservation(pKF, i);
                       pKF->AddMapPoint(pNewMP, i);
                       mCurrentFrame.AddMapPoint(pNewMP, i);
@@ -2040,11 +2034,9 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2])
                       bool icheck = false;
                       CV_Assert(idxs.size());
                       for (int cami = 0; cami < idxs.size(); ++cami) {
-                        if (pmps[cami]) cout << pmps[cami]->Observations();
                         if (-1 != idxs[cami]) {
                           auto icami = mCurrentFrame.mapin2n_[cami][idxs[cami]];
                           if (icami == i) icheck = true;
-                          cout << " " <<icami<<",";
                           pNewMP->AddObservation(pKF, icami);
                           pKF->AddMapPoint(pNewMP, icami);
                           mCurrentFrame.AddMapPoint(pNewMP, icami);
@@ -2448,7 +2440,7 @@ bool Tracking::Relocalization()
 
 void Tracking::Reset()
 {
-    cout << "System Reseting" << endl;
+    PRINT_INFO_MUTEX( "System Reseting" << endl);
 
     if(mpViewer)
     {
@@ -2458,14 +2450,14 @@ void Tracking::Reset()
     }
 
     // Reset Local Mapping
-    cout << "Reseting Local Mapper...";
+    PRINT_INFO_MUTEX( "Reseting Local Mapper...");
     mpLocalMapper->RequestReset();
-    cout << " done" << endl;
+    PRINT_INFO_MUTEX( " done" << endl);
 
     // Reset Loop Closing
-    cout << "Reseting Loop Closing...";
+    PRINT_INFO_MUTEX( "Reseting Loop Closing...");
     mpLoopClosing->RequestReset();
-    cout << " done" << endl;
+    PRINT_INFO_MUTEX( " done" << endl);
 
     //zzh: Reset IMU Initialization, must after mpLocalMapper&mpLoopClosing->RequestReset()! for no updation of mpCurrentKeyFrame& no use of mbVINSInited in IMUInitialization thread
     cout<<"Resetting IMU Initiator...";mpIMUInitiator->RequestReset();cout<<" done"<<endl;
@@ -2473,9 +2465,9 @@ void Tracking::Reset()
     mnLastRelocFrameId=0;
 
     // Clear BoW Database
-    cout << "Reseting Database...";
+    PRINT_INFO_MUTEX( "Reseting Database...");
     mpKeyFrameDB->clear();
-    cout << " done" << endl;
+    PRINT_INFO_MUTEX( " done" << endl);
 
     // Clear Map (this erase MapPoints and KeyFrames)
     mpMap->clear();

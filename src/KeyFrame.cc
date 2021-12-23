@@ -22,7 +22,7 @@
 #include "Converter.h"
 #include "ORBmatcher.h"
 #include <mutex>
-#include "log.h"
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {

@@ -195,7 +195,7 @@ namespace g2o {
       RegisterActionProxy()
           {
 #ifdef G2O_DEBUG_ACTIONLIB
-            std::cout << __FUNCTION__ << ": Registering action of type " << typeid(T).name() << std::endl;
+            PRINT_INFO_MUTEX( __FUNCTION__ << ": Registering action of type " << typeid(T).name() << std::endl);
 #endif
             _action = new T();
             HyperGraphActionLibrary::instance()->registerAction(_action);
@@ -204,7 +204,7 @@ namespace g2o {
         ~RegisterActionProxy()
           {
 #ifdef G2O_DEBUG_ACTIONLIB
-            std::cout << __FUNCTION__ << ": Unregistering action of type " << typeid(T).name() << std::endl;
+            PRINT_INFO_MUTEX( __FUNCTION__ << ": Unregistering action of type " << typeid(T).name() << std::endl);
 #endif
             HyperGraphActionLibrary::instance()->unregisterAction(_action);
             delete _action;

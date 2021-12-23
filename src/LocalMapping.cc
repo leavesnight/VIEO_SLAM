@@ -22,7 +22,7 @@
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
-#include "log.h"
+#include "common/log.h"
 
 #include<mutex>
 
@@ -107,9 +107,9 @@ void LocalMapping::Run()
                                                                     mpMap, mpIMUInitiator->GetGravityVec());
                         //Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
                     }
-                    cout << blueSTR"Used time in localBA="
+                  PRINT_INFO_MUTEX( blueSTR"Used time in localBA="
                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count()
-                         << whiteSTR << endl;
+                         << whiteSTR << endl);
                 }
 
                 // Check redundant local Keyframes
@@ -174,7 +174,7 @@ void LocalMapping::ProcessNewKeyFrame()
                 KeyFrame *pLastKF = mpCurrentKeyFrame;
                 vector<KeyFrame *> vecEraseKF;
                 if (mpIMUInitiator->GetVINSInited()) {
-                    cout << "KF->SetBadFlag() in ProcessNewKeyFrame()!" << endl;
+                    PRINT_INFO_MUTEX( "KF->SetBadFlag() in ProcessNewKeyFrame()!" << endl);
                     double tmNewest = pLastKF->mTimeStamp;
                     bool bLastCamKF = false;
                     char state;
@@ -207,13 +207,13 @@ void LocalMapping::ProcessNewKeyFrame()
                     } while (pLastKF->getState() != (char) Tracking::OK);
                     mpLastCamKF = pLastKF;
                 }
-                cout << vecEraseKF.size() << " ";
+                PRINT_INFO_MUTEX( vecEraseKF.size() << " ");
                 for (int i = 0; i <
                                 vecEraseKF.size(); ++i) {//the last one is the before ODOMOK(delete the former consecutive OdomOK KF as soon as possible, it seems to have a better effect)
-                    cout << i << " ";
+                    PRINT_INFO_MUTEX( i << " ");
                     vecEraseKF[i]->SetBadFlag();//it may be SetNotErase() by LoopClosing thread
                 }
-                cout << "Over" << endl;
+                PRINT_INFO_MUTEX( "Over" << endl);
 // 	  if (pLastKF!=NULL&&pLastKF->getState()==Tracking::ODOMOK){//&&pLastKF->GetParent()!=NULL
                 assert(mpLastCamKF != NULL && mpLastCamKF->getState() == (char) Tracking::OK);
                 mpIMUInitiator->SetCopyInitKFs(false);
@@ -694,7 +694,7 @@ bool LocalMapping::Stop()
     if(mbStopRequested && !mbNotStop)
     {
         mbStopped = true;
-        cout << "Local Mapping STOP" << endl;//if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
+        PRINT_INFO_MUTEX( "Local Mapping STOP" << endl);//if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
         return true;
     }
 
@@ -727,7 +727,7 @@ void LocalMapping::Release()
     if its original state is stopped by LoopClosing, mlNewKeyFrames is already empty
     mlNewKeyFrames.clear();
 
-    cout << "Local Mapping RELEASE" << endl;//if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
+    PRINT_INFO_MUTEX( "Local Mapping RELEASE" << endl);//if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
 }
 
 bool LocalMapping::AcceptKeyFrames()
@@ -795,7 +795,7 @@ void LocalMapping::KeyFrameCulling() {
   // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
   for (int k = 0; k < nRestrict; ++k) {
     int vi = 0;
-    cout << "LocalKFs:" << vpLocalKeyFrames.size() << endl;
+    PRINT_INFO_MUTEX( "LocalKFs:" << vpLocalKeyFrames.size() << endl);
     for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
@@ -809,7 +809,7 @@ void LocalMapping::KeyFrameCulling() {
           assert(pKF != NULL);
           // 	    assert(pKF->GetPrevKeyFrame()!=NULL);//solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
-            cout << pKF->mnId << " " << (int)pKF->isBad() << endl;
+            PRINT_INFO_MUTEX( pKF->mnId << " " << (int)pKF->isBad() << endl);
             vbEntered[vi] = true;
             continue;
           }
@@ -833,7 +833,7 @@ void LocalMapping::KeyFrameCulling() {
       // cannot erase last ODOMOK & first ODOMOK's parent!
       KeyFrame *pNextKF = pKF->GetNextKeyFrame();
       if (pNextKF == NULL) {
-        cout << "NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl;
+        PRINT_INFO_MUTEX( "NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl);
         continue;
       }  // solved old bug
       // 	if (pNextKF!=NULL){//for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the loaded map
@@ -844,7 +844,7 @@ void LocalMapping::KeyFrameCulling() {
             pLastNthKF = pLastNthKF->GetPrevKeyFrame();
             tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
           }  // must done before pKF->SetBadFlag()!
-          cout << greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl;
+          PRINT_INFO_MUTEX( greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl);
           pKF->SetBadFlag();
         }  // else next is OK then continue
         continue;
@@ -909,7 +909,7 @@ void LocalMapping::KeyFrameCulling() {
           tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
         }  // must done before pKF->SetBadFlag()!
 
-        cout << pKF->mnId << "badflag" << endl;
+        PRINT_INFO_MUTEX( pKF->mnId << "badflag" << endl);
         pKF->SetBadFlag();
       }
     }

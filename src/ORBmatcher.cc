@@ -31,8 +31,8 @@
 
 #include "GeometricCamera.h"
 #include "Converter.h"
-#include "log.h"
-#include "common.h"
+#include "common/log.h"
+#include "common/common.h"
 
 using namespace std;
 
@@ -362,7 +362,6 @@ bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1,const cv::KeyPoin
 }
 
 int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPointMatches) {
-  cout << "SBBTRK" << endl;
   const vector<MapPoint *> vpMapPointsKF = pKF->GetMapPointMatches();  // for pKF->mvpMapPoints is protected
 
   vpMapPointMatches = vector<MapPoint *>(F.N, static_cast<MapPoint *>(NULL));

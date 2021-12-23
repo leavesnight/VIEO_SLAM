@@ -47,11 +47,11 @@ GeometricCamera::GeometricCamera(cv::FileStorage &fSettings, int id, bool &bmiss
   mvParameters[2] = cx;
   mvParameters[3] = cy;
 
-  cout << endl << "Camera (Geometric) Parameters: " << endl;
-  cout << "- fx: " << fx << endl;
-  cout << "- fy: " << fy << endl;
-  cout << "- cx: " << cx << endl;
-  cout << "- cy: " << cy << endl;
+  PRINT_INFO_MUTEX( endl << "Camera (Geometric) Parameters: " << endl);
+  PRINT_INFO_MUTEX( "- fx: " << fx << endl);
+  PRINT_INFO_MUTEX( "- fy: " << fy << endl);
+  PRINT_INFO_MUTEX( "- cx: " << cx << endl);
+  PRINT_INFO_MUTEX( "- cy: " << cy << endl);
 
   node_tmp = fSettings[cam_name + ".Trc"];
   cv::Mat &Trc = Trc_;
@@ -67,10 +67,10 @@ GeometricCamera::GeometricCamera(cv::FileStorage &fSettings, int id, bool &bmiss
     Rcr = Converter::toMatrix3d(Trc.rowRange(0, 3).colRange(0, 3)).transpose();
     tcr = -Rcr * Converter::toVector3d(Trc.col(3));
   } else {
-    std::cout << "Warning:*Trc matrix doesn't exist*" << std::endl;
+    PRINT_INFO_MUTEX( "Warning:*Trc matrix doesn't exist*" << std::endl);
     Trc = cv::Mat::eye(3, 4, CV_32F);
   }
-  std::cout << "- Trc: \n" << Trc << std::endl;
+  PRINT_INFO_MUTEX( "- Trc: \n" << Trc << std::endl);
 
   bmiss_param = false;
 }

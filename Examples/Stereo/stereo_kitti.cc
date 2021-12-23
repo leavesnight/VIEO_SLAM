@@ -57,9 +57,9 @@ int main(int argc, char **argv)
     vector<float> vTimesTrack;
     vTimesTrack.resize(nImages);
 
-    cout << endl << "-------" << endl;
-    cout << "Start processing sequence ..." << endl;
-    cout << "Images in the sequence: " << nImages << endl << endl;   
+    PRINT_INFO_MUTEX( endl << "-------" << endl);
+    PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
+    PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
     // Main loop
     cv::Mat imLeft, imRight;
@@ -117,9 +117,9 @@ int main(int argc, char **argv)
     {
         totaltime+=vTimesTrack[ni];
     }
-    cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
+    PRINT_INFO_MUTEX( "-------" << endl << endl);
+    PRINT_INFO_MUTEX( "median tracking time: " << vTimesTrack[nImages/2] << endl);
+    PRINT_INFO_MUTEX( "mean tracking time: " << totaltime/nImages << endl);
 
     // Save camera trajectory
     SLAM.SaveTrajectoryKITTI("CameraTrajectory.txt");

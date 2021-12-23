@@ -30,6 +30,7 @@
 #include <boost/serialization/assume_abstract.hpp>
 
 #include "GeometricCamera.h"
+#include "common/log.h"
 
 //#include "TwoViewReconstruction.h"
 

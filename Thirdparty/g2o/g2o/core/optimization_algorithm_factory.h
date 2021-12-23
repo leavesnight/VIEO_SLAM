@@ -30,6 +30,7 @@
 #include "../../config.h"
 #include "../stuff/misc.h"
 #include "optimization_algorithm_property.h"
+#include "common/log.h"
 
 #include <list>
 #include <iostream>
@@ -123,7 +124,7 @@ namespace g2o {
       {
         _creator = c;
 #ifdef G2O_DEBUG_OPTIMIZATION_ALGORITHM_FACTORY
-        std::cout << __FUNCTION__ << ": Registering " << _creator->property().name << " of type " << typeid(*_creator).name() << std::endl;
+        PRINT_INFO_MUTEX( __FUNCTION__ << ": Registering " << _creator->property().name << " of type " << typeid(*_creator).name() << std::endl);
 #endif
         OptimizationAlgorithmFactory::instance()->registerSolver(c);
       }
@@ -131,7 +132,7 @@ namespace g2o {
       ~RegisterOptimizationAlgorithmProxy()
       {
 #ifdef G2O_DEBUG_OPTIMIZATION_ALGORITHM_FACTORY
-        std::cout << __FUNCTION__ << ": Unregistering " << _creator->property().name << std::endl;
+        PRINT_INFO_MUTEX( __FUNCTION__ << ": Unregistering " << _creator->property().name << std::endl);
 #endif
         OptimizationAlgorithmFactory::instance()->unregisterSolver(_creator);
       }

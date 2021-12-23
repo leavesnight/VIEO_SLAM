@@ -48,11 +48,11 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   if (b_miss_params) return false;
   if (pK) pCamInst->toK().copyTo(*pK);
 
-  cout << endl << cam_name << " (KB8) Parameters: " << endl;
-  cout << "- k1: " << DistCoef.at<float>(0) << endl;
-  cout << "- k2: " << DistCoef.at<float>(1) << endl;
-  cout << "- k3: " << DistCoef.at<float>(2) << endl;
-  cout << "- k4: " << DistCoef.at<float>(3) << endl;
+  PRINT_INFO_MUTEX( endl << cam_name << " (KB8) Parameters: " << endl);
+  PRINT_INFO_MUTEX( "- k1: " << DistCoef.at<float>(0) << endl);
+  PRINT_INFO_MUTEX( "- k2: " << DistCoef.at<float>(1) << endl);
+  PRINT_INFO_MUTEX( "- k3: " << DistCoef.at<float>(2) << endl);
+  PRINT_INFO_MUTEX( "- k4: " << DistCoef.at<float>(3) << endl);
 
   int LappingBegin = -1;
   int LappingEnd = -1;
@@ -61,12 +61,12 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   if (!node.empty() && node.isInt())
     LappingBegin = node.operator int();
   else
-    std::cout << "WARNING: Camera.lappingBegin not correctly defined" << std::endl;
+    PRINT_INFO_MUTEX( "WARNING: Camera.lappingBegin not correctly defined" << std::endl);
   node = fSettings[cam_name + ".lappingEnd"];
   if (!node.empty() && node.isInt())
     LappingEnd = node.operator int();
   else
-    std::cout << "WARNING: Camera.lappingEnd not correctly defined" << std::endl;
+    PRINT_INFO_MUTEX( "WARNING: Camera.lappingEnd not correctly defined" << std::endl);
 
   if (!b_miss_params) {
     static_cast<KannalaBrandt8 *>(pCamInst)->mvLappingArea[0] = LappingBegin;
@@ -74,7 +74,7 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
 
     // mpFrameDrawer->both = true;
 
-    std::cout << "- " << cam_name << " Lapping: " << LappingBegin << ", " << LappingEnd << std::endl;
+    PRINT_INFO_MUTEX( "- " << cam_name << " Lapping: " << LappingBegin << ", " << LappingEnd << std::endl);
   }
 
   // TODO: check the input
@@ -201,8 +201,6 @@ cv::Mat KannalaBrandt8::projectJac(const cv::Point3f &p3D) {
 
   Jac.at<float>(0, 2) = -mvParameters[0] * fd * p3D.x / (r2 + z2);
   Jac.at<float>(1, 2) = -mvParameters[1] * fd * p3D.y / (r2 + z2);
-
-  std::cout << "CV JAC: " << Jac << std::endl;
 
   return Jac.clone();
 }

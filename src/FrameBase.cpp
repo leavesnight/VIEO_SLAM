@@ -12,17 +12,17 @@ using std::pair;
 void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
   assert(mvpMapPoints.size() > idx);
-  if (mvpMapPoints[idx] && !mvpMapPoints[idx]->isBad()) {
-    cout << "check mpid=" << mvpMapPoints[idx]->mnId << " ";
-    auto vobs = mvpMapPoints[idx]->GetObservations();
-    for (auto obs : vobs) {
-      cout << obs.first->mnId << ":";
-      for (auto idx : obs.second) cout << idx << " ";
-      cout << endl;
-    }
-    cout << endl;
-  }
-  CV_Assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad());
+//  if (mvpMapPoints[idx] && !mvpMapPoints[idx]->isBad()) {
+//    cout << "check mpid=" << mvpMapPoints[idx]->mnId << " ";
+//    auto vobs = mvpMapPoints[idx]->GetObservations();
+//    for (auto obs : vobs) {
+//      cout << obs.first->mnId << ":";
+//      for (auto idx : obs.second) cout << idx << " ";
+//      cout << endl;
+//    }
+//    cout << endl;
+//  }
+  assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad());
   mvpMapPoints[idx]=pMP;
 }
 

@@ -19,7 +19,7 @@
  */
 
 #include "Optimizer.h"
-#include "log.h"
+#include "common/log.h"
 
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
@@ -53,8 +53,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     lLocalKeyFrames.push_front(pKFlocal);  // notice the order is opposite
     pKFlocal = pKFlocal->GetPrevKeyFrame();
   } while (--Nlocal > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
-  cout << blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
-       << endl;
+  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                               << whiteSTR << endl);
   //   assert(pKFlocal!=NULL||pKFlocal==NULL&&pMap->KeyFramesInMap()<=NlocalIni);
 
   // Local MapPoints seen in Local KeyFrames
@@ -257,14 +257,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
 
-  vector<g2o::EdgeReprojectPR *> vpEdgesMono;
+  vector<g2o::EdgeReprojectPR*> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFMono;
   vpEdgeKFMono.reserve(nExpectedSize);
   vector<MapPoint*> vpMapPointEdgeMono;
   vpMapPointEdgeMono.reserve(nExpectedSize);
 
-  vector<g2o::EdgeReprojectPRStereo *> vpEdgesStereo;
+  vector<g2o::EdgeReprojectPRStereo*> vpEdgesStereo;
   vpEdgesStereo.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFStereo;
   vpEdgeKFStereo.reserve(nExpectedSize);
@@ -431,7 +431,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<pair<KeyFrame*, MapPoint*> > vToErase;
+  vector<pair<KeyFrame*, MapPoint*>> vToErase;
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
@@ -466,7 +466,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ", imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                               imu_tightly_debug_path, "debug.txt");
       }
     }
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
@@ -474,7 +475,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ", imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                               imu_tightly_debug_path, "debug.txt");
       }
     }
   }
@@ -522,6 +524,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   pMap->InformNewChange();  // zzh
 }
+
 void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, int nIterations, bool* pbStopFlag,
                                                   const unsigned long nLoopKF, const bool bRobust, bool bScaleOpt) {
   vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
@@ -863,7 +866,7 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   double scale = 1.;
   if (bScaleOpt) {
     scale = static_cast<g2o::VertexScale*>(optimizer.vertex(maxKFid))->estimate();
-    cout << azureSTR "Recovered scale is " << scale << whiteSTR << endl;
+    PRINT_INFO_MUTEX( azureSTR "Recovered scale is " << scale << whiteSTR << endl);
   }
 
   // Keyframes
@@ -950,7 +953,7 @@ void Optimizer::GlobalBundleAdjustment(Map* pMap, int nIterations, bool* pbStopF
 
 void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<MapPoint*>& vpMP, int nIterations,
                                  bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust, const bool bEnc) {
-  cout << redSTR << "Enter GBA" << whiteSTR << endl;
+  PRINT_INFO_MUTEX( redSTR << "Enter GBA" << whiteSTR << endl);
   vector<bool> vbNotIncludedMP;  // true means this MP can not be used to optimize some KFs' Pose/is not added into
                                  // optimizer/is not optimized
   vbNotIncludedMP.resize(vpMP.size());
@@ -1491,8 +1494,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       pKFlocal = pKFlocal->GetPrevKeyFrame();
     } while (--NlocalCnt > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
   }
-  cout << blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
-       << endl;
+  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
+       << endl);
 
   // Local MapPoints seen in Local KeyFrames
   list<MapPoint*> lLocalMapPoints;
@@ -1570,7 +1573,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     pKFi->UpdateNavStatePVRFromTcw(); //TODO: delete this
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
-    //cout << "check kf id="<<pKFi->mnId<<";";
     if (pKFi->mnId == 0) ++num_fixed_kf;
     vns->setFixed(pKFi->mnId == 0); // only fix the vertex of initial KF(KF.mnId==0)
     optimizer.addVertex(vns);
@@ -1583,7 +1585,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     pKFi->UpdateNavStatePVRFromTcw();
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
-    //cout << "check fixed kf id="<<pKFi->mnId<<";";
     vns->setFixed(true);
     optimizer.addVertex(vns);
     if (pKFi->mnId > maxKFid) maxKFid = pKFi->mnId;
@@ -1771,12 +1772,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       bDoMore = false;
 
   if (bDoMore) {
-    //cout << "err=";
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
       g2o::EdgeReprojectPR *e = vpEdgesMono[i];
       MapPoint* pMP = vpMapPointEdgeMono[i];
-      //cout << e->chi2()<< " ";
 
       if (pMP->isBad())  // why this can be true?
         continue;
@@ -1843,7 +1842,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       g2o::EdgeEncNavStatePR* e = vpEdgesEnc[i];
       // if chi2 error too big(5% wrong)
       if (e->chi2() > 12.592) {
-        cout << "Enc edge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ";
+        PRINT_INFO_MUTEX( "Enc edge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ");
       }
     }
   }
@@ -2107,10 +2106,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
                                       i);  // this Information Matrix can help solve the dropping problem of our dataset
           }
           e->information() = matLambdaEnc;
-          cout << matLambdaEnc << endl;
+          PRINT_INFO_MUTEX( matLambdaEnc << endl);
         }
-        cout << "Weight0/Odom link: " << pParentKF->mnId << " " << pKF->mnId << " " << pKF->GetWeight(pParentKF)
-             << endl;
+        PRINT_INFO_MUTEX( "Weight0/Odom link: " << pParentKF->mnId << " " << pKF->mnId << " " << pKF->GetWeight(pParentKF) << endl);
       }
       optimizer.addEdge(e);
     }
@@ -2183,7 +2181,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
       }
     }
   }
-  cout << "Spanning tree edge end!" << endl;
+  PRINT_INFO_MUTEX( "Spanning tree edge end!" << endl);
 
   // Optimize!
   optimizer.initializeOptimization();  // optimize all KFs' Pose Siw by new loop edges and normal edges
@@ -2248,7 +2246,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     pMP->UpdateNormalAndDepth();  // update MP's normal for its position changed
   }
   // don't call pMap->InformNewChange(); for it's done outside
-  cout << "PoseGraph end!" << endl;
+  PRINT_INFO_MUTEX( "PoseGraph end!" << endl);
 }
 
 int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& vpMatches1, g2o::Sim3& g2oS12,

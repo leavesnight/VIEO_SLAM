@@ -60,12 +60,12 @@ bool Pinhole::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCam
   }
   if (pK) pCamInst->toK().copyTo(*pK);
 
-  cout << endl << "Camera (Pinhole) Parameters: " << endl;
-  cout << "- k1: " << DistCoef.at<float>(0) << endl;
-  cout << "- k2: " << DistCoef.at<float>(1) << endl;
-  if (DistCoef.rows == 5) cout << "- k3: " << DistCoef.at<float>(4) << endl;
-  cout << "- p1: " << DistCoef.at<float>(2) << endl;
-  cout << "- p2: " << DistCoef.at<float>(3) << endl;
+  PRINT_INFO_MUTEX( endl << "Camera (Pinhole) Parameters: " << endl);
+  PRINT_INFO_MUTEX( "- k1: " << DistCoef.at<float>(0) << endl);
+  PRINT_INFO_MUTEX( "- k2: " << DistCoef.at<float>(1) << endl);
+  if (DistCoef.rows == 5) PRINT_INFO_MUTEX( "- k3: " << DistCoef.at<float>(4) << endl);
+  PRINT_INFO_MUTEX( "- p1: " << DistCoef.at<float>(2) << endl);
+  PRINT_INFO_MUTEX( "- p2: " << DistCoef.at<float>(3) << endl);
 
   // TODO: check the input
   return true;

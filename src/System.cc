@@ -74,40 +74,42 @@ void System::FinalGBA(int nIterations,bool bRobust){
     Optimizer::GlobalBundleAdjustment(mpMap,nIterations,NULL,0,bRobust,mpIMUInitiator->GetSensorEnc());
 }
 
-void System::SaveKeyFrameTrajectoryNavState(const string &filename,bool bUseTbc){
-    cout << endl << "Saving keyframe NavState to " << filename << " ..." << endl;
-    vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
-//     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);//set of KFs in Map is already sorted, so it's useless
+void System::SaveKeyFrameTrajectoryNavState(const string &filename,bool bUseTbc) {
+  PRINT_INFO_MUTEX(endl << "Saving keyframe NavState to " << filename << " ..." << endl);
+  vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
+  //     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);//set of KFs in Map is already sorted, so it's useless
 
-    // Transform all keyframes so that the first keyframe is at the origin.
-    // After a loop closure the first keyframe might not be at the origin.
-    //cv::Mat Two = vpKFs[0]->GetPoseInverse();
+  // Transform all keyframes so that the first keyframe is at the origin.
+  // After a loop closure the first keyframe might not be at the origin.
+  // cv::Mat Two = vpKFs[0]->GetPoseInverse();
 
-    ofstream f;f.open(filename.c_str());f<<fixed;
-    
-    for(size_t i=0; i<vpKFs.size(); i++){
-      KeyFrame* pKF = vpKFs[i];
-      // pKF->SetPose(pKF->GetPose()*Two);
+  ofstream f;
+  f.open(filename.c_str());
+  f << fixed;
 
-      if(pKF->isBad()) continue;
+  for (size_t i = 0; i < vpKFs.size(); i++) {
+    KeyFrame *pKF = vpKFs[i];
+    // pKF->SetPose(pKF->GetPose()*Two);
 
-      //For VIO, we should compare the Pose of B/IMU Frame!!! not the Twc but the Twb! with EuRoC's Twb_truth(using Tb_prism/Tbs from vicon0/data.csv) (notice vicon0 means the prism's Pose), and I found state_groundtruth_estimate0 is near Twb_truth but I don't think it's truth!
-      if (bUseTbc) pKF->UpdateNavStatePVRFromTcw();//for Monocular
-      NavState ns=pKF->GetNavState();
-      Eigen::Quaterniond q=ns.mRwb.unit_quaternion();//qwb from Rwb
-      Eigen::Vector3d t=ns.mpwb;//twb
-      Eigen::Vector3d v=ns.mvwb,bg=ns.mbg+ns.mdbg,ba=ns.mba+ns.mdba;
-      f<<setprecision(6)<<pKF->mTimeStamp<<setprecision(7)<<" "<<t(0)<<" "<< t(1)<<" "<<t(2)
-      <<" "<<q.x()<<" "<<q.y()<<" "<<q.z()<<" "<<q.w()
-      <<" "<<v(0)<<" "<<v(1)<<" "<<v(2)<<" "<<bg(0)<<" "<<bg(1)<<" "<<bg(2)<<" "<<ba(0)<<" "<<ba(1)<<" "<<ba(2)<<endl;
-    }
-    
-    f.close();
-    cout << endl << "NavState trajectory saved!" << endl;
+    if (pKF->isBad()) continue;
+
+    // For VIO, we should compare the Pose of B/IMU Frame!!! not the Twc but the Twb! with EuRoC's Twb_truth(using Tb_prism/Tbs from vicon0/data.csv) (notice vicon0 means the prism's Pose), and I found state_groundtruth_estimate0 is near Twb_truth but I don't think it's truth!
+    if (bUseTbc) pKF->UpdateNavStatePVRFromTcw();  // for Monocular
+    NavState ns = pKF->GetNavState();
+    Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
+    Eigen::Vector3d t = ns.mpwb;                       // twb
+    Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
+    f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t(0) << " " << t(1) << " " << t(2) << " "
+      << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " "
+      << bg(0) << " " << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+  }
+
+  f.close();
+  PRINT_INFO_MUTEX(endl << "NavState trajectory saved!" << endl);
 }
 bool System::LoadMap(const string &filename,bool bPCL,bool bReadBadKF){
   if (!bPCL){
-    cout << endl << "Loading Map: 1st step...SensorType(static ones),Keyframe (F,PrevKF,BoW),NavState(Pose) from " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX(endl << "Loading Map: 1st step...SensorType(static ones),Keyframe (F,PrevKF,BoW),NavState(Pose) from " << filename << " ..." << endl);
     ifstream f;f.open(filename.c_str(),ios_base::in|ios_base::binary);
     if (!f.is_open()){
       cout<<redSTR<<"Opening Map Failed!"<<whiteSTR<<endl;
@@ -117,7 +119,7 @@ bool System::LoadMap(const string &filename,bool bPCL,bool bReadBadKF){
     f.read(&sensorType,sizeof(sensorType));
     if (f.bad()){
       f.close();
-      cout<<redSTR<<"Reading Map Failed!"<<whiteSTR<<endl;
+      PRINT_INFO_MUTEX(redSTR<<"Reading Map Failed!"<<whiteSTR<<endl);
       return false;
     }
     cout<<(int)sensorType<<"!Mode"<<endl;
@@ -188,8 +190,8 @@ bool System::LoadMap(const string &filename,bool bPCL,bool bReadBadKF){
         mpMap->mvpKeyFrameOrigins.push_back(pKF);
       }
     }
-    
-    cout << "2nd step...MapPoint old Id & Position & refKFId & observations from " << filename << " ..." << endl;
+
+    PRINT_INFO_MUTEX("2nd step...MapPoint old Id & Position & refKFId & observations from " << filename << " ..." << endl);
     map<size_t,MapPoint*> mapIdpMP;//make a map from mnId (old) to MapPoint*
     long unsigned int nlData;//for id
     size_t NMPs;
@@ -288,7 +290,7 @@ bool System::LoadMap(const string &filename,bool bPCL,bool bReadBadKF){
 }
 void System::SaveMap(const string &filename,bool bPCL,bool bUseTbc,bool bSaveBadKF){//maybe can be rewritten in Tracking.cc
   if (!bPCL){
-    cout << endl << "Saving Map: 1st step...SensorType(static ones),Keyframe NavState & matched MapPoints' old Id to " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX( endl << "Saving Map: 1st step...SensorType(static ones),Keyframe NavState & matched MapPoints' old Id to " << filename << " ..." << endl);
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
     ofstream f;f.open(filename.c_str(),ios_base::out|ios_base::binary);
 
@@ -354,7 +356,7 @@ void System::SaveMap(const string &filename,bool bPCL,bool bUseTbc,bool bSaveBad
       }
     }
     
-    cout << "2nd step...MapPoint's old Id & Position & refKFId & observations to " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX( "2nd step...MapPoint's old Id & Position & refKFId & observations to " << filename << " ..." << endl);
     //all MPs/KFs in mpMap are not bad!
     vector<MapPoint*> vpMPs=mpMap->GetAllMapPoints();
     size_t NMPs=vpMPs.size();
@@ -408,7 +410,7 @@ void System::SaveMap(const string &filename,bool bPCL,bool bUseTbc,bool bSaveBad
   typedef pcl::PointXYZRGB PointT;
 
   typedef pcl::PointCloud<PointT> PointCloud;
-  cout << endl << "Saving keyframe map to " << filename << " ..." << endl;
+  PRINT_INFO_MUTEX( endl << "Saving keyframe map to " << filename << " ..." << endl);
 
   vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
   sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -492,7 +494,7 @@ void System::SaveMap(const string &filename,bool bPCL,bool bUseTbc,bool bSaveBad
   cout<<"after downsampling, it has "<<pPC->size()<<" points"<<endl;
   pcl::io::savePCDFileBinary(filename,*pPC);
 
-  cout << endl << "Map saved!" << endl;
+  PRINT_INFO_MUTEX( endl << "Map saved!" << endl);
 }
 #include<sys/stat.h>
 #include<sys/types.h>
@@ -556,103 +558,99 @@ int System::mkdir_p(string foldername,int mode){
 
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
                const bool bUseViewer):mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false),mbActivateLocalizationMode(false),
-        mbDeactivateLocalizationMode(false)
-{ 
-    // Output welcome message
-    cout << endl <<
-    "ORB-SLAM2 Copyright (C) 2014-2016 Raul Mur-Artal, University of Zaragoza." << endl <<
-    "VIEO_SLAM Copyright (C) 2016-2018 Zhanghao Zhu, University of Tokyo." <<endl <<
-    "This program comes with ABSOLUTELY NO WARRANTY;" << endl  <<
-    "This is free software, and you are welcome to redistribute it" << endl <<
-    "under certain conditions. See LICENSE.txt." << endl << endl;
+        mbDeactivateLocalizationMode(false) {
+  // Output welcome message
+  PRINT_INFO_MUTEX(endl
+                   << "VIEO_SLAM Copyright (C) 2016-2018 Zhanghao Zhu, University of Tokyo." << endl
+                   << "ORB-SLAM2 Copyright (C) 2014-2016 Raul Mur-Artal, University of Zaragoza." << endl
+                   << "This program comes with ABSOLUTELY NO WARRANTY;" << endl
+                   << "This is free software, and you are welcome to redistribute it" << endl
+                   << "under certain conditions. See LICENSE.txt." << endl
+                   << endl);
 
-    cout << "Input sensor was set to: ";
+  PRINT_INFO_MUTEX("Input sensor was set to: ");
 
-    if(mSensor==MONOCULAR)
-        cout << "Monocular" << endl;
-    else if(mSensor==STEREO)
-        cout << "Stereo" << endl;
-    else if(mSensor==RGBD)
-        cout << "RGB-D" << endl;
+  if (mSensor == MONOCULAR)
+    PRINT_INFO_MUTEX("Monocular" << endl);
+  else if (mSensor == STEREO)
+    PRINT_INFO_MUTEX("Stereo" << endl);
+  else if (mSensor == RGBD)
+    PRINT_INFO_MUTEX("RGB-D" << endl);
 
-    //Check settings file
-    //cv::FileStorage 
-    fsSettings.open(strSettingsFile.c_str(), cv::FileStorage::READ);
-    if(!fsSettings.isOpened())
-    {
-       cerr << "Failed to open settings file at: " << strSettingsFile << endl;
-       exit(-1);
-    }
+  // Check settings file
+  // cv::FileStorage
+  fsSettings.open(strSettingsFile.c_str(), cv::FileStorage::READ);
+  if (!fsSettings.isOpened()) {
+    cerr << "Failed to open settings file at: " << strSettingsFile << endl;
+    exit(-1);
+  }
 
+  // Load ORB Vocabulary
+  PRINT_INFO_MUTEX(endl << "Loading ORB Vocabulary. This could take a while..." << endl);
 
-    //Load ORB Vocabulary
-    cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
+  mpVocabulary = new ORBVocabulary();
+  bool bVocLoad = false;
+  if (strVocFile.rfind(".txt") != string::npos) {
+    bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+    // mpVocabulary->saveToBinaryFile(strVocFile.substr(0,strVocFile.rfind(".txt"))+".bin");
+  } else
+    bVocLoad = mpVocabulary->loadFromBinaryFile(strVocFile);
+  if (!bVocLoad) {
+    cerr << "Wrong path to vocabulary. " << endl;
+    cerr << "Falied to open at: " << strVocFile << endl;
+    exit(-1);
+  }
+  PRINT_INFO_MUTEX("Vocabulary loaded!" << endl << endl);
 
-    mpVocabulary = new ORBVocabulary();
-    bool bVocLoad=false;
-    if (strVocFile.rfind(".txt")!=string::npos){
-      bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
-      //mpVocabulary->saveToBinaryFile(strVocFile.substr(0,strVocFile.rfind(".txt"))+".bin");
-    }else
-      bVocLoad=mpVocabulary->loadFromBinaryFile(strVocFile);
-    if(!bVocLoad)
-    {
-        cerr << "Wrong path to vocabulary. " << endl;
-        cerr << "Falied to open at: " << strVocFile << endl;
-        exit(-1);
-    }
-    cout << "Vocabulary loaded!" << endl << endl;
+  // Create KeyFrame Database
+  mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
-    //Create KeyFrame Database
-    mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
+  // Create the Map
+  mpMap = new Map();
 
-    //Create the Map
-    mpMap = new Map();
+  // Create Drawers. These are used by the Viewer
+  mpFrameDrawer = new FrameDrawer(mpMap);
+  mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
-    //Create Drawers. These are used by the Viewer
-    mpFrameDrawer = new FrameDrawer(mpMap);
-    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+  // Initialize the Tracking thread
+  //(it will live in the main thread of execution, the one that called this constructor)
+  mpTracker =
+      new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer, mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
 
-    //Initialize the Tracking thread
-    //(it will live in the main thread of execution, the one that called this constructor)
-    mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
-                             mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
+  // Initialize the Local Mapping thread and launch
+  mpLocalMapper = new LocalMapping(mpMap, mSensor == MONOCULAR, strSettingsFile);
+  mptLocalMapping = new thread(&VIEO_SLAM::LocalMapping::Run, mpLocalMapper);
 
-    //Initialize the Local Mapping thread and launch
-    mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR,strSettingsFile);
-    mptLocalMapping = new thread(&VIEO_SLAM::LocalMapping::Run,mpLocalMapper);
+  // Initialize the Loop Closing thread and launch
+  mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor != MONOCULAR, strSettingsFile);
+  mptLoopClosing = new thread(&VIEO_SLAM::LoopClosing::Run, mpLoopCloser);
 
-    //Initialize the Loop Closing thread and launch
-    mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR, strSettingsFile);
-    mptLoopClosing = new thread(&VIEO_SLAM::LoopClosing::Run, mpLoopCloser);
+  // Initialize the Viewer thread and launch
+  if (bUseViewer) {
+    mpViewer = new Viewer(this, mpFrameDrawer, mpMapDrawer, mpTracker, strSettingsFile);
+    mptViewer = new thread(&Viewer::Run, mpViewer);
+    mpTracker->SetViewer(mpViewer);
+  }
 
-    //Initialize the Viewer thread and launch
-    if(bUseViewer)
-    {
-        mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
-        mptViewer = new thread(&Viewer::Run, mpViewer);
-        mpTracker->SetViewer(mpViewer);
-    }
+  // Set pointers between threads
+  mpTracker->SetLocalMapper(mpLocalMapper);
+  mpTracker->SetLoopClosing(mpLoopCloser);
 
-    //Set pointers between threads
-    mpTracker->SetLocalMapper(mpLocalMapper);
-    mpTracker->SetLoopClosing(mpLoopCloser);
+  mpLocalMapper->SetTracker(mpTracker);
+  mpLocalMapper->SetLoopCloser(mpLoopCloser);
 
-    mpLocalMapper->SetTracker(mpTracker);
-    mpLocalMapper->SetLoopCloser(mpLoopCloser);
+  mpLoopCloser->SetTracker(mpTracker);
+  mpLoopCloser->SetLocalMapper(mpLocalMapper);
 
-    mpLoopCloser->SetTracker(mpTracker);
-    mpLoopCloser->SetLocalMapper(mpLocalMapper);
-    
-//created by zzh
-    //Initialize the IMU Initialization thread and launch
-    mpIMUInitiator=new IMUInitialization(mpMap, mSensor==MONOCULAR,strSettingsFile);
-    mptIMUInitialization=new thread(&VIEO_SLAM::IMUInitialization::Run,mpIMUInitiator);
-    //Set pointers between threads
-    mpTracker->SetIMUInitiator(mpIMUInitiator);
-    mpLocalMapper->SetIMUInitiator(mpIMUInitiator);
-    mpLoopCloser->SetIMUInitiator(mpIMUInitiator);
-    mpIMUInitiator->SetLocalMapper(mpLocalMapper);//for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
+  // created by zzh
+  // Initialize the IMU Initialization thread and launch
+  mpIMUInitiator = new IMUInitialization(mpMap, mSensor == MONOCULAR, strSettingsFile);
+  mptIMUInitialization = new thread(&VIEO_SLAM::IMUInitialization::Run, mpIMUInitiator);
+  // Set pointers between threads
+  mpTracker->SetIMUInitiator(mpIMUInitiator);
+  mpLocalMapper->SetIMUInitiator(mpIMUInitiator);
+  mpLoopCloser->SetIMUInitiator(mpIMUInitiator);
+  mpIMUInitiator->SetLocalMapper(mpLocalMapper);  // for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
 }
 
 cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp, const bool inputRect)
@@ -864,7 +862,7 @@ void System::Shutdown()
 
 void System::SaveTrajectoryTUM(const string &filename)
 {
-    cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX( endl << "Saving camera trajectory to " << filename << " ..." << endl);
     /*if(mSensor==MONOCULAR)
     {
         cerr << "ERROR: SaveTrajectoryTUM cannot be used for monocular." << endl;
@@ -920,10 +918,10 @@ void System::SaveTrajectoryTUM(const string &filename)
         f << setprecision(6) << *lT << " " <<  setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " " << twc.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
     }
     f.close();
-    cout << endl << "trajectory saved!" << endl;
+    PRINT_INFO_MUTEX( endl << "trajectory saved!" << endl);
 }
 void System::SaveTrajectoryNavState(const string &filename,bool bUseTbc) {
-  cout << endl << "Saving frame NavState to " << filename << " ..." << endl;
+  PRINT_INFO_MUTEX( endl << "Saving frame NavState to " << filename << " ..." << endl);
   vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
   //     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);//set of KFs in Map is already sorted, so it's useless
 
@@ -996,12 +994,12 @@ void System::SaveTrajectoryNavState(const string &filename,bool bUseTbc) {
       << bg(0) << " " << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
   }
   f.close();
-  cout << endl << "NavState trajectory saved!" << endl;
+  PRINT_INFO_MUTEX( endl << "NavState trajectory saved!" << endl);
 }
 
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)
 {
-    cout << endl << "Saving keyframe trajectory to " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX( endl << "Saving keyframe trajectory to " << filename << " ..." << endl);
 
     vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
     sort(vpKFs.begin(),vpKFs.end(),KeyFrame::lId);
@@ -1039,12 +1037,12 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename)
     }
 
     f.close();
-    cout << endl << "trajectory saved!" << endl;
+    PRINT_INFO_MUTEX( endl << "trajectory saved!" << endl);
 }
 
 void System::SaveTrajectoryKITTI(const string &filename)
 {
-    cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
+    PRINT_INFO_MUTEX( endl << "Saving camera trajectory to " << filename << " ..." << endl);
     if(mSensor==MONOCULAR)
     {
         cerr << "ERROR: SaveTrajectoryKITTI cannot be used for monocular." << endl;
@@ -1078,7 +1076,7 @@ void System::SaveTrajectoryKITTI(const string &filename)
 
         while(pKF->isBad())
         {
-          //  cout << "bad parent" << endl;
+          //  PRINT_INFO_MUTEX( "bad parent" << endl);
             Trw = Trw*pKF->mTcp;
             pKF = pKF->GetParent();
         }
@@ -1094,7 +1092,7 @@ void System::SaveTrajectoryKITTI(const string &filename)
              Rwc.at<float>(2,0) << " " << Rwc.at<float>(2,1)  << " " << Rwc.at<float>(2,2) << " "  << twc.at<float>(2) << endl;
     }
     f.close();
-    cout << endl << "trajectory saved!" << endl;
+    PRINT_INFO_MUTEX( endl << "trajectory saved!" << endl);
 }
 
 int System::GetTrackingState()

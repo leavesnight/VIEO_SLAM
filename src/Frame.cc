@@ -24,7 +24,7 @@
 #include <thread>
 #include "KannalaBrandt8.h"
 #include "Pinhole.h"
-#include "log.h"
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {
@@ -930,12 +930,6 @@ void Frame::ComputeStereoMatches()
         }
     }
 }
-
-//size_t Frame::GetIndexIlessJ(int i, int j) {
-//  if (i > j) swap(i, j);
-//  size_t n = vvkeys_.size();
-//  return (2 * n - 1 - i) * i / 2 + j - i - 1;
-//}
 
 void Frame::ComputeStereoFishEyeMatches() {
   // TODO: test 4 cams

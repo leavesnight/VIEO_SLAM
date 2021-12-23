@@ -38,6 +38,7 @@
 #include "KeyFrameDatabase.h"
 #include "ORBVocabulary.h"
 #include "Viewer.h"
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {

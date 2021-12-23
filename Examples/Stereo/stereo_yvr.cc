@@ -57,13 +57,13 @@ void odomRun(vector<double> &vTimestampsImu, vector<cv::Point3f> &vAcc, vector<c
     // cout<<green<<timestamp<<whiteSTR<<endl;
     tmstpLast = timestamp;
   }
-  cout << greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl;
+  PRINT_INFO_MUTEX( greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 
 int main(int argc, char **argv) {
   thread *pOdomThread = NULL;
   int totalNum = 0;
-  cout << fixed << setprecision(6) << endl;
+  PRINT_INFO_MUTEX( fixed << setprecision(6) << endl);
 
   const int num_seq = argc < 3 ? 1 : argc - 3;
   int seq = 0;
@@ -81,14 +81,14 @@ int main(int argc, char **argv) {
     case 4: {
       vector<string> pathImu = {pathSeq + "/Sensors/gyroscope.xml", pathSeq + "/Sensors/accelerometer.xml"};
       LoadIMU(pathImu, vTimestampsImu[seq], vAcc[seq], vGyro[seq]);
-      cout << "IMU size="<<vTimestampsImu[seq].size()<<endl;
+      PRINT_INFO_MUTEX( "IMU size="<<vTimestampsImu[seq].size()<<endl);
       if (!vTimestampsImu[seq].size()) {
         cerr << redSTR "Please check the last path_to_odometryFolder" << endl;
         return -1;
       }
       string strTmp;
       pOdomThread = new thread(&odomRun, ref(vTimestampsImu[seq]), ref(vAcc[seq]), ref(vGyro[seq]));
-      cout << "OdomThread created!" << endl;
+      PRINT_INFO_MUTEX( "OdomThread created!" << endl);
     } break;
     default:
       cerr << endl << "Usage: ./stereo_yvr path_to_vocabulary path_to_settings path_to_folder (VIO)" << endl;
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
   vector<vector<double>> vTimestampsCam(2);
   string pathCam0 = pathSeq + "/Camera8";
   LoadImages(pathCam0, vstrImages[seq], vTimestampsCam[seq]);
-  cout << "Img size="<<vTimestampsCam[seq].size()<<endl;
+  PRINT_INFO_MUTEX( "Img size="<<vTimestampsCam[seq].size()<<endl);
 
   if (vstrImages[0].empty()) {
     cerr << "ERROR: No images in provided path." << endl;
@@ -135,9 +135,9 @@ int main(int argc, char **argv) {
   vector<float> vTimesTrack;
   vTimesTrack.resize(nImages);
 
-  cout << endl << "-------" << endl;
-  cout << "Start processing sequence ..." << endl;
-  cout << "Images in the sequence: " << nImages << endl << endl;
+  PRINT_INFO_MUTEX( endl << "-------" << endl);
+  PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
+  PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
   // Main loop
   cv::Mat imLeft, imRight;
@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
     g_brgbdFinished = true;
   }
   if (SLAM.MapChanged()) {
-    cout << "Map is changing!Please enter s to stop!" << endl;
+    PRINT_INFO_MUTEX( "Map is changing!Please enter s to stop!" << endl);
     //       while (cin.get()!='s') {sleep(1);}
     sleep(5);
   }
@@ -215,10 +215,10 @@ int main(int argc, char **argv) {
   if (!fnFBA.empty()) {
     if ((int)fnFBA) {
       SLAM.FinalGBA(fnFBA);
-      cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
+      PRINT_INFO_MUTEX( azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
     }
   } else {
-    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
+    PRINT_INFO_MUTEX( redSTR "No FullBA at the end!" << whiteSTR << endl);
   }
 
   // Tracking time statistics
@@ -227,8 +227,8 @@ int main(int argc, char **argv) {
   for (int ni = 0; ni < nImages; ni++) {
     totaltime += vTimesTrack[ni];
   }
-  cout << "-------" << endl << endl;
-  cout << "mean tracking time: " << totaltime / nImages << endl;
+  PRINT_INFO_MUTEX( "-------" << endl << endl);
+  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImages << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
