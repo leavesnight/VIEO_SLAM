@@ -73,7 +73,7 @@ class PnPsolver {
   cv::Mat iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers);
 
  private:
-
+  void Getuv(const Vector3d &Pcr, double &ue, double&ve, size_t i);
   void CheckInliers();
   bool Refine();
 
@@ -81,7 +81,7 @@ class PnPsolver {
   void set_maximum_number_of_correspondences(const int n);
   void reset_correspondences(void);
   void add_correspondence(const double X, const double Y, const double Z,
-              const double u, const double v);
+              const double u, const double v, size_t idx);
 
   double compute_pose(double R[3][3], double T[3]);
 
@@ -128,6 +128,7 @@ class PnPsolver {
   double uc, vc, fu, fv;
 
   double * pws, * us, * alphas, * pcs;
+  double *usun;
   int maximum_number_of_correspondences;
   int number_of_correspondences;
 

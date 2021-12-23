@@ -65,58 +65,55 @@ namespace VIEO_SLAM
 
 
 PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches):
-    pws(0), us(0), alphas(0), pcs(0), maximum_number_of_correspondences(0), number_of_correspondences(0), mnInliersi(0),
-    mnIterations(0), mnBestInliers(0), N(0)
-{
-    mvpMapPointMatches = vpMapPointMatches;
-    const auto &frame_mps = F.GetMapPointMatches();
-    mvP2D.reserve(frame_mps.size());
-    mvSigma2.reserve(frame_mps.size());
-    mvP3Dw.reserve(frame_mps.size());
-    mvKeyPointIndices.reserve(frame_mps.size());
-    mvAllIndices.reserve(frame_mps.size());
+    pws(0), us(0), usun(0), alphas(0), pcs(0), maximum_number_of_correspondences(0), number_of_correspondences(0), mnInliersi(0),
+    mnIterations(0), mnBestInliers(0), N(0) {
+  mvpMapPointMatches = vpMapPointMatches;
+  const auto &frame_mps = F.GetMapPointMatches();
+  mvP2D.reserve(frame_mps.size());
+  mvSigma2.reserve(frame_mps.size());
+  mvP3Dw.reserve(frame_mps.size());
+  mvKeyPointIndices.reserve(frame_mps.size());
+  mvAllIndices.reserve(frame_mps.size());
 
-    int idx=0;
-    usedistort_ = Frame::usedistort_ && F.mpCameras.size();
-    if (usedistort_) pcams_ = F.mpCameras;
-    for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
-    {
-        MapPoint* pMP = vpMapPointMatches[i];
+  int idx = 0;
+  usedistort_ = Frame::usedistort_ && F.mpCameras.size();
+  if (usedistort_) pcams_ = F.mpCameras;
+  for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
+    MapPoint *pMP = vpMapPointMatches[i];
 
-        if(pMP)
-        {
-            if(!pMP->isBad())
-            {
-                const cv::KeyPoint &kp = !usedistort_ ? F.mvKeysUn[i] : F.mvKeys[i];
+    if (pMP) {
+      if (!pMP->isBad()) {
+        const cv::KeyPoint &kp = !usedistort_ ? F.mvKeysUn[i] : F.mvKeys[i];
 
-                mvP2D.push_back(kp.pt);
-                mvSigma2.push_back(F.mvLevelSigma2[kp.octave]);
+        mvP2D.push_back(kp.pt);
+        mvSigma2.push_back(F.mvLevelSigma2[kp.octave]);
 
-                cv::Mat Pos = pMP->GetWorldPos();
-                mvP3Dw.push_back(cv::Point3f(Pos.at<float>(0),Pos.at<float>(1), Pos.at<float>(2)));
+        cv::Mat Pos = pMP->GetWorldPos();
+        mvP3Dw.push_back(cv::Point3f(Pos.at<float>(0), Pos.at<float>(1), Pos.at<float>(2)));
 
-                mvKeyPointIndices.push_back(i);
-                mvAllIndices.push_back(idx);
-                if (usedistort_) mapidx2cami_.push_back(get<0>(F.mapn2in_[i]));
+        mvKeyPointIndices.push_back(i);
+        mvAllIndices.push_back(idx);
+        if (usedistort_) mapidx2cami_.push_back(get<0>(F.mapn2in_[i]));
 
-                idx++;
-            }
-        }
+        idx++;
+      }
     }
+  }
 
-    // Set camera calibration parameters
-    fu = F.fx;
-    fv = F.fy;
-    uc = F.cx;
-    vc = F.cy;
+  // Set camera calibration parameters
+  fu = F.fx;
+  fv = F.fy;
+  uc = F.cx;
+  vc = F.cy;
 
-    SetRansacParameters();
+  SetRansacParameters();
 }
 
 PnPsolver::~PnPsolver()
 {
   delete [] pws;
   delete [] us;
+  delete [] usun;
   delete [] alphas;
   delete [] pcs;
 }
@@ -198,7 +195,7 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
 
             int idx = vAvailableIndices[randi];
 
-            add_correspondence(mvP3Dw[idx].x,mvP3Dw[idx].y,mvP3Dw[idx].z,mvP2D[idx].x,mvP2D[idx].y);
+            add_correspondence(mvP3Dw[idx].x,mvP3Dw[idx].y,mvP3Dw[idx].z,mvP2D[idx].x,mvP2D[idx].y, idx);
 
             vAvailableIndices[randi] = vAvailableIndices.back();
             vAvailableIndices.pop_back();
@@ -281,7 +278,7 @@ bool PnPsolver::Refine()
     for(size_t i=0; i<vIndices.size(); i++)
     {
         int idx = vIndices[i];
-        add_correspondence(mvP3Dw[idx].x,mvP3Dw[idx].y,mvP3Dw[idx].z,mvP2D[idx].x,mvP2D[idx].y);
+        add_correspondence(mvP3Dw[idx].x,mvP3Dw[idx].y,mvP3Dw[idx].z,mvP2D[idx].x,mvP2D[idx].y, idx);
     }
 
     // Compute camera pose
@@ -308,6 +305,19 @@ bool PnPsolver::Refine()
     return false;
 }
 
+void PnPsolver::Getuv(const Vector3d &Pcr, double &ue, double&ve, size_t i) {
+  if (!usedistort_) {
+    float invZc = 1./Pcr[1];
+    ue = uc + fu * Pcr[0] * invZc;
+    ve = vc + fv * Pcr[1] * invZc;
+  } else {
+    GeometricCamera *pcam1 = pcams_[mapidx2cami_[i]];
+    Vector3d Pc = pcam1->Rcr_ * Pcr + pcam1->tcr_;
+    auto pt = pcam1->project(Pc);
+    ue = pt[0];
+    ve = pt[1];
+  }
+}
 
 void PnPsolver::CheckInliers()
 {
@@ -318,20 +328,12 @@ void PnPsolver::CheckInliers()
         cv::Point3f P3Dw = mvP3Dw[i];
         cv::Point2f P2D = mvP2D[i];
 
-        float Xc = mRi[0][0]*P3Dw.x+mRi[0][1]*P3Dw.y+mRi[0][2]*P3Dw.z+mti[0];
-        float Yc = mRi[1][0]*P3Dw.x+mRi[1][1]*P3Dw.y+mRi[1][2]*P3Dw.z+mti[1];
-        float Zc = (mRi[2][0]*P3Dw.x+mRi[2][1]*P3Dw.y+mRi[2][2]*P3Dw.z+mti[2]);
-
+        Vector3d Pcr;
+        Pcr << mRi[0][0]*P3Dw.x+mRi[0][1]*P3Dw.y+mRi[0][2]*P3Dw.z+mti[0],
+            mRi[1][0]*P3Dw.x+mRi[1][1]*P3Dw.y+mRi[1][2]*P3Dw.z+mti[1],
+            mRi[2][0]*P3Dw.x+mRi[2][1]*P3Dw.y+mRi[2][2]*P3Dw.z+mti[2];
         double ue, ve;
-        if (!usedistort_) {
-          float invZc = 1./Zc;
-          ue = uc + fu * Xc * invZc;
-          ve = vc + fv * Yc * invZc;
-        } else {
-          auto pt = pcams_[mapidx2cami_[i]]->project(Vector3d(Xc, Yc, Zc));
-          ue = pt[0];
-          ve = pt[1];
-        }
+        Getuv(Pcr, ue, ve, i);
 
         float distX = P2D.x-ue;
         float distY = P2D.y-ve;
@@ -356,12 +358,14 @@ void PnPsolver::set_maximum_number_of_correspondences(int n)
   if (maximum_number_of_correspondences < n) {
     if (pws != 0) delete [] pws;
     if (us != 0) delete [] us;
+    if (usun != 0) delete [] usun;
     if (alphas != 0) delete [] alphas;
     if (pcs != 0) delete [] pcs;
 
     maximum_number_of_correspondences = n;
     pws = new double[3 * maximum_number_of_correspondences];
     us = new double[2 * maximum_number_of_correspondences];
+    usun = new double[2 * maximum_number_of_correspondences];
     alphas = new double[4 * maximum_number_of_correspondences];
     pcs = new double[3 * maximum_number_of_correspondences];
   }
@@ -372,7 +376,7 @@ void PnPsolver::reset_correspondences(void)
   number_of_correspondences = 0;
 }
 
-void PnPsolver::add_correspondence(double X, double Y, double Z, double u, double v)
+void PnPsolver::add_correspondence(double X, double Y, double Z, double u, double v, size_t idx)
 {
   pws[3 * number_of_correspondences    ] = X;
   pws[3 * number_of_correspondences + 1] = Y;
@@ -380,6 +384,22 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
 
   us[2 * number_of_correspondences    ] = u;
   us[2 * number_of_correspondences + 1] = v;
+
+  cv::Point2d keyun;
+  if (mapidx2cami_.size() > idx) {
+    auto &pcam1 = pcams_[mapidx2cami_[idx]];
+    cv::Point3f cvPc = pcam1->unproject(cv::Point2f(u, v));
+    Vector3d Pc = Vector3d(cvPc.x, cvPc.y, cvPc.z);
+    Vector3d keyun_ = pcam1->toK_() * (pcam1->Rcr_.transpose() * (Pc - pcam1->tcr_));
+    double invz = 1. / keyun_[2];
+    keyun.x = keyun_[0] * invz;
+    keyun.y = keyun_[1] * invz;
+  } else {
+    keyun.x=u;
+    keyun.y=v;
+  }
+  usun[2 * number_of_correspondences    ] = keyun.x;
+  usun[2 * number_of_correspondences + 1] = keyun.y;
 
   number_of_correspondences++;
 }
@@ -451,6 +471,7 @@ void PnPsolver::fill_M(CvMat * M,
   double * M1 = M->data.db + row * 12;
   double * M2 = M1 + 12;
 
+  // TODO: use us instead of usun when usedistort = true
   for(int i = 0; i < 4; i++) {
     M1[3 * i    ] = as[i] * fu;
     M1[3 * i + 1] = 0.0;
@@ -494,7 +515,7 @@ double PnPsolver::compute_pose(double R[3][3], double t[3])
   CvMat * M = cvCreateMat(2 * number_of_correspondences, 12, CV_64F);
 
   for(int i = 0; i < number_of_correspondences; i++)
-    fill_M(M, 2 * i, alphas + 4 * i, us[2 * i], us[2 * i + 1]);
+    fill_M(M, 2 * i, alphas + 4 * i, usun[2 * i], usun[2 * i + 1]);
 
   double mtm[12 * 12], d[12], ut[12 * 12];
   CvMat MtM = cvMat(12, 12, CV_64F, mtm);
@@ -565,11 +586,13 @@ double PnPsolver::reprojection_error(const double R[3][3], const double t[3])
 
   for(int i = 0; i < number_of_correspondences; i++) {
     double * pw = pws + 3 * i;
-    double Xc = dot(R[0], pw) + t[0];
-    double Yc = dot(R[1], pw) + t[1];
-    double inv_Zc = 1.0 / (dot(R[2], pw) + t[2]);
-    double ue = uc + fu * Xc * inv_Zc;
-    double ve = vc + fv * Yc * inv_Zc;
+    Vector3d Pcr;
+    Pcr << dot(R[0], pw) + t[0],
+        dot(R[1], pw) + t[1],
+        dot(R[2], pw) + t[2];
+    double ue, ve;
+    Getuv(Pcr, ue, ve, i);
+
     double u = us[2 * i], v = us[2 * i + 1];
 
     sum2 += sqrt( (u - ue) * (u - ue) + (v - ve) * (v - ve) );

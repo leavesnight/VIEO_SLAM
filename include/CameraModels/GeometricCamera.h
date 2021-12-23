@@ -66,13 +66,10 @@ class GeometricCamera {
   //                                       std::vector<cv::Point3f>& vP3D, std::vector<bool>& vbTriangulated) = 0;
 
   virtual cv::Mat toK();
-  virtual cv::Matx33f toK_();
+  virtual Eigen::Matrix3d toK_();
 
   virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                  const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc) = 0;
-  virtual bool epipolarConstrain_(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                                  const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel,
-                                  const float unc) = 0;
 
   virtual float TriangulateMatches(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                    const float sigmaLevel, const float unc, cv::Mat& p3D, float* pz2 = nullptr);
@@ -81,10 +78,6 @@ class GeometricCamera {
   void setParameter(const float p, const size_t i) { mvParameters[i] = p; }
 
   size_t size() { return mvParameters.size(); }
-
-  virtual bool matchAndtriangulate(const cv::KeyPoint& kp1, const cv::KeyPoint& kp2, GeometricCamera* pOther,
-                                   cv::Mat& Tcw1, cv::Mat& Tcw2, const float sigmaLevel1, const float sigmaLevel2,
-                                   cv::Mat& x3Dtriangulated) = 0;
 
   unsigned int GetId() { return mnId; }
 

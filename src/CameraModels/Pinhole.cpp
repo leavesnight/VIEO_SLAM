@@ -247,55 +247,8 @@ bool Pinhole::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &k
   return dsqr < 3.84 * unc;
 }
 
-bool Pinhole::epipolarConstrain_(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                 const cv::Matx33f &R12, const cv::Matx31f &t12, const float sigmaLevel,
-                                 const float unc) {
-  // Compute Fundamental Matrix
-  auto t12x = SkewSymmetricMatrix_(t12);
-  auto K1 = this->toK_();
-  auto K2 = pCamera2->toK_();
-  cv::Matx33f F12 = K1.t().inv() * t12x * R12 * K2.inv();
-
-  // Epipolar line in second image l = x1'F12 = [a b c]
-  auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
-  const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);
-  const float b = pt1.x * F12(0, 1) + pt1.y * F12(1, 1) + F12(2, 1);
-  const float c = pt1.x * F12(0, 2) + pt1.y * F12(1, 2) + F12(2, 2);
-
-  const float num = a * pt2.x + b * pt2.y + c;
-
-  const float den = a * a + b * b;
-
-  if (den == 0) return false;
-
-  const float dsqr = num * num / den;
-
-  return dsqr < 3.84 * unc;
-}
-
-std::ostream &operator<<(std::ostream &os, const Pinhole &ph) {
-  os << ph.mvParameters[0] << " " << ph.mvParameters[1] << " " << ph.mvParameters[2] << " " << ph.mvParameters[3];
-  return os;
-}
-
-std::istream &operator>>(std::istream &is, Pinhole &ph) {
-  float nextParam;
-  for (size_t i = 0; i < 4; i++) {
-    assert(is.good());  // Make sure the input stream is good
-    is >> nextParam;
-    ph.mvParameters[i] = nextParam;
-  }
-  return is;
-}
-
 cv::Mat Pinhole::SkewSymmetricMatrix(const cv::Mat &v) {
   return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
           -v.at<float>(1), v.at<float>(0), 0);
-}
-
-cv::Matx33f Pinhole::SkewSymmetricMatrix_(const cv::Matx31f &v) {
-  cv::Matx33f skew{0.f, -v(2), v(1), v(2), 0.f, -v(0), -v(1), v(0), 0.f};
-
-  return skew;
 }
 }  // namespace VIEO_SLAM

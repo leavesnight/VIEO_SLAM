@@ -212,9 +212,9 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint*> &vpMapPoints1, c
         {
           if (pvnMatch1) (*pvnMatch1)[i1].insert(bestIdx);
           if (!fuselater) {
-            bool check0 = pMP->IsInKeyFrame(pKF, -1, cami);
+            // bool check0 = pMP->IsInKeyFrame(pKF, -1, cami);
             pKF->FuseMP(bestIdx, pMP);
-            CV_Assert(!check0);
+            // CV_Assert(!check0);
           }
           if (pnfused) ++*pnfused;
         }
@@ -380,7 +380,8 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
   DBoW2::FeatureVector::const_iterator KFend = vFeatVecKF.end();
   DBoW2::FeatureVector::const_iterator Fend = F.mFeatVec.end();
 
-  map<pair<MapPoint *, size_t>, pair<int, size_t>> mapmpcami2distkpid;
+  map<pair<MapPoint *, size_t>, tuple<int, size_t, pair<size_t, size_t>>> mapmpcami2distkpidhist;
+  vector<size_t> rothist2erase[HISTO_LENGTH];
   while (KFit != KFend && Fit != Fend) {
     if (KFit->first ==
         Fit->first)  // like window search in SBP(), now Frame.features are in KF.features' neighborhood area
@@ -400,8 +401,8 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
         const cv::Mat &dKF = pKF->mDescriptors.row(realIdxKF);
 
         vector<int> vbestDist1 = vector<int>(1, 256);
-        vector<int> vbestIdxF = vector<int>(1, -1);
         vector<int> vbestDist2 = vector<int>(1, 256);
+        vector<int> vbestIdxF = vector<int>(1, -1);
 #define MATCH_KNN_IN_EACH_IMG  // we should use this to avoid 1mp seen by 4 cams with similar descriptors
 
         for (size_t iF = 0; iF < vIndicesF.size(); iF++) {
@@ -414,9 +415,9 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
             img_id = get<0>(F.mapn2in_[realIdxF]);
             if (vbestDist1.size() <= img_id) {
               size_t n_size = img_id + 1;
-              vbestDist1.resize(n_size);
-              vbestDist2.resize(n_size);
-              vbestIdxF.resize(n_size);
+              vbestDist1.resize(n_size, 256);
+              vbestDist2.resize(n_size, 256);
+              vbestIdxF.resize(n_size, -1);
             }
           }
 #endif
@@ -443,19 +444,27 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
             if (static_cast<float>(vbestDist1[img_id]) < mfNNratio * static_cast<float>(vbestDist2[img_id])) {
               // we only change mp match in the same cami when the dist is smaller
               auto mpcami = make_pair(pMP, img_id);
-              auto iterdist = mapmpcami2distkpid.find(mpcami);
-              if (mapmpcami2distkpid.end() != iterdist) {
-                if (iterdist->second.first <= vbestDist1[img_id])
+              auto iterdist = mapmpcami2distkpidhist.find(mpcami);
+              if (mapmpcami2distkpidhist.end() != iterdist) {
+                if (get<0>(iterdist->second) <= vbestDist1[img_id])
                   continue;
-                else
-                  vpMapPointMatches[iterdist->second.second] = nullptr;
+                else {
+                  vpMapPointMatches[get<1>(iterdist->second)] = nullptr;
+                  --nmatches;
+                  if (mbCheckOrientation) {
+                    const auto &hist2erase = get<2>(iterdist->second);
+                    const auto &bin2erase = get<0>(hist2erase);
+                    CV_Assert(-1 != bin2erase);
+                    rothist2erase[bin2erase].push_back(get<1>(hist2erase));
+                  }
+                }
               }
 
               vpMapPointMatches[vbestIdxF[img_id]] = pMP;
-              mapmpcami2distkpid.emplace(mpcami, make_pair(vbestDist1[img_id], vbestIdxF[img_id]));
 
               const cv::KeyPoint &kp = pKF->mvKeys[realIdxKF];  // Un
 
+              tuple<int, size_t, pair<size_t, size_t>> tuptmp;
               if (mbCheckOrientation)  // the same in SearchByProjection(Frame,const Frame,...)
               {
                 // zzh change here, old ORBSLAM2 uses mvKeys[], whose angle should be the same
@@ -465,8 +474,12 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
                 int bin = round(rot * factor);
                 if (bin == HISTO_LENGTH) bin = 0;
                 assert(bin >= 0 && bin < HISTO_LENGTH);
+                tuptmp = make_tuple(vbestDist1[img_id], vbestIdxF[img_id], make_pair(bin, rotHist[bin].size()));
                 rotHist[bin].push_back(vbestIdxF[img_id]);
-              }
+              } else
+                tuptmp = make_tuple(vbestDist1[img_id], vbestIdxF[img_id], make_pair(-1,-1));
+              mapmpcami2distkpidhist.emplace(mpcami, tuptmp);
+
               nmatches++;
             }
           }
@@ -484,16 +497,24 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
 
   if (mbCheckOrientation)  // the same in SearchByProjection(Frame,const Frame,...)
   {
+    vector<int> rotHist2[HISTO_LENGTH];
+    for (size_t i = 0, iend = HISTO_LENGTH; i < iend; ++i) {
+      for (size_t j = 0, jend = rothist2erase[i].size(); j < jend; ++j) rotHist[i][rothist2erase[i][j]] = -1;
+      size_t jend = rotHist[i].size();
+      rotHist2[i].reserve(jend);
+      for (size_t j = 0; j < jend; ++j)
+        if (-1 != rotHist[i][j]) rotHist2[i].push_back(rotHist[i][j]);
+    }
     int ind1 = -1;
     int ind2 = -1;
     int ind3 = -1;
 
-    ComputeThreeMaxima(rotHist, HISTO_LENGTH, ind1, ind2, ind3);
+    ComputeThreeMaxima(rotHist2, HISTO_LENGTH, ind1, ind2, ind3);
 
     for (int i = 0; i < HISTO_LENGTH; i++) {
       if (i == ind1 || i == ind2 || i == ind3) continue;
-      for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++) {
-        vpMapPointMatches[rotHist[i][j]] = static_cast<MapPoint *>(NULL);
+      for (size_t j = 0, jend = rotHist2[i].size(); j < jend; j++) {
+        vpMapPointMatches[rotHist2[i][j]] = static_cast<MapPoint *>(NULL);
         nmatches--;
       }
     }
@@ -754,7 +775,6 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 
   vpMatches12 = vector<MapPoint *>(vpMapPoints1.size(), static_cast<MapPoint *>(NULL));
   vector<bool> vbMatched2(vpMapPoints2.size(), false);
-  map<pair<MapPoint *, size_t>, tuple<int, size_t, size_t>> mapmpcami2distkp12id;
 
   vector<int> rotHist[HISTO_LENGTH];  // angle filter
   for (int i = 0; i < HISTO_LENGTH; i++) rotHist[i].reserve(500);
@@ -767,6 +787,8 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
   DBoW2::FeatureVector::const_iterator f1end = vFeatVec1.end();
   DBoW2::FeatureVector::const_iterator f2end = vFeatVec2.end();
 
+  map<pair<MapPoint *, size_t>, tuple<int, size_t, size_t, pair<size_t, size_t>>> mapmpcami2distkp12idhist;
+  vector<size_t> rothist2erase[HISTO_LENGTH];
   while (f1it != f1end && f2it != f2end) {
     if (f1it->first == f2it->first) {
       for (size_t i1 = 0, iend1 = f1it->second.size(); i1 < iend1; i1++)  // refKF's features' ID
@@ -780,8 +802,8 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         const cv::Mat &d1 = Descriptors1.row(idx1);
 
         vector<int> vbestDist1 = vector<int>(1, 256);
-        vector<int> vbestIdx2 = vector<int>(1, -1);
         vector<int> vbestDist2 = vector<int>(1, 256);
+        vector<int> vbestIdx2 = vector<int>(1, -1);
 
         for (size_t i2 = 0, iend2 = f2it->second.size(); i2 < iend2; i2++)  // rectifying KF's features' ID
         {
@@ -800,14 +822,15 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
           int dist = DescriptorDistance(d1, d2);
 
           size_t img_id = 0;
+#undef MATCH_KNN_IN_EACH_IMG
 #ifdef MATCH_KNN_IN_EACH_IMG
           if (pKF2->mapn2in_.size() > idx2) {
             img_id = get<0>(pKF2->mapn2in_[idx2]);
             if (vbestDist1.size() <= img_id) {
               size_t n_size = img_id + 1;
-              vbestDist1.resize(n_size);
-              vbestDist2.resize(n_size);
-              vbestIdx2.resize(n_size);
+              vbestDist1.resize(n_size, 256);
+              vbestDist2.resize(n_size, 256);
+              vbestIdx2.resize(n_size, -1);
             }
           }
 #endif
@@ -828,22 +851,29 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
             if (static_cast<float>(vbestDist1[img_id]) < mfNNratio * static_cast<float>(vbestDist2[img_id])) {
               // we only change mp match in the same cami when the dist is smaller
               auto mpcami = make_pair(pMP1, img_id);
-              auto iterdist = mapmpcami2distkp12id.find(mpcami);
-              if (mapmpcami2distkp12id.end() != iterdist) {
+              auto iterdist = mapmpcami2distkp12idhist.find(mpcami);
+              if (mapmpcami2distkp12idhist.end() != iterdist) {
                 if (get<0>(iterdist->second) <= vbestDist1[img_id])
                   continue;
                 else {
                   vpMatches12[get<1>(iterdist->second)] = nullptr;
                   vbMatched2[get<2>(iterdist->second)] = false;
+                  --nmatches;
+                  if (mbCheckOrientation) {
+                    const auto &hist2erase = get<3>(iterdist->second);
+                    const auto &bin2erase = get<0>(hist2erase);
+                    CV_Assert(-1 != bin2erase);
+                    rothist2erase[bin2erase].push_back(get<1>(hist2erase));
+                  }
                 }
               }
 
-              vpMatches12[idx1] =
-                  vpMapPoints2[vbestIdx2[img_id]];  // notice here is not vpMatches21[bestIdx2]=pMP1, unlike another SBB, this SBB rectifying the vpMatches12 instead of vpMatches21
-              vbMatched2[vbestIdx2[img_id]] =
-                  true;  // but we can still think it's also rectifying pKF2's corresponding vbMatched2
-              mapmpcami2distkp12id.emplace(mpcami, make_tuple(vbestDist1[img_id], idx1, vbestIdx2[img_id]));
+              // notice here is not vpMatches21[bestIdx2]=pMP1, unlike another SBB, this SBB rectifying the vpMatches12 instead of vpMatches21
+              vpMatches12[idx1] = vpMapPoints2[vbestIdx2[img_id]];
+              // but we can still think it's also rectifying pKF2's corresponding vbMatched2
+              vbMatched2[vbestIdx2[img_id]] = true;
 
+              tuple<int, size_t, size_t, pair<size_t, size_t>> tuptmp;
               if (mbCheckOrientation)  // true in ComputeSim3()
               {
                 float rot = vKeysUn1[idx1].angle - vKeysUn2[vbestIdx2[img_id]].angle;  // ref - rectifying(vbMatched2)
@@ -851,8 +881,12 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
                 int bin = round(rot * factor);
                 if (bin == HISTO_LENGTH) bin = 0;
                 assert(bin >= 0 && bin < HISTO_LENGTH);
+                tuptmp = make_tuple(vbestDist1[img_id], idx1, vbestIdx2[img_id], make_pair(bin, rotHist[bin].size()));
                 rotHist[bin].push_back(idx1);
-              }
+              } else
+                tuptmp = make_tuple(vbestDist1[img_id], idx1, vbestIdx2[img_id], make_pair(-1,-1));
+              mapmpcami2distkp12idhist.emplace(mpcami, tuptmp);
+
               nmatches++;
             }
           }
@@ -869,16 +903,25 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
   }
 
   if (mbCheckOrientation) {
+    vector<int> rotHist2[HISTO_LENGTH];
+    for (size_t i = 0, iend = HISTO_LENGTH; i < iend; ++i) {
+      for (size_t j = 0, jend = rothist2erase[i].size(); j < jend; ++j) rotHist[i][rothist2erase[i][j]] = -1;
+      size_t jend = rotHist[i].size();
+      rotHist2[i].reserve(jend);
+      for (size_t j = 0; j < jend; ++j)
+        if (-1 != rotHist[i][j]) rotHist2[i].push_back(rotHist[i][j]);
+    }
+
     int ind1 = -1;
     int ind2 = -1;
     int ind3 = -1;
 
-    ComputeThreeMaxima(rotHist, HISTO_LENGTH, ind1, ind2, ind3);
+    ComputeThreeMaxima(rotHist2, HISTO_LENGTH, ind1, ind2, ind3);
 
     for (int i = 0; i < HISTO_LENGTH; i++) {
       if (i == ind1 || i == ind2 || i == ind3) continue;
-      for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++) {
-        vpMatches12[rotHist[i][j]] = static_cast<MapPoint *>(NULL);
+      for (size_t j = 0, jend = rotHist2[i].size(); j < jend; j++) {
+        vpMatches12[rotHist2[i][j]] = static_cast<MapPoint *>(NULL);
         nmatches--;
       }
     }

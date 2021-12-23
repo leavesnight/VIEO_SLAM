@@ -477,6 +477,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
     const IMUPreintegrator &imupreint12=pKF2->mOdomPreIntIMU,&imupreint23=pKF3->mOdomPreIntIMU;
     //d means delta
     double dt12=imupreint12.mdeltatij;double dt23=imupreint23.mdeltatij;
+    if (!dt12 || !dt23) continue;
     cv::Mat dp12=Converter::toCvMat(imupreint12.mpij);cv::Mat dp23=Converter::toCvMat(imupreint23.mpij);
     cv::Mat dv12=Converter::toCvMat(imupreint12.mvij);cv::Mat Jav12=Converter::toCvMat(imupreint12.mJavij);
     cv::Mat Jap12 = Converter::toCvMat(imupreint12.mJapij);cv::Mat Jap23=Converter::toCvMat(imupreint23.mJapij);
@@ -493,8 +494,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
     +Rb1*dp12*dt23-(dt12*dt12*dt23+dt12*dt23*dt23)/2*(gw);//notice here use gw=Rwi*gI-Rwi*gI^
     zeta.copyTo(C.rowRange(3*i+0,3*i+3));
     psi2.copyTo(D.rowRange(3*i+0,3*i+3));
-
-    assert(dt12>0&&dt23>0);
+    //assert(dt12>0&&dt23>0);
   }
   // Use svd to compute C*x=D, x=[ba] 3x1 vector
   cv::Mat w2,u2,vt2;// Note w2 is 3x1 vector by SVDecomp()
@@ -638,7 +638,6 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
   PRINT_INFO_MUTEX( "Camera.type=" << sCameraName << endl);
   mpCameras.resize(4);  // TODO: detect the size
   mDistCoef = cv::Mat::zeros(4, 1, CV_32F);
-  mpFrameDrawer->showallimages_ = true;
   for (int i = 0; i < 4; ++i) {
     bool bexist_cam = false;
     if (sCameraName == "Pinhole") {
@@ -653,6 +652,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
       break;
     }
   }
+  if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
   // pSys->usedistort_ = false;
   PRINT_INFO_MUTEX( "Cam size = " << mpCameras.size() << endl);
   CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
@@ -1496,7 +1496,7 @@ void Tracking::CheckReplacedInLastFrame() {
     if (pMP) {
       MapPoint* pRep = pMP->GetReplaced();
       if (pRep) {
-        size_t cami = !mLastFrame.mpCameras.size() ? 0 : get<0>(mLastFrame.mapn2in_[i]);
+        size_t cami = mLastFrame.mapin2n_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
         CV_Assert(pMP->isBad());
         while (pRep && pRep->isBad()) {
 #ifndef CHECK_REPLACE_ALL

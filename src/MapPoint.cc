@@ -243,27 +243,19 @@ void MapPoint::Replace(MapPoint* pMP) {
     // Replace measurement in keyframe
     KeyFrame* pKF = mit->first;
 
-    size_t n_cams = !pKF->mpCameras.size() ? 1 : pKF->mpCameras.size();
-    for (size_t cami = 0; cami < n_cams; ++cami) {
+    auto idxs = mit->second;
+    for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+      auto idx = *iter;
+      size_t cami = pKF->mapn2in_.size() <= idx ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (!pMP->IsInKeyFrame(pKF, -1, cami)) {
-        auto idxs = mit->second;
-        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-          auto idx = *iter;
-          if (pKF->mapn2in_.size() > idx && cami != get<0>(pKF->mapn2in_[idx])) continue;
-          pKF->ReplaceMapPointMatch(idx, pMP);
-          pMP->AddObservation(pKF, idx);
-        }
+        pKF->ReplaceMapPointMatch(idx, pMP);
+        pMP->AddObservation(pKF, idx);
       } else {
         // just erase pKF->mvpMapPoints[mit->second] for it already exists/matches in another pKF->mvpMapPoints[idx](idx!=mit->second)
-        auto idxs = mit->second;
-        for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-          auto idx = *iter;
-          if (pKF->mapn2in_.size() > idx && cami != get<0>(pKF->mapn2in_[idx])) continue;
-          auto idxs_old = pMP->GetObservations()[pKF];
-          CV_Assert(idxs_old.end() == idxs_old.find(idx));
-          pKF->EraseMapPointMatch(idx);
-          PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, imu_tightly_debug_path, "debug.txt");
-        }
+        auto idxs_old = pMP->GetObservations()[pKF];
+        CV_Assert(idxs_old.end() == idxs_old.find(idx));
+        pKF->EraseMapPointMatch(idx);
+        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, imu_tightly_debug_path, "debug.txt");
       }
     }
   }
@@ -440,7 +432,7 @@ void MapPoint::UpdateNormalAndDepth() {
     auto idxs = mit->second;
     for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
       auto idx = *iter;
-      size_t cami = !pKF->mapn2in_.size() ? 0 : get<0>(pKF->mapn2in_[idx]);
+      size_t cami = pKF->mapn2in_.size() <= idx ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (pKF->mpCameras.size() > cami) {
         GeometricCamera* pcam1 = pKF->mpCameras[cami];
         const cv::Mat Rcrw = pKF->GetRotation();

@@ -46,7 +46,7 @@ std::set<std::pair<MapPoint*, size_t>> FrameBase::GetMapPointsCami() {
     if (!mvpMapPoints[i]) continue;
     MapPoint* pMP = mvpMapPoints[i];
     if (!pMP->isBad()) {
-      size_t cami = !mpCameras.size() ? 0 : get<0>(mapn2in_[i]);
+      size_t cami = mapn2in_.size() <= i ? 0 : get<0>(mapn2in_[i]);
       s.insert(make_pair(pMP, cami));
     }
   }

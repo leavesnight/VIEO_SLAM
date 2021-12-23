@@ -42,11 +42,6 @@ class Pinhole : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
-  //  Pinhole(const std::vector<float> _vParameters) : GeometricCamera(_vParameters) {  //, tvr(nullptr) {
-  //    assert(mvParameters.size() == 4);
-  //    mnId = nNextId++;
-  //    mnType = CAM_PINHOLE;
-  //  }
   Pinhole(const cv::Mat& DistCoef, cv::FileStorage& fSettings, int id, bool& bmiss_param)
       : GeometricCamera(fSettings, id, bmiss_param) {
     CV_Assert((DistCoef.total() == 4 || DistCoef.total() == 5) && DistCoef.elemSize() == sizeof(float));
@@ -57,12 +52,6 @@ class Pinhole : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
-
-  //  Pinhole(Pinhole* pPinhole) : GeometricCamera(pPinhole->mvParameters) {  //, tvr(nullptr) {
-  //    assert(mvParameters.size() == 4);
-  //    mnId = nNextId++;
-  //    mnType = CAM_PINHOLE;
-  //  }
 
   ~Pinhole() {}
 
@@ -95,24 +84,12 @@ class Pinhole : public GeometricCamera {
 
   bool epipolarConstrain(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                          const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
-  bool epipolarConstrain_(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                          const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel, const float unc);
-
-  bool matchAndtriangulate(const cv::KeyPoint& kp1, const cv::KeyPoint& kp2, GeometricCamera* pOther, cv::Mat& Tcw1,
-                           cv::Mat& Tcw2, const float sigmaLevel1, const float sigmaLevel2, cv::Mat& x3Dtriangulated) {
-    return false;
-  }
 
   friend std::ostream& operator<<(std::ostream& os, const Pinhole& ph);
   friend std::istream& operator>>(std::istream& os, Pinhole& ph);
 
  private:
   cv::Mat SkewSymmetricMatrix(const cv::Mat& v);
-  cv::Matx33f SkewSymmetricMatrix_(const cv::Matx31f& v);
-
-  // Parameters vector corresponds to
-  //      [fx, fy, cx, cy]
-
   //        TwoViewReconstruction* tvr;
 };
 }  // namespace VIEO_SLAM

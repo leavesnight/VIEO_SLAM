@@ -30,8 +30,6 @@
 
 #include "GeometricCamera.h"
 
-//#include "TwoViewReconstruction.h"
-
 namespace VIEO_SLAM {
 class KannalaBrandt8 final : public GeometricCamera {
  public:
@@ -40,12 +38,6 @@ class KannalaBrandt8 final : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_FISHEYE;
   }
-  //  KannalaBrandt8(const std::vector<float> _vParameters)
-  //      : GeometricCamera(_vParameters), precision(1e-6) {  // ,tvr(nullptr) {
-  //    assert(mvParameters.size() == 8);
-  //    mnId = nNextId++;
-  //    mnType = CAM_FISHEYE;
-  //  }
   KannalaBrandt8(const cv::Mat& DistCoef, cv::FileStorage& fSettings, int id, bool& bmiss_param)
       : GeometricCamera(fSettings, id, bmiss_param), precision(1e-6) {
     CV_Assert(DistCoef.total() == 4 && DistCoef.elemSize() == sizeof(float));
@@ -57,20 +49,6 @@ class KannalaBrandt8 final : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_FISHEYE;
   }
-
-  //  KannalaBrandt8(const std::vector<float> _vParameters, const float _precision)
-  //      : GeometricCamera(_vParameters), precision(_precision) {
-  //    assert(mvParameters.size() == 8);
-  //    mnId = nNextId++;
-  //    mnType = CAM_FISHEYE;
-  //  }
-  //  KannalaBrandt8(KannalaBrandt8* pKannala)
-  //      : GeometricCamera(pKannala->mvParameters),
-  //        precision(pKannala->precision) {  // ,tvr(nullptr) {
-  //    assert(mvParameters.size() == 8);
-  //    mnId = nNextId++;
-  //    mnType = CAM_FISHEYE;
-  //  }
 
   static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
                                 cv::Mat* pDistCoef);
@@ -99,31 +77,12 @@ class KannalaBrandt8 final : public GeometricCamera {
 
   bool epipolarConstrain(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                          const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
-  bool epipolarConstrain_(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                          const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel, const float unc);
-
-  float TriangulateMatches_(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                            const cv::Matx33f& R12, const cv::Matx31f& t12, const float sigmaLevel, const float unc,
-                            cv::Matx31f& p3D);
 
   std::vector<int> mvLappingArea = {0, INT_MAX};
 
-  bool matchAndtriangulate(const cv::KeyPoint& kp1, const cv::KeyPoint& kp2, GeometricCamera* pOther, cv::Mat& Tcw1,
-                           cv::Mat& Tcw2, const float sigmaLevel1, const float sigmaLevel2, cv::Mat& x3Dtriangulated);
-
-  friend std::ostream& operator<<(std::ostream& os, const KannalaBrandt8& kb);
-  friend std::istream& operator>>(std::istream& is, KannalaBrandt8& kb);
-
  private:
   const float precision;
-
-  // Parameters vector corresponds to
-  //[fx, fy, cx, cy, k0, k1, k2, k3]
-
   //        TwoViewReconstruction* tvr;
-
-  void Triangulate_(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Matx44f& Tcw1, const cv::Matx44f& Tcw2,
-                    cv::Matx31f& x3D);
 };
 }  // namespace VIEO_SLAM
 

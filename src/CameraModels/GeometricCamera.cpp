@@ -80,10 +80,9 @@ cv::Mat GeometricCamera::toK() {
                0.f, 0.f, 1.f);
   return K;
 }
-
-cv::Matx33f GeometricCamera::toK_() {
-  cv::Matx33f K{mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3], 0.f, 0.f, 1.f};
-
+Eigen::Matrix3d GeometricCamera::toK_() {
+  Eigen::Matrix3d K;
+  K << mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3], 0.f, 0.f, 1.f;
   return K;
 }
 
