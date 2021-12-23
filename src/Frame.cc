@@ -971,12 +971,12 @@ void Frame::ComputeStereoFishEyeMatches() {
           if (iteri != mapcamidx2idxs_.end()) {
             ididxs = iteri->second;
             auto &idxs = mvidxsMatches[ididxs];
-            if (-1 == idxs[i]){// || lastdists[ididxs][i] > (*it)[0].distance) {
+            if (-1 == idxs[i] || lastdists[ididxs][i] > (*it)[0].distance) {
               checkdepth[0] = 2;
             }
             //            else if (idxi != idxs[i])
             //              goodmatches_[ididxs] = false;
-            if (-1 == idxs[j]){// || lastdists[ididxs][j] > (*it)[0].distance) {
+            if (-1 == idxs[j] || lastdists[ididxs][j] > (*it)[0].distance) {
               checkdepth[1] = 2;
             }
             //            else if (idxj != idxs[j])
