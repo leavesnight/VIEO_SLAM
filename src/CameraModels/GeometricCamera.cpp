@@ -3,88 +3,42 @@
 //
 
 #include "GeometricCamera.h"
+#include "Converter.h"
+#include "so3_extra.h"
 #include <string>
 #include <iostream>
-#include "Converter.h"
 using std::cout;
 using std::endl;
 using std::string;
 using std::to_string;
 
 namespace VIEO_SLAM {
-
-GeometricCamera::GeometricCamera(cv::FileStorage &fSettings, int id, bool &bmiss_param) {
-  string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
-
-  cv::FileNode node_tmp = fSettings[cam_name + ".fx"];
-  if (node_tmp.empty()) {
-    bmiss_param = true;
-    return;
-  }
-  float fx = node_tmp;
-  node_tmp = fSettings[cam_name + ".fy"];
-  if (node_tmp.empty()) {
-    bmiss_param = true;
-    return;
-  }
-  float fy = fSettings[cam_name + ".fy"];
-  node_tmp = fSettings[cam_name + ".cx"];
-  if (node_tmp.empty()) {
-    bmiss_param = true;
-    return;
-  }
-  float cx = fSettings[cam_name + ".cx"];
-  node_tmp = fSettings[cam_name + ".cy"];
-  if (node_tmp.empty()) {
-    bmiss_param = true;
-    return;
-  }
-  float cy = fSettings[cam_name + ".cy"];
-
-  mvParameters.resize(4);
-  mvParameters[0] = fx;
-  mvParameters[1] = fy;
-  mvParameters[2] = cx;
-  mvParameters[3] = cy;
-
-  PRINT_INFO_MUTEX( endl << "Camera (Geometric) Parameters: " << endl);
-  PRINT_INFO_MUTEX( "- fx: " << fx << endl);
-  PRINT_INFO_MUTEX( "- fy: " << fy << endl);
-  PRINT_INFO_MUTEX( "- cx: " << cx << endl);
-  PRINT_INFO_MUTEX( "- cy: " << cy << endl);
-
-  node_tmp = fSettings[cam_name + ".Trc"];
-  cv::Mat &Trc = Trc_;
-  Eigen::Matrix3d &Rcr = Rcr_;
-  Eigen::Vector3d &tcr = tcr_;
-  if (!node_tmp.empty()) {
-    Trc = node_tmp.mat();
-    if (Trc.rows != 3 || Trc.cols != 4) {
-      std::cerr << "*Trc matrix have to be a 3x4 transformation matrix*" << std::endl;
-      bmiss_param = true;
-      return;
-    }
-    Rcr = Converter::toMatrix3d(Trc.rowRange(0, 3).colRange(0, 3)).transpose();
-    tcr = -Rcr * Converter::toVector3d(Trc.col(3));
-  } else {
-    PRINT_INFO_MUTEX( "Warning:*Trc matrix doesn't exist*" << std::endl);
-    Trc = cv::Mat::eye(3, 4, CV_32F);
-  }
-  PRINT_INFO_MUTEX( "- Trc: \n" << Trc << std::endl);
-
-  bmiss_param = false;
+cv::Point2f GeometricCamera::project(const cv::Point3f &p3D) {
+  auto pteig = project(Eigen::Vector3d(p3D.x, p3D.y, p3D.z));
+  return cv::Point2f(pteig[0], pteig[1]);
+}
+cv::Point2f GeometricCamera::project(const cv::Mat &m3D) {
+  const float *p3D = m3D.ptr<float>();
+  auto pteig = project(Eigen::Vector3d(p3D[0], p3D[1], p3D[2]));
+  return cv::Point2f(pteig[0], pteig[1]);
 }
 
-cv::Mat GeometricCamera::toK() {
-  cv::Mat K = (cv::Mat_<float>(3, 3) << mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3],
-               0.f, 0.f, 1.f);
-  return K;
+cv::Point3f GeometricCamera::unproject(const cv::Point2f &p2D) {
+  auto normedPeig = unproject(Eigen::Vector2d(p2D.x, p2D.y));
+  return cv::Point3f(normedPeig[0], normedPeig[1], normedPeig[2]);
 }
-Eigen::Matrix3d GeometricCamera::toK_() {
-  Eigen::Matrix3d K;
-  K << mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3], 0.f, 0.f, 1.f;
-  return K;
+cv::Mat GeometricCamera::unprojectMat(const cv::Point2f &p2D) {
+  auto normedPeig = unproject(Eigen::Vector2d(p2D.x, p2D.y));
+  return (cv::Mat_<float>(3, 1) << normedPeig[0], normedPeig[1], normedPeig[2]);
 }
+
+//cv::Mat GeometricCamera::projectJac(const cv::Point3f &p3D) {
+//  cv::Mat Jac(2, 3, CV_32F);
+//  Eigen::Matrix<double, 2, 3> jac = projectJac(Eigen::Vector3d(p3D.x, p3D.y, p3D.z));
+//  for (int i = 0; i < 2; ++i)
+//    for (int j = 0; j < 3; ++j) Jac.at<float>(i, j) = jac(i, j);
+//  return Jac;
+//}
 
 void GeometricCamera::Triangulate(const cv::Point2f &p1, const cv::Point2f &p2, const cv::Mat &Tcw1,
                                   const cv::Mat &Tcw2, cv::Mat &x3D) {
@@ -175,4 +129,48 @@ float GeometricCamera::TriangulateMatches(GeometricCamera *pCamera2, const cv::K
   if (pz2) *pz2 = z2;
   return z1;
 }
+
+// float GeometricCamera::uncertainty2(const Eigen::Matrix<double, 2, 1> &p2D) { return 1.0; }
+
+cv::Mat GeometricCamera::toKcv() {
+  return Converter::toCvMat(toK());
+}
+bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
+                                const cv::Mat &R12in, const cv::Mat &t12in, const float sigmaLevel, const float unc) {
+  // Compute Fundamental Matrix
+  Eigen::Vector3d t12 = Converter::toVector3d(t12in);
+  Eigen::Matrix3d R12 = Converter::toMatrix3d(R12in);
+  auto t12x = Sophus::SO3exd::hat(t12);
+  auto K1 = this->toK();
+  auto K2 = pCamera2->toK();
+  Eigen::Matrix3d F12 = K1.transpose().inverse() * t12x * R12 * K2.inverse();
+
+  // Epipolar line in second image l = x1'F12 = [a b c]
+  auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
+  const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);
+  const float b = pt1.x * F12(0, 1) + pt1.y * F12(1, 1) + F12(2, 1);
+  const float c = pt1.x * F12(0, 2) + pt1.y * F12(1, 2) + F12(2, 2);
+
+  const float num = a * pt2.x + b * pt2.y + c;
+
+  const float den = a * a + b * b;
+
+  if (den == 0) return false;
+
+  const float dsqr = num * num / den;
+
+  return dsqr < 3.84 * unc;
+}
+
+//    bool GeometricCamera::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
+//    vKeys2, const std::vector<int> &vMatches12,
+//                                 cv::Mat &R21, cv::Mat &t21, std::vector<cv::Point3f> &vP3D, std::vector<bool>
+//                                 &vbTriangulated){
+//        if(!tvr){
+//            cv::Mat K = this->toKcv();
+//            tvr = new TwoViewReconstruction(K);
+//        }
+//
+//        return tvr->Reconstruct(vKeys1,vKeys2,vMatches12,R21,t21,vP3D,vbTriangulated);
+//    }
 }  // namespace VIEO_SLAM

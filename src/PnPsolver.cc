@@ -307,7 +307,7 @@ bool PnPsolver::Refine()
 
 void PnPsolver::Getuv(const Vector3d &Pcr, double &ue, double&ve, size_t i) {
   if (!usedistort_) {
-    float invZc = 1./Pcr[1];
+    float invZc = 1. / Pcr[2];
     ue = uc + fu * Pcr[0] * invZc;
     ve = vc + fv * Pcr[1] * invZc;
   } else {
@@ -390,7 +390,7 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
     auto &pcam1 = pcams_[mapidx2cami_[idx]];
     cv::Point3f cvPc = pcam1->unproject(cv::Point2f(u, v));
     Vector3d Pc = Vector3d(cvPc.x, cvPc.y, cvPc.z);
-    Vector3d keyun_ = pcam1->toK_() * (pcam1->Rcr_.transpose() * (Pc - pcam1->tcr_));
+    Vector3d keyun_ = pcam1->toK() * (pcam1->Rcr_.transpose() * (Pc - pcam1->tcr_));
     double invz = 1. / keyun_[2];
     keyun.x = keyun_[0] * invz;
     keyun.y = keyun_[1] * invz;

@@ -40,51 +40,43 @@ class GeometricCamera {
  public:
   GeometricCamera() {}
   GeometricCamera(const std::vector<float>& _vParameters) : mvParameters(_vParameters) {}
-  GeometricCamera(cv::FileStorage& fSettings, int id, bool &bmiss_param);
   virtual ~GeometricCamera() {}
 
-  virtual cv::Point2f project(const cv::Point3f& p3D) = 0;
-  virtual cv::Point2f project(const cv::Matx31f& m3D) = 0;
-  virtual cv::Point2f project(const cv::Mat& m3D) = 0;
+  void setParameter(const float p, const size_t i) { mvParameters[i] = p; }
+
   virtual Eigen::Vector2d project(const Eigen::Vector3d& v3D) = 0;
-  virtual cv::Mat projectMat(const cv::Point3f& p3D) = 0;
+  virtual cv::Point2f project(const cv::Point3f& p3D);
+  virtual cv::Point2f project(const cv::Mat& m3D);
 
-  virtual float uncertainty2(const Eigen::Matrix<double, 2, 1>& p2D) = 0;
+  virtual Eigen::Vector3d unproject(const Eigen::Vector2d& p2D) = 0;
+  virtual cv::Point3f unproject(const cv::Point2f& p2D);
+  virtual cv::Mat unprojectMat(const cv::Point2f& p2D);
 
-  virtual cv::Point3f unproject(const cv::Point2f& p2D) = 0;
-  virtual cv::Mat unprojectMat(const cv::Point2f& p2D) = 0;
-  virtual cv::Matx31f unprojectMat_(const cv::Point2f& p2D) = 0;
-
-  virtual cv::Mat projectJac(const cv::Point3f& p3D) = 0;
   virtual Eigen::Matrix<double, 2, 3> projectJac(const Eigen::Vector3d& v3D) = 0;
-
-  virtual cv::Mat unprojectJac(const cv::Point2f& p2D) = 0;
-
-  //  virtual bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
-  //  vKeys2,
-  //                                       const std::vector<int>& vMatches12, cv::Mat& R21, cv::Mat& t21,
-  //                                       std::vector<cv::Point3f>& vP3D, std::vector<bool>& vbTriangulated) = 0;
-
-  virtual cv::Mat toK();
-  virtual Eigen::Matrix3d toK_();
-
-  virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                                 const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc) = 0;
+  // virtual cv::Mat projectJac(const cv::Point3f& p3D);
 
   virtual float TriangulateMatches(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                    const float sigmaLevel, const float unc, cv::Mat& p3D, float* pz2 = nullptr);
 
-  float getParameter(const int i) { return mvParameters[i]; }
-  void setParameter(const float p, const size_t i) { mvParameters[i] = p; }
+  // virtual float uncertainty2(const Eigen::Matrix<double, 2, 1>& p2D);
+
+  // Suppose GeometricCamera is a P2D = K * normedP3D or linear mapping Camera Model,
+  // if it's nonlinear, please impelment the following virtual funcs
+  virtual Eigen::Matrix3d toK() = 0;
+  virtual cv::Mat toKcv();
+  virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
+                                 const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
+  // for monocular init
+  //  virtual bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
+  //  vKeys2,
+  //                                       const std::vector<int>& vMatches12, cv::Mat& R21, cv::Mat& t21,
+  //                                       std::vector<cv::Point3f>& vP3D, std::vector<bool>& vbTriangulated);
 
   size_t size() { return mvParameters.size(); }
 
-  unsigned int GetId() { return mnId; }
-
   unsigned int GetType() { return mnType; }
 
-  const unsigned int CAM_PINHOLE = 0;
-  const unsigned int CAM_FISHEYE = 1;
+  enum CAM_TYPE { CAM_PINHOLE, CAM_FISHEYE, CAM_RADTAN };
 
   static long unsigned int nNextId;
 
@@ -98,6 +90,8 @@ class GeometricCamera {
   unsigned int mnId;
 
   unsigned int mnType;
+
+  //        TwoViewReconstruction* tvr;
 
   void Triangulate(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Mat& Tcw1, const cv::Mat& Tcw2,
                    cv::Mat& x3D);

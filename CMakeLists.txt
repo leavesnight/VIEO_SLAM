@@ -148,7 +148,8 @@ add_library(${PROJECT_NAME} SHARED
 
         src/CameraModels/GeometricCamera.cpp
         src/CameraModels/Pinhole.cpp
-        src/CameraModels/KannalaBrandt8.cpp)
+        src/CameraModels/KannalaBrandt8.cpp
+        src/CameraModels/radtan.cpp)
 
 target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}

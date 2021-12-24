@@ -25,7 +25,7 @@
 #include<opencv2/core/core.hpp>
 #include<opencv2/features2d/features2d.hpp>
 
-#include "Pinhole.h"
+#include "radtan.h"
 #include "KannalaBrandt8.h"
 #include"ORBmatcher.h"
 #include"FrameDrawer.h"
@@ -641,12 +641,20 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
   mDistCoef = cv::Mat::zeros(4, 1, CV_32F);
   for (int i = 0; i < 4; ++i) {
     bool bexist_cam = false;
-    if (sCameraName == "Pinhole") {
-      cv::Mat* pDistCoef = (!pSys->usedistort_ && !i) ? &mDistCoef : nullptr;
-      bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
-    } else {
-      pSys->usedistort_ = true;  // TODO: now fisheye only support usedistort_
+    if (sCameraName == "KannalaBrandt8") {
+      pSys->usedistort_ = true;  // TODO: now fisheye only usedistort_ is confirmed
       bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, nullptr);
+    } else {
+      if (sCameraName == "Pinhole") {
+        CV_Assert(!pSys->usedistort_);
+        cv::Mat* pDistCoef = !i ? &mDistCoef : nullptr;
+        bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+      } else if (sCameraName == "Radtan") {
+        cv::Mat* pDistCoef = (!pSys->usedistort_ && !i) ? &mDistCoef : nullptr;
+        bexist_cam = Radtan::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+        // pSys->usedistort_ = false;
+      } else
+        CV_Assert(0 && "Unsupported Camera Model");
     }
     if (!bexist_cam) {
       mpCameras.resize(i);
@@ -654,7 +662,6 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     }
   }
   if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
-  // pSys->usedistort_ = false;
   PRINT_INFO_MUTEX( "Cam size = " << mpCameras.size() << endl);
   CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
 

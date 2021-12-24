@@ -70,6 +70,8 @@ GBA.finalIterations: 20
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 
+Camera.type: "Radtan"
+
 # Camera calibration and distortion parameters (OpenCV) 
 Camera.fx: 458.654
 Camera.fy: 457.296

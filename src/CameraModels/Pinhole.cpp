@@ -23,6 +23,7 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <opencv2/calib3d.hpp>
+#include "Converter.h"
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -34,134 +35,94 @@ namespace VIEO_SLAM {
 
 long unsigned int GeometricCamera::nNextId = 0;
 
+Pinhole::Pinhole(cv::FileStorage &fSettings, int id, bool &bmiss_param) {
+  string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
+
+  cv::FileNode node_tmp = fSettings[cam_name + ".fx"];
+  if (node_tmp.empty()) {
+    bmiss_param = true;
+    return;
+  }
+  float fx = node_tmp;
+  node_tmp = fSettings[cam_name + ".fy"];
+  if (node_tmp.empty()) {
+    bmiss_param = true;
+    return;
+  }
+  float fy = fSettings[cam_name + ".fy"];
+  node_tmp = fSettings[cam_name + ".cx"];
+  if (node_tmp.empty()) {
+    bmiss_param = true;
+    return;
+  }
+  float cx = fSettings[cam_name + ".cx"];
+  node_tmp = fSettings[cam_name + ".cy"];
+  if (node_tmp.empty()) {
+    bmiss_param = true;
+    return;
+  }
+  float cy = fSettings[cam_name + ".cy"];
+
+  mvParameters.resize(4);
+  mvParameters[0] = fx;
+  mvParameters[1] = fy;
+  mvParameters[2] = cx;
+  mvParameters[3] = cy;
+
+  PRINT_INFO_MUTEX(endl << "Camera (Pinhole) Parameters: " << endl);
+  PRINT_INFO_MUTEX("- fx: " << fx << endl);
+  PRINT_INFO_MUTEX("- fy: " << fy << endl);
+  PRINT_INFO_MUTEX("- cx: " << cx << endl);
+  PRINT_INFO_MUTEX("- cy: " << cy << endl);
+
+  node_tmp = fSettings[cam_name + ".Trc"];
+  cv::Mat &Trc = Trc_;
+  Eigen::Matrix3d &Rcr = Rcr_;
+  Eigen::Vector3d &tcr = tcr_;
+  if (!node_tmp.empty()) {
+    Trc = node_tmp.mat();
+    if (Trc.rows != 3 || Trc.cols != 4) {
+      std::cerr << "*Trc matrix have to be a 3x4 transformation matrix*" << std::endl;
+      bmiss_param = true;
+      return;
+    }
+    Rcr = Converter::toMatrix3d(Trc.rowRange(0, 3).colRange(0, 3)).transpose();
+    tcr = -Rcr * Converter::toVector3d(Trc.col(3));
+  } else {
+    PRINT_INFO_MUTEX("Warning:*Trc matrix doesn't exist*" << std::endl);
+    Trc = cv::Mat::eye(3, 4, CV_32F);
+  }
+  PRINT_INFO_MUTEX("- Trc: \n" << Trc << std::endl);
+
+  bmiss_param = false;
+}
+
 bool Pinhole::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,
                                 cv::Mat *pDistCoef) {
-  string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
-  cv::FileNode node_tmp = fSettings[cam_name + ".fx"];
-  if (node_tmp.empty()) return false;
   bool b_miss_params = false;
-
-  cv::Mat DistCoef(4, 1, CV_32F);
-  DistCoef.at<float>(0) = fSettings[cam_name + ".k1"];
-  DistCoef.at<float>(1) = fSettings[cam_name + ".k2"];
-  DistCoef.at<float>(2) = fSettings[cam_name + ".p1"];
-  DistCoef.at<float>(3) = fSettings[cam_name + ".p2"];
-  const float k3 = fSettings[cam_name + ".k3"];
-  if (k3 != 0) {
-    DistCoef.resize(5);
-    DistCoef.at<float>(4) = k3;
-  }
-  if (pDistCoef) DistCoef.copyTo(*pDistCoef);
-
-  pCamInst = new Pinhole(DistCoef, fSettings, id, b_miss_params);
+  pCamInst = new Pinhole(fSettings, id, b_miss_params);
   if (b_miss_params) {
     cerr << "Error: miss params!" << endl;
     return false;
   }
-  if (pK) pCamInst->toK().copyTo(*pK);
+  if (pK) pCamInst->toKcv().copyTo(*pK);
+  if (pDistCoef) *pDistCoef = cv::Mat::zeros(4, 1, CV_32F);
 
-  PRINT_INFO_MUTEX( endl << "Camera (Pinhole) Parameters: " << endl);
-  PRINT_INFO_MUTEX( "- k1: " << DistCoef.at<float>(0) << endl);
-  PRINT_INFO_MUTEX( "- k2: " << DistCoef.at<float>(1) << endl);
-  if (DistCoef.rows == 5) PRINT_INFO_MUTEX( "- k3: " << DistCoef.at<float>(4) << endl);
-  PRINT_INFO_MUTEX( "- p1: " << DistCoef.at<float>(2) << endl);
-  PRINT_INFO_MUTEX( "- p2: " << DistCoef.at<float>(3) << endl);
-
-  // TODO: check the input
   return true;
 }
 
-Eigen::Vector2d Pinhole::distortPoints(float x, float y) {
-  Eigen::Vector2d pt;
-  if (mvParameters.size() >= 8) {
-    double x2 = x * x, y2 = y * y, r2 = x2 + y2, r4 = r2 * r2, xy = x * y;  //,r6=r2*r4;
-    float *k = mvParameters.data() + 4, *p = k + 2;
-    double fd = 1 + k[0] * r2 + k[1] * r4;
-    if (mvParameters.size() > 8) {
-      double term_r = r4;
-      for (int i = 2; i < mvParameters.size() - 6; ++i) {
-        term_r *= r2;
-        fd += k[i] * term_r;
-      }
-    }
-    pt[0] = x * fd + 2 * p[0] * xy + p[1] * (r2 + 2 * x2);
-    pt[1] = y * fd + 2 * p[1] * xy + p[0] * (r2 + 2 * y2);
-  } else {
-    pt[0] = x;
-    pt[1] = y;
-  }
-  pt[0] = mvParameters[0] * pt[0] + mvParameters[2];
-  pt[1] = mvParameters[1] * pt[1] + mvParameters[3];
+Eigen::Vector2d Pinhole::project(const Eigen::Vector3d &p3D) {
+  const double invz = 1. / p3D[2];
+  auto pt = Eigen::Vector2d(mvParameters[0] * p3D[0] * invz + mvParameters[2],
+                            mvParameters[1] * p3D[1] * invz + mvParameters[3]);
   return pt;
 }
 
-// TODO: pinhole project with no distort becomes GeometricCamera
-cv::Point2f Pinhole::project(const cv::Point3f &p3D) {
-  //  auto pt = cv::Point2f(mvParameters[0] * p3D.x / p3D.z + mvParameters[2],
-  //                     mvParameters[1] * p3D.y / p3D.z + mvParameters[3]);
-  cv::Point2f ptout;
-  auto pt = distortPoints(p3D.x / p3D.z, p3D.y / p3D.z);
-  ptout.x = pt[0];
-  ptout.y = pt[1];
-  return ptout;
-}
+// float Pinhole::uncertainty2(const Eigen::Matrix<double, 2, 1> &p2D) { return 1.0; }
 
-cv::Point2f Pinhole::project(const cv::Matx31f &m3D) { return this->project(cv::Point3f(m3D(0), m3D(1), m3D(2))); }
-
-cv::Point2f Pinhole::project(const cv::Mat &m3D) {
-  const float *p3D = m3D.ptr<float>();
-
-  return this->project(cv::Point3f(p3D[0], p3D[1], p3D[2]));
-}
-
-Eigen::Vector2d Pinhole::project(const Eigen::Vector3d &v3D) {
-  const double invz = 1.0f / v3D[2];  // normalize
-  return distortPoints(v3D[0] * invz, v3D[1] * invz);
-}
-cv::Mat Pinhole::toDistortCoeff() {
-  if (mvParameters.size() == 8)
-    return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[6], mvParameters[7]);
-  else
-    return cv::Mat::zeros(4, 1, CV_32F);
-}
-
-cv::Mat Pinhole::projectMat(const cv::Point3f &p3D) {
-  cv::Point2f point = this->project(p3D);
-  return (cv::Mat_<float>(2, 1) << point.x, point.y);
-}
-
-float Pinhole::uncertainty2(const Eigen::Matrix<double, 2, 1> &p2D) { return 1.0; }
-
-cv::Point3f Pinhole::unproject(const cv::Point2f &p2D) {
-  cv::Mat pt = (cv::Mat_<float>(1, 2) << p2D.x, p2D.y);
-  auto K = toK();
-  pt.reshape(2);
-  // final no K means undistort to normalized plane
-  cv::undistortPoints(pt, pt, K, toDistortCoeff(), cv::Mat());
-  pt.reshape(1);
-
-  return cv::Point3f(pt.at<float>(0), pt.at<float>(1), 1);
-  //  return cv::Point3f((pt.at<float>(0) - mvParameters[2]) / mvParameters[0],
-  //                     (pt.at<float>(1) - mvParameters[3]) / mvParameters[1], 1.f);
-}
-
-cv::Mat Pinhole::unprojectMat(const cv::Point2f &p2D) {
-  cv::Point3f ray = this->unproject(p2D);
-  return (cv::Mat_<float>(3, 1) << ray.x, ray.y, ray.z);
-}
-
-cv::Matx31f Pinhole::unprojectMat_(const cv::Point2f &p2D) {
-  cv::Point3f ray = this->unproject(p2D);
-  cv::Matx31f r{ray.x, ray.y, ray.z};
-  return r;
-}
-
-cv::Mat Pinhole::projectJac(const cv::Point3f &p3D) {
-  cv::Mat Jac(2, 3, CV_32F);
-  Eigen::Matrix<double, 2, 3> jac = projectJac(Eigen::Vector3d(p3D.x, p3D.y, p3D.z));
-  for (int i = 0; i < 2; ++i)
-    for (int j = 0; j < 3; ++j) Jac.at<float>(i, j) = jac(i, j);
-  return Jac;
+Eigen::Vector3d Pinhole::unproject(const Eigen::Vector2d &p2D) {
+  return Eigen::Vector3d((p2D[0] - mvParameters[2]) / mvParameters[0], (p2D[1] - mvParameters[3]) / mvParameters[1],
+                         1.);
 }
 
 Eigen::Matrix<double, 2, 3> Pinhole::projectJac(const Eigen::Vector3d &v3D) {
@@ -196,59 +157,9 @@ Eigen::Matrix<double, 2, 3> Pinhole::projectJac(const Eigen::Vector3d &v3D) {
   return jac;
 }
 
-cv::Mat Pinhole::unprojectJac(const cv::Point2f &p2D) {
-  cv::Mat Jac(3, 2, CV_32F);
-  Jac.at<float>(0, 0) = 1 / mvParameters[0];
-  Jac.at<float>(0, 1) = 0.f;
-  Jac.at<float>(1, 0) = 0.f;
-  Jac.at<float>(1, 1) = 1 / mvParameters[1];
-  Jac.at<float>(2, 0) = 0.f;
-  Jac.at<float>(2, 1) = 0.f;
-  // TODO: for radtan model
-  CV_Assert(0);
-
-  return Jac;
-}
-
-//    bool Pinhole::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
-//    vKeys2, const std::vector<int> &vMatches12,
-//                                 cv::Mat &R21, cv::Mat &t21, std::vector<cv::Point3f> &vP3D, std::vector<bool>
-//                                 &vbTriangulated){
-//        if(!tvr){
-//            cv::Mat K = this->toK();
-//            tvr = new TwoViewReconstruction(K);
-//        }
-//
-//        return tvr->Reconstruct(vKeys1,vKeys2,vMatches12,R21,t21,vP3D,vbTriangulated);
-//    }
-
-bool Pinhole::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel, const float unc) {
-  // Compute Fundamental Matrix
-  cv::Mat t12x = SkewSymmetricMatrix(t12);
-  cv::Mat K1 = this->toK();
-  cv::Mat K2 = pCamera2->toK();
-  cv::Mat F12 = K1.t().inv() * t12x * R12 * K2.inv();
-
-  // Epipolar line in second image l = x1'F12 = [a b c]
-  auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
-  const float a = pt1.x * F12.at<float>(0, 0) + pt1.y * F12.at<float>(1, 0) + F12.at<float>(2, 0);
-  const float b = pt1.x * F12.at<float>(0, 1) + pt1.y * F12.at<float>(1, 1) + F12.at<float>(2, 1);
-  const float c = pt1.x * F12.at<float>(0, 2) + pt1.y * F12.at<float>(1, 2) + F12.at<float>(2, 2);
-
-  const float num = a * pt2.x + b * pt2.y + c;
-
-  const float den = a * a + b * b;
-
-  if (den == 0) return false;
-
-  const float dsqr = num * num / den;
-
-  return dsqr < 3.84 * unc;
-}
-
-cv::Mat Pinhole::SkewSymmetricMatrix(const cv::Mat &v) {
-  return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
-          -v.at<float>(1), v.at<float>(0), 0);
+Eigen::Matrix3d Pinhole::toK() {
+  Eigen::Matrix3d K;
+  K << mvParameters[0], 0.f, mvParameters[2], 0.f, mvParameters[1], mvParameters[3], 0.f, 0.f, 1.f;
+  return K;
 }
 }  // namespace VIEO_SLAM

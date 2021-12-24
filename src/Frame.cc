@@ -23,7 +23,6 @@
 #include "ORBmatcher.h"
 #include <thread>
 #include "KannalaBrandt8.h"
-#include "Pinhole.h"
 #include "common/log.h"
 
 namespace VIEO_SLAM
@@ -303,10 +302,8 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
         if ((*pCamInsts)[i]->CAM_FISHEYE == (*pCamInsts)[i]->GetType())
           threads[i] = thread(&Frame::ExtractORB, this, i, ims[i],
                               &static_cast<KannalaBrandt8 *>((*pCamInsts)[i])->mvLappingArea);
-        else if ((*pCamInsts)[i]->CAM_PINHOLE == (*pCamInsts)[i]->GetType())
-          threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], nullptr);
         else
-          CV_Assert(0 && "No such cam model");
+          threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], nullptr);
       } else
         threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], nullptr);
     }
@@ -699,7 +696,7 @@ void Frame::UndistortKeyPoints() {
   } else {
     for (int i = 0; i < N; ++i) {
       size_t cami = get<0>(mapn2in_[i]);
-      cv::Mat mattmp = mpCameras[cami]->toK() * mpCameras[cami]->unprojectMat(mvKeys[i].pt);
+      cv::Mat mattmp = mpCameras[cami]->toKcv() * mpCameras[cami]->unprojectMat(mvKeys[i].pt);
       mat.at<float>(i, 0) = mattmp.at<float>(0);
       mat.at<float>(i, 1) = mattmp.at<float>(1);
     }
@@ -736,7 +733,7 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft) {
       // TODO: limit different cam model's border
       size_t cami = 0;
       for (int i = 0; i < 4; ++i) {
-        cv::Mat mattmp = mpCameras[cami]->toK() *
+        cv::Mat mattmp = mpCameras[cami]->toKcv() *
                          mpCameras[cami]->unprojectMat(cv::Point2f(mat.at<float>(i, 0), mat.at<float>(i, 1)));
         mat.at<float>(i, 0) = mattmp.at<float>(0);
         mat.at<float>(i, 1) = mattmp.at<float>(1);
@@ -989,16 +986,9 @@ void Frame::ComputeStereoFishEyeMatches() {
             cv::Mat p3D;
             vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
             float depth2;
-            float depth1;
-            if (mpCameras[i]->CAM_FISHEYE == mpCameras[i]->GetType())
-            depth1 = static_cast<KannalaBrandt8 *>(mpCameras[i])
-                               ->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
-                                                    sigmas[1], p3D, &depth2);
-            else
-              depth1 = static_cast<Pinhole *>(mpCameras[i])
-                  ->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
-                                       sigmas[1], p3D, &depth2);
-            //cout << "dp21="<<depth2 <<" "<<depth1<<endl;
+            float depth1 = mpCameras[i]->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
+                                                            sigmas[1], p3D, &depth2);
+            // cout << "dp21="<<depth2 <<" "<<depth1<<endl;
             if (depth1 > 0.0001f && depth2 > 0.0001f) {
               vector<size_t> idxs(n_cams, -1);
               if (checkdepth[0]) {
