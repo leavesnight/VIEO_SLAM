@@ -982,14 +982,19 @@ void Frame::ComputeStereoFishEyeMatches() {
             checkdepth[0] = 1;
             checkdepth[1] = 1;
           }
+          descMatches++;
           if (checkdepth[0] || checkdepth[1]) {
             cv::Mat p3D;
             vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
-            float depth2;
-            float depth1 = mpCameras[i]->TriangulateMatches(mpCameras[j], vvkeys_[i][idxi], vvkeys_[j][idxj], sigmas[0],
-                                                            sigmas[1], p3D, &depth2);
-            // cout << "dp21="<<depth2 <<" "<<depth1<<endl;
-            if (depth1 > 0.0001f && depth2 > 0.0001f) {
+            auto depths =
+                mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]),
+                                                 {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas[0], sigmas[1], &p3D);
+            if (depths.empty()) {
+              // cout << "dpeth emtpy" << endl;
+              continue;
+            }
+            // cout << "dp21=" << depths[1] << " " << depths[0] << endl;
+            if (depths[0] > 0.0001f && depths[1] > 0.0001f) {
               vector<size_t> idxs(n_cams, -1);
               if (checkdepth[0]) {
                 idxs[i] = idxi;
@@ -1015,7 +1020,6 @@ void Frame::ComputeStereoFishEyeMatches() {
               nMatches++;
             }
           }
-          descMatches++;
         }
       }
     }
@@ -1029,18 +1033,19 @@ void Frame::ComputeStereoFishEyeMatches() {
       auto &idx = mvidxsMatches[i];
       vector<float> sigmas;
       for (int k = 0; k < idx.size(); ++k) sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
-      float depth2;
-      float depth = static_cast<KannalaBrandt8 *>(mpCameras[0])
-                        ->TriangulateMatches(mpCameras[1], vvkeys_[0][idx[0]], vvkeys_[1][idx[1]], sigmas[0], sigmas[1],
-                                             p3D, &depth2);
-      // cout << "dp21="<<depth2 <<" "<<depth<<endl;
-      if (depth > 0.0001f && depth2 > 0.0001f) {
-        // mccMatches[0][ij][k] = k2;
-        // mccMatches[1][ij][k2] = k;
-        // mvStereo3Dpoints[ij][k] = p3D.clone();
+      vector<GeometricCamera *> pCamsOther(mpCameras.begin() + 1, mpCameras.end());
+      vector<cv::KeyPoint> kpts(idx.size());
+      for (size_t i = 0, iend = idx.size(); i < iend; ++i) kpts[i] = vvkeys_[i][idx[i]];
+      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas[0], sigmas[1], &p3D);
+      bool bgoodmatch = depths.empty() ? false : true;
+      for (auto d : depths) {
+        if (d <= 0.0001f) {
+          bgoodmatch = false;
+          break;
+        }
+      }
+      if (bgoodmatch) {
         mv3Dpoints[i] = Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
-        // vv_depth_[0][ij][k] = depth;
-        // vv_depth_[1][ij][k2] = depth2;
         nMatches++;
       } else
         goodmatches_[i] = false;

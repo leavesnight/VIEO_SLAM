@@ -34,10 +34,17 @@
 
 #include <Eigen/Geometry>
 #include "common/log.h"
+#include "eigen_utils.h"
 
 namespace VIEO_SLAM {
 class GeometricCamera {
  public:
+  template <typename _Tp>
+  using vector = std::vector<_Tp>;
+  template <typename _Tp>
+  using aligned_vector = Eigen::aligned_vector<_Tp>;
+  using Matrix34 = Eigen::Matrix<double, 3, 4>;
+
   GeometricCamera() {}
   GeometricCamera(const std::vector<float>& _vParameters) : mvParameters(_vParameters) {}
   virtual ~GeometricCamera() {}
@@ -55,8 +62,8 @@ class GeometricCamera {
   virtual Eigen::Matrix<double, 2, 3> projectJac(const Eigen::Vector3d& v3D) = 0;
   // virtual cv::Mat projectJac(const cv::Point3f& p3D);
 
-  virtual float TriangulateMatches(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                                   const float sigmaLevel, const float unc, cv::Mat& p3D, float* pz2 = nullptr);
+  virtual vector<float> TriangulateMatches(vector<GeometricCamera*> pCamerasOther, const vector<cv::KeyPoint>& kps,
+                                           const float sigmaLevel, const float unc, cv::Mat* p3D = nullptr);
 
   // virtual float uncertainty2(const Eigen::Matrix<double, 2, 1>& p2D);
 
@@ -93,8 +100,8 @@ class GeometricCamera {
 
   //        TwoViewReconstruction* tvr;
 
-  void Triangulate(const cv::Point2f& p1, const cv::Point2f& p2, const cv::Mat& Tcw1, const cv::Mat& Tcw2,
-                   cv::Mat& x3D);
+  void Triangulate(const aligned_vector<Eigen::Vector2d>& ps, const aligned_vector<Matrix34>& Tcws,
+                   Eigen::Vector3d& x3D);
 };
 }  // namespace VIEO_SLAM
 

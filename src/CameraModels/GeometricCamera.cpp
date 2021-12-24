@@ -32,7 +32,7 @@ cv::Mat GeometricCamera::unprojectMat(const cv::Point2f &p2D) {
   return (cv::Mat_<float>(3, 1) << normedPeig[0], normedPeig[1], normedPeig[2]);
 }
 
-//cv::Mat GeometricCamera::projectJac(const cv::Point3f &p3D) {
+// cv::Mat GeometricCamera::projectJac(const cv::Point3f &p3D) {
 //  cv::Mat Jac(2, 3, CV_32F);
 //  Eigen::Matrix<double, 2, 3> jac = projectJac(Eigen::Vector3d(p3D.x, p3D.y, p3D.z));
 //  for (int i = 0; i < 2; ++i)
@@ -40,103 +40,117 @@ cv::Mat GeometricCamera::unprojectMat(const cv::Point2f &p2D) {
 //  return Jac;
 //}
 
-void GeometricCamera::Triangulate(const cv::Point2f &p1, const cv::Point2f &p2, const cv::Mat &Tcw1,
-                                  const cv::Mat &Tcw2, cv::Mat &x3D) {
-  cv::Mat A(4, 4, CV_32F);
+void GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, const aligned_vector<Matrix34> &Tcws,
+                                  Eigen::Vector3d &x3D) {
+  typedef double Tcalc;
+  typedef Eigen::Matrix<Tcalc, Eigen::Dynamic, 4> MatrixX4calc;
+  typedef Eigen::Matrix<Tcalc, Eigen::Dynamic, Eigen::Dynamic> MatrixXXcalc;
+  size_t npts = ps.size();
+  const size_t dim_b = npts * 2;
+  constexpr size_t dim_x = 4;
+  CV_Assert(npts == Tcws.size());
+  MatrixX4calc A(dim_b, dim_x);
 
-  A.row(0) = p1.x * Tcw1.row(2) - Tcw1.row(0);
-  A.row(1) = p1.y * Tcw1.row(2) - Tcw1.row(1);
-  A.row(2) = p2.x * Tcw2.row(2) - Tcw2.row(0);
-  A.row(3) = p2.y * Tcw2.row(2) - Tcw2.row(1);
+  // Linear Triangulation Method, though it's not the best method
+  // Xc=K^(-1)*P=1./d*[Rcw|tcw]*Xw;(Xc*d-[Rcw|tcw]*Xw)(0:1),d=([Rcw|tcw]*Xw)(2)=Tcw.row(2)*Xw
+  //=>A=[Xc1(0)*Tc1w.row(2)-Tc1w.row(0);Xc1(1)*Tc1w.row(2)-Tc1w.row(1);Xc2(0)*Tc2w.row(2)-Tc2w.row(0);Xc2(1)*Tc2w.row(2)-Tc2w.row(1)]=4*4
+  // matrix, AX=0, see http://www.robots.ox.ac.uk/~az/tutorials/tutoriala.pdf
+  A.setZero();
+  for (size_t i = 0; i < npts; ++i) {
+    A.row(i * 2) = ps[i].x() * Tcws[i].row(2) - Tcws[i].row(0);
+    A.row(i * 2 + 1) = ps[i].y() * Tcws[i].row(2) - Tcws[i].row(1);
+  }
 
-  cv::Mat u, w, vt;
-  cv::SVD::compute(A, w, u, vt, cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
-  x3D = vt.row(3).t();
-  x3D = x3D.rowRange(0, 3) / x3D.at<float>(3);
+  // min(X) ||AX||^2 s.t. ||x||=1 should use SVD method, see
+  // http://blog.csdn.net/zhyh1435589631/article/details/62218421
+  Eigen::JacobiSVD<MatrixXXcalc> svdA(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  const auto &x4D = svdA.matrixV().col(3);
+  x3D = x4D.segment<3>(0) / x4D(3);
+  //  cv::Mat u, w, vt;
+  //  cv::SVD::compute(A, w, u, vt, cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
+  //  x3D = vt.row(3).t();
+  //  x3D = x3D.rowRange(0, 3) / x3D.at<float>(3);
 }
 
-// TODO: change to 4 cams
-float GeometricCamera::TriangulateMatches(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                          const float sigmaLevel, const float unc, cv::Mat &p3D, float *pz2) {
-  cv::Mat r1 = this->unprojectMat(kp1.pt);
-  cv::Mat r2 = pCamera2->unprojectMat(kp2.pt);
-
-  cv::Mat Rr1T = Trc_.rowRange(0, 3).colRange(0, 3).t();
-  cv::Mat R12 = Rr1T * pCamera2->Trc_.rowRange(0, 3).colRange(0, 3);
-  cv::Mat t12 = Rr1T * pCamera2->Trc_.col(3) - Rr1T * Trc_.col(3);
-  // Check parallax
-  cv::Mat r21 = R12 * r2;
-
-  const float cosParallaxRays = r1.dot(r21) / (cv::norm(r1) * cv::norm(r21));
-
-  if (cosParallaxRays > 0.9998) {
-    return -1;
+GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<GeometricCamera *> pCamerasOther,
+                                                                   const vector<cv::KeyPoint> &kps,
+                                                                   const float sigmaLevel, const float unc,
+                                                                   cv::Mat *p3D) {
+  size_t n_cams = pCamerasOther.size() + 1;
+  CV_Assert(n_cams == kps.size());
+  aligned_vector<Eigen::Vector3d> normedcPs(n_cams);
+  vector<Eigen::Matrix3d> R1i(n_cams);
+  vector<Eigen::Vector3d> t1i(n_cams);
+  GeometricCamera *pcam = this;
+  for (size_t i = 0, iother; i < n_cams; iother = i++) {
+    if (i) {
+      pcam = pCamerasOther[iother];
+      R1i[iother] = Rcr_ * pcam->Rcr_.transpose();
+      t1i[iother] = Rcr_ * (-pcam->Rcr_.transpose() * pcam->tcr_) + tcr_;
+    }
+    normedcPs[i] = pcam->unproject(Eigen::Vector2d(kps[i].pt.x, kps[i].pt.y));
   }
+
+  // Check parallax
+  bool bret = true;
+  for (size_t i = 0, iother = -1; i < n_cams - 1; iother = i++) {
+    for (size_t j = i + 1, jother = i; j < n_cams; jother = j++) {
+      Eigen::Vector3d j2iP = (-1 == iother) ? R1i[jother] * normedcPs[j]
+                                            : Eigen::Vector3d(R1i[iother].transpose() * R1i[jother] * normedcPs[j]);
+      const float cosParallaxRays = normedcPs[i].dot(j2iP) / (normedcPs[i].norm() * j2iP.norm());
+      if (cosParallaxRays <= 0.9998) {
+        bret = false;
+        break;
+      }
+    }
+    if (!bret) break;
+  }
+  if (bret) return vector<float>();
 
   // Parallax is good, so we try to triangulate
-  cv::Point2f p11, p22;
-  const float *pr1 = r1.ptr<float>();
-  const float *pr2 = r2.ptr<float>();
+  Eigen::Vector3d x3D;
+  aligned_vector<Eigen::Vector2d> cPs(n_cams);
+  aligned_vector<Matrix34> Tcws(n_cams);
+  for (size_t i = 0, iother; i < n_cams; iother = i++) {
+    CV_Assert(1. == normedcPs[i](2));
+    cPs[i] = normedcPs[i].segment<2>(0);
+    if (!i)
+      Tcws[i] = Matrix34::Identity();
+    else {
+      Tcws[i].block<3, 3>(0, 0) = R1i[iother].transpose();
+      Tcws[i].col(3) = -Tcws[i].block<3, 3>(0, 0) * t1i[iother];
+    }
+  }
+  Triangulate(cPs, Tcws, x3D);
+  vector<float> czs(n_cams);
+  for (size_t i = 0, iother; i < n_cams; iother = i++) {
+    // Check positive depth
+    const auto &Ri1 = Tcws[i].block<3, 3>(0, 0);
+    const auto &ti1 = Tcws[i].col(3);
+    czs[i] = Ri1.row(2) * x3D + ti1(2);
+    if (czs[i] <= 0) return vector<float>();
 
-  p11.x = pr1[0];
-  p11.y = pr1[1];
-
-  p22.x = pr2[0];
-  p22.y = pr2[1];
-
-  cv::Mat x3D;
-  cv::Mat Tcw1 = (cv::Mat_<float>(3, 4) << 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f);
-  cv::Mat Tcw2;
-  cv::Mat R21 = R12.t();
-  cv::Mat t21 = -R21 * t12;
-  cv::hconcat(R21, t21, Tcw2);
-
-  Triangulate(p11, p22, Tcw1, Tcw2, x3D);
-  cv::Mat x3Dt = x3D.t();
-
-  float z1 = x3D.at<float>(2);
-  if (z1 <= 0) {
-    return -1;
+    // Check reprojection error
+    if (i)
+      pcam = pCamerasOther[iother];
+    else
+      pcam = this;
+    Eigen::Vector2d uv = pcam->project(Ri1 * x3D + ti1);
+    double errs[2] = {uv[0] - kps[i].pt.x, uv[1] - kps[i].pt.y};
+    // Reprojection error is high
+    if (errs[0] * errs[0] + errs[1] * errs[1] > 5.991 * sigmaLevel) return vector<float>();
   }
 
-  float z2 = R21.row(2).dot(x3Dt) + t21.at<float>(2);
-  if (z2 <= 0) {
-    return -1;
-  }
-
-  // Check reprojection error
-  cv::Point2f uv1 = this->project(x3D);
-
-  float errX1 = uv1.x - kp1.pt.x;
-  float errY1 = uv1.y - kp1.pt.y;
-
-  if ((errX1 * errX1 + errY1 * errY1) > 5.991 * sigmaLevel) {  // Reprojection error is high
-    return -1;
-  }
-
-  cv::Mat x3D2 = R21 * x3D + t21;
-  cv::Point2f uv2 = pCamera2->project(x3D2);
-
-  float errX2 = uv2.x - kp2.pt.x;
-  float errY2 = uv2.y - kp2.pt.y;
-
-  if ((errX2 * errX2 + errY2 * errY2) > 5.991 * unc) {  // Reprojection error is high
-    return -1;
-  }
-
-  p3D = x3D.clone();
-
-  if (pz2) *pz2 = z2;
-  return z1;
+  if (p3D) *p3D = Converter::toCvMat(x3D);
+  return czs;
 }
 
 // float GeometricCamera::uncertainty2(const Eigen::Matrix<double, 2, 1> &p2D) { return 1.0; }
 
-cv::Mat GeometricCamera::toKcv() {
-  return Converter::toCvMat(toK());
-}
+cv::Mat GeometricCamera::toKcv() { return Converter::toCvMat(toK()); }
 bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                const cv::Mat &R12in, const cv::Mat &t12in, const float sigmaLevel, const float unc) {
+                                        const cv::Mat &R12in, const cv::Mat &t12in, const float sigmaLevel,
+                                        const float unc) {
   // Compute Fundamental Matrix
   Eigen::Vector3d t12 = Converter::toVector3d(t12in);
   Eigen::Matrix3d R12 = Converter::toMatrix3d(R12in);
@@ -162,8 +176,8 @@ bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::Key
   return dsqr < 3.84 * unc;
 }
 
-//    bool GeometricCamera::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
-//    vKeys2, const std::vector<int> &vMatches12,
+//    bool GeometricCamera::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const
+//    std::vector<cv::KeyPoint>& vKeys2, const std::vector<int> &vMatches12,
 //                                 cv::Mat &R21, cv::Mat &t21, std::vector<cv::Point3f> &vP3D, std::vector<bool>
 //                                 &vbTriangulated){
 //        if(!tvr){
