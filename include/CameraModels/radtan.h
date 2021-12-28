@@ -22,7 +22,6 @@ class Radtan : public Pinhole {
     for (int i = 0; i < DistCoef.total(); ++i) {
       mvParameters[4 + i] = DistCoef.at<float>(i);
     }
-    mnId = nNextId++;
     mnType = CAM_RADTAN;
   }
   ~Radtan() {}

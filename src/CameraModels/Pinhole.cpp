@@ -91,6 +91,9 @@ Pinhole::Pinhole(cv::FileStorage &fSettings, int id, bool &bmiss_param) {
   PRINT_INFO_MUTEX("- Trc: \n" << Trc << std::endl);
 
   bmiss_param = false;
+
+  mnId = nNextId++;
+  mnType = CAM_PINHOLE;
 }
 
 bool Pinhole::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,

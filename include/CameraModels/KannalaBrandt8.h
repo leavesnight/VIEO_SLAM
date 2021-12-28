@@ -38,7 +38,6 @@ class KannalaBrandt8 final : public Pinhole {
     mvParameters[5] = DistCoef.at<float>(1);
     mvParameters[6] = DistCoef.at<float>(2);
     mvParameters[7] = DistCoef.at<float>(3);
-    mnId = nNextId++;
     mnType = CAM_FISHEYE;
   }
 
