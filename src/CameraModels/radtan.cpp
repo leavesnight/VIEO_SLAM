@@ -55,10 +55,8 @@ bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCame
 }
 
 cv::Mat Radtan::toDistortCoeff() {
-  if (mvParameters.size() == 8)
-    return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[6], mvParameters[7]);
-  else
-    return cv::Mat::zeros(4, 1, CV_32F);
+  CV_Assert(mvParameters.size() == 8);
+  return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[6], mvParameters[7]);
 }
 Eigen::Vector2d Radtan::distortPoints(float x, float y) {
   Eigen::Vector2d pt;
@@ -99,31 +97,26 @@ Eigen::Vector3d Radtan::unproject(const Eigen::Vector2d &p2D) {
 Eigen::Matrix<double, 2, 3> Radtan::projectJac(const Eigen::Vector3d &v3D) {
   Eigen::Matrix<double, 2, 3> jac;
   double invz = 1 / v3D[2];
-  if (mvParameters.size() == 8) {
-    double x = v3D[0] * invz, y = v3D[1] * invz;
-    double x2 = x * x, y2 = y * y, r2 = x2 + y2, r4 = r2 * r2, xy = x * y;  //,r6=r2*r4;
-    float *k = mvParameters.data() + 4, *p = k + mvParameters.size() - 6;
-    double fd = 1 + k[0] * r2 + k[1] * r4, fd2 = 2 * k[0] + 4 * k[1] * r2;
-    if (mvParameters.size() > 8) {
-      double term_r = r4, coeff2 = 4;
-      for (int i = 2; i < mvParameters.size() - 6; ++i) {
-        coeff2 += 2;
-        fd2 += k[i] * coeff2 * term_r;
-        term_r *= r2;
-        fd += k[i] * term_r;
-      }
+  CV_Assert(8 == mvParameters.size());
+  double x = v3D[0] * invz, y = v3D[1] * invz;
+  double x2 = x * x, y2 = y * y, r2 = x2 + y2, r4 = r2 * r2, xy = x * y;  //,r6=r2*r4;
+  float *k = mvParameters.data() + 4, *p = k + mvParameters.size() - 6;
+  double fd = 1 + k[0] * r2 + k[1] * r4, fd2 = 2 * k[0] + 4 * k[1] * r2;
+  if (mvParameters.size() > 8) {
+    double term_r = r4, coeff2 = 4;
+    for (int i = 2; i < mvParameters.size() - 6; ++i) {
+      coeff2 += 2;
+      fd2 += k[i] * coeff2 * term_r;
+      term_r *= r2;
+      fd += k[i] * term_r;
     }
-    jac(0, 0) = mvParameters[0] * invz * (fd + fd2 * x2 + 2 * (p[0] * y + 3 * p[1] * x));
-    jac(0, 1) = mvParameters[0] * invz * (fd2 * xy + 2 * (p[0] * x + p[1] * y));
-    jac(0, 2) = -(x * jac(0, 0) + y * jac(0, 1));
-    jac(1, 0) = jac(0, 1) * mvParameters[1] / mvParameters[0];
-    jac(1, 1) = mvParameters[1] * invz * (fd + fd2 * y2 + 2 * (p[1] * x + 3 * p[0] * y));
-    jac(1, 2) = -(x * jac(1, 0) + y * jac(1, 1));
-  } else {
-    double invz_2 = invz * invz;
-    jac << mvParameters[0] * invz, 0, -v3D[0] * mvParameters[0] * invz_2, 0, mvParameters[1] * invz,
-        -v3D[1] * mvParameters[1] * invz_2;
   }
+  jac(0, 0) = mvParameters[0] * invz * (fd + fd2 * x2 + 2 * (p[0] * y + 3 * p[1] * x));
+  jac(0, 1) = mvParameters[0] * invz * (fd2 * xy + 2 * (p[0] * x + p[1] * y));
+  jac(0, 2) = -(x * jac(0, 0) + y * jac(0, 1));
+  jac(1, 0) = jac(0, 1) * mvParameters[1] / mvParameters[0];
+  jac(1, 1) = mvParameters[1] * invz * (fd + fd2 * y2 + 2 * (p[1] * x + 3 * p[0] * y));
+  jac(1, 2) = -(x * jac(1, 0) + y * jac(1, 1));
 
   return jac;
 }
