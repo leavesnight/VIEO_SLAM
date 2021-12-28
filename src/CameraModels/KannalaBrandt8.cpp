@@ -90,12 +90,9 @@ Eigen::Vector2d KannalaBrandt8::project(const Eigen::Vector3d &v3D) {
   Eigen::Vector2d res;
   res[0] = thetad * (v3D[0] / r);  // orb3 uses cos(psi), check whose efficiency is better
   res[1] = thetad * (v3D[1] / r);
-  res[0] = res[0] * mvParameters[0] + mvParameters[2];
-  res[1] = res[1] * mvParameters[1] + mvParameters[3];
-  /*const double psi = atan2f(v3D[1], v3D[0]);
-  res[0] = mvParameters[0] * thetad * cos(psi) + mvParameters[2];
-  res[1] = mvParameters[1] * thetad * sin(psi) + mvParameters[3];*/
-  return res;
+  return Pinhole::project(Eigen::Vector3d(res[0], res[1], 1.));
+  //  const double psi = atan2f(v3D[1], v3D[0]);
+  //  return Pinhole::project(Eigen::Vector3d(thetad * cos(psi), thetad * sin(psi), 1.));
 }
 
 Eigen::Vector3d KannalaBrandt8::unproject(const Eigen::Vector2d &p2D) {
