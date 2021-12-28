@@ -90,8 +90,8 @@ Eigen::Vector2d KannalaBrandt8::project(const Eigen::Vector3d &v3D) {
                                  mvParameters[7] * theta8);
 
   Eigen::Vector2d res;
-  res[0] = thetad / r * v3D[0];  // orb3 uses cos(psi), check whose efficiency is better
-  res[1] = thetad / r * v3D[1];
+  res[0] = thetad * (v3D[0] / r);  // orb3 uses cos(psi), check whose efficiency is better
+  res[1] = thetad * (v3D[1] / r);
   res[0] = res[0] * mvParameters[0] + mvParameters[2];
   res[1] = res[1] * mvParameters[1] + mvParameters[3];
   /*const double psi = atan2f(v3D[1], v3D[0]);
