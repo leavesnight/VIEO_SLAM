@@ -5,19 +5,7 @@
 #ifndef VIEO_SLAM_RADTAN_H
 #define VIEO_SLAM_RADTAN_H
 
-#include <assert.h>
-#include <vector>
-#include <opencv2/core/core.hpp>
-
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/base_object.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/assume_abstract.hpp>
-
 #include "Pinhole.h"
-#include "common/log.h"
-
-//#include "TwoViewReconstruction.h"
 
 namespace VIEO_SLAM {
 class Radtan : public Pinhole {

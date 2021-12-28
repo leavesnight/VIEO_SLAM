@@ -20,19 +20,7 @@
 #ifndef CAMERAMODELS_PINHOLE_H
 #define CAMERAMODELS_PINHOLE_H
 
-#include <assert.h>
-#include <vector>
-#include <opencv2/core/core.hpp>
-
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/base_object.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/assume_abstract.hpp>
-
 #include "GeometricCamera.h"
-#include "common/log.h"
-
-//#include "TwoViewReconstruction.h"
 
 namespace VIEO_SLAM {
 class Pinhole : public GeometricCamera {

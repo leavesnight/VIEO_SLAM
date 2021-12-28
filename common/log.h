@@ -5,6 +5,7 @@
 #ifndef VIEO_SLAM_LOG_H
 #define VIEO_SLAM_LOG_H
 
+#include <iostream>
 #include <fstream>
 #include <mutex>
 #include <string>

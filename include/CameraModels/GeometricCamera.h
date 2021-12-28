@@ -22,19 +22,10 @@
 
 #include <opencv2/core/core.hpp>
 
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/features2d/features2d.hpp>
-
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/access.hpp>
-#include <boost/serialization/base_object.hpp>
-#include <boost/serialization/export.hpp>
-#include <boost/serialization/vector.hpp>
-#include <boost/serialization/assume_abstract.hpp>
-
-#include <Eigen/Geometry>
 #include "common/log.h"
 #include "eigen_utils.h"
+
+//#include "TwoViewReconstruction.h"
 
 namespace VIEO_SLAM {
 class GeometricCamera {

@@ -3,11 +3,8 @@
 //
 
 #include "radtan.h"
-
-#include <boost/serialization/export.hpp>
-#include <iostream>
-#include <opencv2/opencv.hpp>
 #include <opencv2/calib3d.hpp>
+
 using std::cerr;
 using std::cout;
 using std::endl;

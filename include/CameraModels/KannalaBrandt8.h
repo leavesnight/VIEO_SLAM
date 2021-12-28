@@ -20,14 +20,6 @@
 #ifndef CAMERAMODELS_KANNALABRANDT8_H
 #define CAMERAMODELS_KANNALABRANDT8_H
 
-#include <assert.h>
-#include <vector>
-#include <opencv2/core/core.hpp>
-
-#include <boost/serialization/serialization.hpp>
-#include <boost/serialization/base_object.hpp>
-#include <boost/serialization/vector.hpp>
-
 #include "Pinhole.h"
 
 namespace VIEO_SLAM {
