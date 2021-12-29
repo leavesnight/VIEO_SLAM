@@ -74,7 +74,7 @@ void GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, con
 
 GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<GeometricCamera *> pCamerasOther,
                                                                    const vector<cv::KeyPoint> &kps,
-                                                                   const float sigmaLevel, const float unc,
+                                                                   const vector<float> &sigmaLevels,
                                                                    cv::Mat *p3D) {
   size_t n_cams = pCamerasOther.size() + 1;
   CV_Assert(n_cams == kps.size());
@@ -138,7 +138,7 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<Geomet
     Eigen::Vector2d uv = pcam->project(Ri1 * x3D + ti1);
     double errs[2] = {uv[0] - kps[i].pt.x, uv[1] - kps[i].pt.y};
     // Reprojection error is high
-    if (errs[0] * errs[0] + errs[1] * errs[1] > 5.991 * sigmaLevel) return vector<float>();
+    if (errs[0] * errs[0] + errs[1] * errs[1] > 5.991 * sigmaLevels[i]) return vector<float>();
   }
 
   if (p3D) *p3D = Converter::toCvMat(x3D);

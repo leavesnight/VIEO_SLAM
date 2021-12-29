@@ -54,7 +54,7 @@ class GeometricCamera {
   // virtual cv::Mat projectJac(const cv::Point3f& p3D);
 
   virtual vector<float> TriangulateMatches(vector<GeometricCamera*> pCamerasOther, const vector<cv::KeyPoint>& kps,
-                                           const float sigmaLevel, const float unc, cv::Mat* p3D = nullptr);
+                                           const vector<float>& sigmaLevels, cv::Mat* p3D = nullptr);
 
   // virtual float uncertainty2(const Eigen::Matrix<double, 2, 1>& p2D);
 

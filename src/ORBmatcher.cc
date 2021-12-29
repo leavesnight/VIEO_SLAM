@@ -403,13 +403,19 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
         vector<int> vbestDist1 = vector<int>(1, 256);
         vector<int> vbestDist2 = vector<int>(1, 256);
         vector<int> vbestIdxF = vector<int>(1, -1);
-#define MATCH_KNN_IN_EACH_IMG  // we should use this to avoid 1mp seen by 4 cams with similar descriptors
 
         for (size_t iF = 0; iF < vIndicesF.size(); iF++) {
           const unsigned int realIdxF = vIndicesF[iF];
 
           // avoid duplicate matching in this function()
           size_t img_id = 0;
+          if (vpMapPointMatches[realIdxF]) continue;
+
+          const cv::Mat &dF = F.mDescriptors.row(realIdxF);
+
+          const int dist = DescriptorDistance(dKF, dF);
+
+#define MATCH_KNN_IN_EACH_IMG  // we should use this to avoid 1mp seen by 4 cams with similar descriptors
 #ifdef MATCH_KNN_IN_EACH_IMG
           if (F.mapn2in_.size() > realIdxF) {
             img_id = get<0>(F.mapn2in_[realIdxF]);
@@ -421,11 +427,6 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
             }
           }
 #endif
-          if (vpMapPointMatches[realIdxF]) continue;
-
-          const cv::Mat &dF = F.mDescriptors.row(realIdxF);
-
-          const int dist = DescriptorDistance(dKF, dF);
 
           // cout << "dist="<<dist<<";";
           if (dist < vbestDist1[img_id]) {
@@ -931,193 +932,187 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 }
 
 int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12,
-                                       vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo)
-{
+                                       vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo) {
   bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
-    const DBoW2::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
-    const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
+  const DBoW2::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
+  const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
 
-    //Compute epipole in second image
-    cv::Mat Cw = pKF1->GetCameraCenter();
-    cv::Mat R2w = pKF2->GetRotation();
-    cv::Mat t2w = pKF2->GetTranslation();
-    cv::Mat C2 = R2w*Cw+t2w;//(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
-    float ex, ey;
-    if (!usedistort[1]) {
-      const float invz = 1.0f/C2.at<float>(2);
-      ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
-      ey = pKF2->fy * C2.at<float>(1) * invz + pKF2->cy;
-    } else {
-      auto pt = pKF2->mpCameras[0]->project(C2);
-      ex = pt.x;
-      ey = pt.y;
-    }
+  // Compute epipole in second image
+  cv::Mat Cw = pKF1->GetCameraCenter();
+  cv::Mat R2w = pKF2->GetRotation();
+  cv::Mat t2w = pKF2->GetTranslation();
+  cv::Mat C2 =
+      R2w * Cw + t2w;  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
+  float ex, ey;
+  if (!usedistort[1]) {
+    const float invz = 1.0f / C2.at<float>(2);
+    ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
+    ey = pKF2->fy * C2.at<float>(1) * invz + pKF2->cy;
+  } else {
+    auto pt = pKF2->mpCameras[0]->project(C2);
+    ex = pt.x;
+    ey = pt.y;
+  }
 
-    // Find matches between not tracked keypoints
-    // Matching speed-up by ORB Vocabulary
-    // Compare only ORB that share the same node
+  // Find matches between not tracked keypoints
+  // Matching speed-up by ORB Vocabulary
+  // Compare only ORB that share the same node
 
-    int nmatches=0;
-    vector<bool> vbMatched2(pKF2->N,false);
-    vector<int> vMatches12(pKF1->N,-1);
+  int nmatches = 0;
+  vector<bool> vbMatched2(pKF2->N, false);
+  vector<int> vMatches12(pKF1->N, -1);
 
-    vector<int> rotHist[HISTO_LENGTH];
-    for(int i=0;i<HISTO_LENGTH;i++)
-        rotHist[i].reserve(500);
+  vector<int> rotHist[HISTO_LENGTH];
+  for (int i = 0; i < HISTO_LENGTH; i++) rotHist[i].reserve(500);
 
-    const float factor = 1.0f/HISTO_LENGTH;
+  const float factor = 1.0f / HISTO_LENGTH;
 
-    DBoW2::FeatureVector::const_iterator f1it = vFeatVec1.begin();
-    DBoW2::FeatureVector::const_iterator f2it = vFeatVec2.begin();
-    DBoW2::FeatureVector::const_iterator f1end = vFeatVec1.end();
-    DBoW2::FeatureVector::const_iterator f2end = vFeatVec2.end();
+  DBoW2::FeatureVector::const_iterator f1it = vFeatVec1.begin();
+  DBoW2::FeatureVector::const_iterator f2it = vFeatVec2.begin();
+  DBoW2::FeatureVector::const_iterator f1end = vFeatVec1.end();
+  DBoW2::FeatureVector::const_iterator f2end = vFeatVec2.end();
 
-    while(f1it!=f1end && f2it!=f2end)
-    {
-        if(f1it->first == f2it->first)
-        {
-            for(size_t i1=0, iend1=f1it->second.size(); i1<iend1; i1++)
-            {
-                const size_t idx1 = f1it->second[i1];
-                
-                MapPoint* pMP1 = pKF1->GetMapPoint(idx1);
-                
-                // If there is already a MapPoint skip
-                if(pMP1) continue;
+  while (f1it != f1end && f2it != f2end) {
+    if (f1it->first == f2it->first) {
+      for (size_t i1 = 0, iend1 = f1it->second.size(); i1 < iend1; i1++) {
+        const size_t idx1 = f1it->second[i1];
 
-                const bool bStereo1 = pKF1->mvuRight[idx1]>=0;//can be optimized in RGBD by using mvDepth[idx1]>0
+        MapPoint *pMP1 = pKF1->GetMapPoint(idx1);
 
-                if(bOnlyStereo)//in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point without stereo matches(may happen in RGBD even with depth>0)
-                    if(!bStereo1)
-                        continue;
-                
-                const cv::KeyPoint &kp1 = !usedistort[0] ? pKF1->mvKeysUn[idx1] : pKF1->mvKeys[idx1];
-                
-                const cv::Mat &d1 = pKF1->mDescriptors.row(idx1);
-                
-                int bestDist = TH_LOW;
-                int bestIdx2 = -1;
-                
-                for(size_t i2=0, iend2=f2it->second.size(); i2<iend2; i2++)
-                {
-                    size_t idx2 = f2it->second[i2];
-                    
-                    MapPoint* pMP2 = pKF2->GetMapPoint(idx2);
-                    
-                    // If we have already matched or there is a MapPoint skip, avoid for replicated match
-                    if(vbMatched2[idx2] || pMP2)
-                        continue;
+        // If there is already a MapPoint skip
+        if (pMP1) continue;
 
-                    const bool bStereo2 = pKF2->mvuRight[idx2]>=0;
+        const bool bStereo1 = pKF1->mvuRight[idx1] >= 0;  // can be optimized in RGBD by using mvDepth[idx1]>0
 
-                    if(bOnlyStereo)
-                        if(!bStereo2)
-                            continue;
-                    
-                    const cv::Mat &d2 = pKF2->mDescriptors.row(idx2);
-                    
-                    const int dist = DescriptorDistance(d1,d2);
-                    
-                    if(dist>TH_LOW || dist>bestDist)//use hamming distance to match is right for the sparse creation, no need to use patch matching method
-                        continue;
+        if (bOnlyStereo)  // in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point without stereo matches(may happen in RGBD even with depth>0)
+          if (!bStereo1) continue;
 
-                    const cv::KeyPoint &kp2 = !usedistort[1] ? pKF2->mvKeysUn[idx2] : pKF2->mvKeys[idx2];
+        const cv::KeyPoint &kp1 = !usedistort[0] ? pKF1->mvKeysUn[idx1] : pKF1->mvKeys[idx1];
 
-                    if(!bStereo1 && !bStereo2)//both monocular points, just allow at least 7~14 square pixels away from c1,but why?
-                    {
-                        const float distex = ex-kp2.pt.x;
-                        const float distey = ey-kp2.pt.y;
-                        if(distex*distex+distey*distey<100*pKF2->mvScaleFactors[kp2.octave])
-                            continue;
-                    }
+        const cv::Mat &d1 = pKF1->mDescriptors.row(idx1);
 
-                    if (!usedistort[0]) {
-                      CV_Assert(!usedistort[1]);
-                      if (CheckDistEpipolarLine(kp1, kp2, F12, pKF2)) {
-                        bestIdx2 = idx2;
-                        bestDist = dist;
-                      }
-                    } else {
-                      CV_Assert(usedistort[1]);
-                      GeometricCamera *pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])],
-                          *pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
-                      cv::Mat R1r = pcam1->Trc_.colRange(0, 3).colRange(0, 3).t();
-                      cv::Mat R12 = R1r * pcam2->Trc_.colRange(0, 3).colRange(0, 3);
-                      cv::Mat t12 = R1r * (pcam2->Trc_.col(3) - pcam1->Trc_.col(3));
-                      if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
-                                                   pKF2->mvLevelSigma2[kp2.octave])) {
-                        bestIdx2 = idx2;
-                        bestDist = dist;
-                      }
-                    }
-                }
-                
-                if(bestIdx2>=0)//if exist good epipolar constraint match
-                {
-                    const cv::KeyPoint &kp2 = pKF2->mvKeys[bestIdx2];//Un
-                    vMatches12[idx1]=bestIdx2;
-		    vbMatched2[bestIdx2]=true;//added by zzh!!!
-                    nmatches++;
+        vector<int> vbestDist = vector<int>(1, TH_LOW);
+        vector<int> vbestIdx2 = vector<int>(1, -1);
 
-                    if(mbCheckOrientation)
-                    {
-                        float rot = kp1.angle-kp2.angle;//kp ref - kp rectifying(vbMatched2)
-                        if(rot<0.0)
-                            rot+=360.0f;
-                        int bin = round(rot*factor);
-                        if(bin==HISTO_LENGTH)
-                            bin=0;
-                        assert(bin>=0 && bin<HISTO_LENGTH);
-                        rotHist[bin].push_back(idx1);
-                    }
-                }
+        for (size_t i2 = 0, iend2 = f2it->second.size(); i2 < iend2; i2++) {
+          size_t idx2 = f2it->second[i2];
+
+          MapPoint *pMP2 = pKF2->GetMapPoint(idx2);
+
+          // If we have already matched or there is a MapPoint skip, avoid for replicated match
+          if (vbMatched2[idx2] || pMP2) continue;
+
+          const bool bStereo2 = pKF2->mvuRight[idx2] >= 0;
+
+          if (bOnlyStereo)
+            if (!bStereo2) continue;
+
+          const cv::Mat &d2 = pKF2->mDescriptors.row(idx2);
+
+          const int dist = DescriptorDistance(d1, d2);
+
+          size_t img_id = 0;
+//#define MATCH_KNN_IN_EACH_IMG //TODO: add match_knn_in_each_img for SearchForTriangulation, need map comparing dist and use vector<pair<size_t, vector<size_t>> > &vMatchedPairs
+#ifdef MATCH_KNN_IN_EACH_IMG
+          if (pKF2->mapn2in_.size() > idx2) {
+            img_id = get<0>(pKF2->mapn2in_[idx2]);
+            if (vbestDist.size() <= img_id) {
+              size_t n_size = img_id + 1;
+              vbestDist.resize(n_size, TH_LOW);
+              vbestIdx2.resize(n_size, -1);
             }
+          }
+#endif
 
-            f1it++;
-            f2it++;
-        }
-        else if(f1it->first < f2it->first)
-        {
-            f1it = vFeatVec1.lower_bound(f2it->first);
-        }
-        else
-        {
-            f2it = vFeatVec2.lower_bound(f1it->first);
-        }
-    }
-
-    if(mbCheckOrientation)
-    {
-        int ind1=-1;
-        int ind2=-1;
-        int ind3=-1;
-
-        ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
-
-        for(int i=0; i<HISTO_LENGTH; i++)
-        {
-            if(i==ind1 || i==ind2 || i==ind3)
-                continue;
-            for(size_t j=0, jend=rotHist[i].size(); j<jend; j++)
-            {
-                vMatches12[rotHist[i][j]]=-1;
-                nmatches--;
-            }
-        }
-
-    }
-
-    vMatchedPairs.clear();
-    vMatchedPairs.reserve(nmatches);
-
-    for(size_t i=0, iend=vMatches12.size(); i<iend; i++)
-    {
-        if(vMatches12[i]<0)
+          // use hamming distance to match is right for the sparse creation, no need to use patch matching method
+          if (dist > vbestDist[img_id])  // old dist>TH_LOW || is redundant
             continue;
-        vMatchedPairs.push_back(make_pair(i,vMatches12[i]));
-    }
 
-    return nmatches;
+          const cv::KeyPoint &kp2 = !usedistort[1] ? pKF2->mvKeysUn[idx2] : pKF2->mvKeys[idx2];
+
+          if (!bStereo1 &&
+              !bStereo2)  // both monocular points, just allow at least 7~14 square pixels away from c1,but why?
+          {
+            const float distex = ex - kp2.pt.x;
+            const float distey = ey - kp2.pt.y;
+            if (distex * distex + distey * distey < 100 * pKF2->mvScaleFactors[kp2.octave]) continue;
+          }
+
+          if (!usedistort[0]) {
+            CV_Assert(!usedistort[1]);
+            if (CheckDistEpipolarLine(kp1, kp2, F12, pKF2)) {
+              vbestIdx2[img_id] = idx2;
+              vbestDist[img_id] = dist;
+            }
+          } else {
+            CV_Assert(usedistort[1]);
+            GeometricCamera *pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])],
+                            *pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
+            cv::Mat R1r = pcam1->Trc_.colRange(0, 3).colRange(0, 3).t();
+            cv::Mat R12 = R1r * pcam2->Trc_.colRange(0, 3).colRange(0, 3);
+            cv::Mat t12 = R1r * (pcam2->Trc_.col(3) - pcam1->Trc_.col(3));
+            if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
+                                         pKF2->mvLevelSigma2[kp2.octave])) {
+              vbestIdx2[img_id] = idx2;
+              vbestDist[img_id] = dist;
+            }
+          }
+        }
+
+        for (int img_id = 0; img_id < vbestDist.size(); ++img_id) {
+          if (vbestIdx2[img_id] >= 0)  // if exist good epipolar constraint match
+          {
+            const cv::KeyPoint &kp2 = pKF2->mvKeys[vbestIdx2[img_id]];  // Un
+            vMatches12[idx1] = vbestIdx2[img_id];
+            vbMatched2[vbestIdx2[img_id]] = true;  // added by zzh!!!
+            nmatches++;
+
+            if (mbCheckOrientation) {
+              float rot = kp1.angle - kp2.angle;  // kp ref - kp rectifying(vbMatched2)
+              if (rot < 0.0) rot += 360.0f;
+              int bin = round(rot * factor);
+              if (bin == HISTO_LENGTH) bin = 0;
+              assert(bin >= 0 && bin < HISTO_LENGTH);
+              rotHist[bin].push_back(idx1);
+            }
+          }
+        }
+      }
+
+      f1it++;
+      f2it++;
+    } else if (f1it->first < f2it->first) {
+      f1it = vFeatVec1.lower_bound(f2it->first);
+    } else {
+      f2it = vFeatVec2.lower_bound(f1it->first);
+    }
+  }
+
+  if (mbCheckOrientation) {
+    int ind1 = -1;
+    int ind2 = -1;
+    int ind3 = -1;
+
+    ComputeThreeMaxima(rotHist, HISTO_LENGTH, ind1, ind2, ind3);
+
+    for (int i = 0; i < HISTO_LENGTH; i++) {
+      if (i == ind1 || i == ind2 || i == ind3) continue;
+      for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++) {
+        vMatches12[rotHist[i][j]] = -1;
+        nmatches--;
+      }
+    }
+  }
+
+  vMatchedPairs.clear();
+  vMatchedPairs.reserve(nmatches);
+
+  for (size_t i = 0, iend = vMatches12.size(); i < iend; i++) {
+    if (vMatches12[i] < 0) continue;
+    vMatchedPairs.push_back(make_pair(i, vMatches12[i]));
+  }
+
+  return nmatches;
 }
 
 int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th) {

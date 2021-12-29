@@ -154,7 +154,7 @@ bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyP
                                        const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel,
                                        const float unc) {
   vector<cv::KeyPoint> kpts = {kp1, kp2};
-  auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, sigmaLevel, unc);
+  auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, {sigmaLevel, unc});
   if (zs.empty()) return false;
   for (auto z : zs)
     if (z <= 0.0001f) return false;

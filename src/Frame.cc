@@ -988,7 +988,7 @@ void Frame::ComputeStereoFishEyeMatches() {
             vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
             auto depths =
                 mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]),
-                                                 {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas[0], sigmas[1], &p3D);
+                                                 {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas, &p3D);
             if (depths.empty()) {
               // cout << "dpeth emtpy" << endl;
               continue;
@@ -1032,11 +1032,18 @@ void Frame::ComputeStereoFishEyeMatches() {
       cv::Mat p3D;
       auto &idx = mvidxsMatches[i];
       vector<float> sigmas;
-      for (int k = 0; k < idx.size(); ++k) sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
-      vector<GeometricCamera *> pCamsOther(mpCameras.begin() + 1, mpCameras.end());
-      vector<cv::KeyPoint> kpts(idx.size());
-      for (size_t i = 0, iend = idx.size(); i < iend; ++i) kpts[i] = vvkeys_[i][idx[i]];
-      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas[0], sigmas[1], &p3D);
+      vector<size_t> vidx_used;
+      vector<GeometricCamera *> pCamsOther;
+      vector<cv::KeyPoint> kpts;
+      for (int k = 0; k < idx.size(); ++k) {
+        if (-1 != idx[k]) {
+          vidx_used.push_back(idx[k]);
+          sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
+          pCamsOther.push_back(mpCameras[k]);
+          kpts.push_back(vvkeys_[k][idx[k]]);
+        }
+      }
+      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D);
       bool bgoodmatch = depths.empty() ? false : true;
       for (auto d : depths) {
         if (d <= 0.0001f) {
