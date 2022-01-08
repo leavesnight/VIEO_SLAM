@@ -82,11 +82,11 @@ Eigen::Vector2d Radtan::project(const Eigen::Vector3d &v3D) {
 }
 
 Eigen::Vector3d Radtan::unproject(const Eigen::Vector2d &p2D) {
-  cv::Mat pt = (cv::Mat_<float>(1, 2) << p2D[0], p2D[1]);
+  cv::Mat pt(1, 1, CV_32FC2); // for opencv3.2 cannot reshape 1x1x1 to 1x1x2
+  pt.at<cv::Point2f>(0, 0) = cv::Point2f(p2D[0], p2D[1]);
   auto K = toKcv();
-  pt.reshape(2);
   // final no K means undistort to normalized plane
-  cv::undistortPoints(pt, pt, K, toDistortCoeff(), cv::Mat());
+  cv::undistortPoints(pt, pt, K, toDistortCoeff(), cv::Mat(), cv::Mat::eye(3, 3, CV_32F));
   pt.reshape(1);
   return Eigen::Vector3d(pt.at<float>(0), pt.at<float>(1), 1);
 }
