@@ -3,7 +3,7 @@
 //
 
 #include "radtan.h"
-#include <opencv2/calib3d.hpp>
+#include <opencv2/opencv.hpp>
 
 using std::cerr;
 using std::cout;
