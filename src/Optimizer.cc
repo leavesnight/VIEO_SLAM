@@ -1265,6 +1265,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   if (pLastF != NULL && pFrame->mOdomPreIntEnc.mdeltatij > 0 && !pLastF->mTcw.empty()) {
     // Set LastFrame vertex
     g2o::VertexNavStatePR* vnslast = new g2o::VertexNavStatePR();
+    pLastF->UpdateNavStatePVRFromTcw();
     vnslast->setEstimate(pLastF->mNavState);
     vnslast->setId(1);
     vnslast->setFixed(true);
