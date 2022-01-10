@@ -56,10 +56,7 @@ protected:
 
     void CheckInliers();
 
-    void Project(const std::vector<cv::Mat> &vP3Dw, std::vector<cv::Mat> &vP2D, cv::Mat Tcw, cv::Mat K);
-    void FromCameraToImage(const std::vector<cv::Mat> &vP3Dc, std::vector<cv::Mat> &vP2D, cv::Mat K);//Project vP3Dc(vector<cv::Mat(3,1,CV_32F)>) camera (3D) coordinate to \
-    vP2D(vector<cv::Mat_<float>(2,1)>) image (2D) coordinate through camera intrinsic matrix K
-
+    void Project(const std::vector<cv::Mat> &vP3Dw, std::vector<cv::Mat> &vP2D, vector<GeometricCamera*> &pcam, vector<size_t> &mapidx2cami,  cv::Mat *pTcw = nullptr);
 
 protected:
 
@@ -73,7 +70,14 @@ protected:
     std::vector<MapPoint*> mvpMapPoints1;//matched MPs in pKF1->mvpMapPoints
     std::vector<MapPoint*> mvpMapPoints2;//matched MPs in pKF2->mvpMapPoints, notice the matched MPs mean 2 temporary (may)different MPs
     std::vector<MapPoint*> mvpMatches12;//mvpMatches12[i] matched to mpKF1->mvpMapPoints[i]
+
+  // Calibration
+  vector<shared_ptr<GeometricCamera>> camsinst_;
+  vector<GeometricCamera *> pcams_[2];
+  vector<size_t> mapidx2cami_[2];
+  bool usedistort_[2];
     std::vector<size_t> mvnIndices1;//matched MPs' index in pKF1
+
     //std::vector<size_t> mvSigmaSquare1;//unused
     //std::vector<size_t> mvSigmaSquare2;//unused
     std::vector<size_t> mvnMaxError1;//element is chi2(0.01,2)*sigma2 for pKF1->mvpMapPoints[i](matched ones have MaxError1)
@@ -122,10 +126,6 @@ protected:
     // Threshold inlier/outlier. e = dist(Pi,T_ij*Pj)^2 < 5.991*mSigma2
     float mTh;
     float mSigma2;
-
-    // Calibration
-    cv::Mat mK1;//for pKF1
-    cv::Mat mK2;//for pKF2
 
 };
 

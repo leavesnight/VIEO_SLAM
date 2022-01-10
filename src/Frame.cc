@@ -888,6 +888,7 @@ void Frame::ComputeStereoMatches()
             const float dist2 = vDists[L+bestincR];
             const float dist3 = vDists[L+bestincR+1];
 
+            // calc the polynomial curve(power2)/parabolic curve y=ax^2+bx+c's minimum y value's x point
             const float deltaR = (dist1-dist3)/(2.0f*(dist1+dist3-2.0f*dist2));
 
             if(deltaR<-1 || deltaR>1)
@@ -947,6 +948,7 @@ void Frame::ComputeStereoFishEyeMatches() {
 
   int nMatches = 0;
   int descMatches = 0;
+  const double thresh_cosdisparity = 1. - 1e-6; // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
 
   // Check matches using Lowe's ratio
   CV_Assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());
@@ -956,7 +958,9 @@ void Frame::ComputeStereoFishEyeMatches() {
     for (size_t j = i + 1; j < n_cams; ++j, ++idmatches) {
       auto &matches = allmatches[idmatches];
       for (vector<vector<cv::DMatch>>::iterator it = matches.begin(); it != matches.end(); ++it) {
-        if ((*it).size() >= 2 && (*it)[0].distance < (*it)[1].distance * 0.7) {
+        const int thOrbDist = (ORBmatcher::TH_HIGH + ORBmatcher::TH_LOW) / 2;
+        if ((*it).size() >= 2 && ((*it)[0].distance < (*it)[1].distance * 0.7 ||
+                                  ((*it)[0].distance < thOrbDist && (*it)[0].distance < (*it)[1].distance * 0.9))) {
           size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
           auto camidxi = make_pair(i, idxi), camidxj = make_pair(j, idxj);
           auto iteri = mapcamidx2idxs_.find(camidxi), iterj = mapcamidx2idxs_.find(camidxj);
@@ -986,9 +990,9 @@ void Frame::ComputeStereoFishEyeMatches() {
           if (checkdepth[0] || checkdepth[1]) {
             cv::Mat p3D;
             vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
-            auto depths =
-                mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]),
-                                                 {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas, &p3D);
+            auto depths = mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]),
+                                                           {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas, &p3D,
+                                                           thresh_cosdisparity);
             if (depths.empty()) {
               // cout << "dpeth emtpy" << endl;
               continue;
@@ -1043,7 +1047,7 @@ void Frame::ComputeStereoFishEyeMatches() {
           kpts.push_back(vvkeys_[k][idx[k]]);
         }
       }
-      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D);
+      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D, thresh_cosdisparity);
       bool bgoodmatch = depths.empty() ? false : true;
       for (auto d : depths) {
         if (d <= 0.0001f) {

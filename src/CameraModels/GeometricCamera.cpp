@@ -74,8 +74,8 @@ void GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, con
 
 GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<GeometricCamera *> pCamerasOther,
                                                                    const vector<cv::KeyPoint> &kps,
-                                                                   const vector<float> &sigmaLevels,
-                                                                   cv::Mat *p3D) {
+                                                                   const vector<float> &sigmaLevels, cv::Mat *p3D,
+                                                                   double thresh_cosdisparity) {
   size_t n_cams = pCamerasOther.size() + 1;
   CV_Assert(n_cams == kps.size());
   aligned_vector<Eigen::Vector3d> normedcPs(n_cams);
@@ -98,7 +98,7 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<Geomet
       Eigen::Vector3d j2iP = (-1 == iother) ? R1i[jother] * normedcPs[j]
                                             : Eigen::Vector3d(R1i[iother].transpose() * R1i[jother] * normedcPs[j]);
       const float cosParallaxRays = normedcPs[i].dot(j2iP) / (normedcPs[i].norm() * j2iP.norm());
-      if (cosParallaxRays <= 0.9998) {
+      if (cosParallaxRays <= thresh_cosdisparity) {
         bret = false;
         break;
       }
