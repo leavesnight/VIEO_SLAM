@@ -944,6 +944,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
   cv::Mat C2 =
       R2w * Cw + t2w;  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
   float ex, ey;
+  cv::Mat Rr1r2, tr2r1;
   if (!usedistort[1]) {
     const float invz = 1.0f / C2.at<float>(2);
     ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
@@ -952,6 +953,9 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
     auto pt = pKF2->mpCameras[0]->project(C2);
     ex = pt.x;
     ey = pt.y;
+    Rr1r2 = pKF1->GetRotation() * R2w.t(); // Rr1r2 = Rr1w * Rwr2
+    // Tr2r1 = Tr2w * Twr1=>tr2r1=Rr2w*twr1+tr2w=-Rr2w*Rwr1*tr1w+tr2w
+    tr2r1 = -Rr1r2.t() * pKF1->GetTranslation() + t2w;
   }
 
   // Find matches between not tracked keypoints
@@ -1048,9 +1052,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
             CV_Assert(usedistort[1]);
             GeometricCamera *pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])],
                             *pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
-            cv::Mat R1r = pcam1->Trc_.colRange(0, 3).colRange(0, 3).t();
-            cv::Mat R12 = R1r * pcam2->Trc_.colRange(0, 3).colRange(0, 3);
-            cv::Mat t12 = R1r * (pcam2->Trc_.col(3) - pcam1->Trc_.col(3));
+            cv::Mat R1r1 = pcam1->Trc_.colRange(0, 3).t();
+            cv::Mat R1r2 = R1r1 * Rr1r2; // Rc1r2 = Rc1r1 * Rr1r2
+            cv::Mat R12 = R1r2 * pcam2->Trc_.colRange(0, 3); // Rc1c2 = Rc1r2 * Rr2c2
+            // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
+            cv::Mat t12 = R1r2 * (pcam2->Trc_.col(3) - tr2r1) - R1r1 * pcam1->Trc_.col(3);
             if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
                                          pKF2->mvLevelSigma2[kp2.octave])) {
               vbestIdx2[img_id] = idx2;
