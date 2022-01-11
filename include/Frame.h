@@ -225,9 +225,6 @@ public:
     static float mfGridElementHeightInv;
     std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
 
-    // Camera pose.
-    cv::Mat mTcw;
-
     // Current and Next Frame id.
     static long unsigned int nNextId;
     long unsigned int mnId;
@@ -253,6 +250,10 @@ public:
     static bool mbInitialComputations;
 
   static bool usedistort_;
+
+  cv::Mat &GetTcwRef() { return Tcw_; }
+  inline const Sophus::SE3d GetTcwCst() const {return FrameBase::GetTcwCst();}
+  const cv::Mat &GetcvTcwCst() const;
 
 private:
 

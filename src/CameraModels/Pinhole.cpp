@@ -19,6 +19,7 @@
 
 #include "Pinhole.h"
 #include "Converter.h"
+#include "so3_extra.h"
 
 using std::cerr;
 using std::cout;
@@ -72,23 +73,19 @@ Pinhole::Pinhole(cv::FileStorage &fSettings, int id, bool &bmiss_param) {
   PRINT_INFO_MUTEX("- cy: " << cy << endl);
 
   node_tmp = fSettings[cam_name + ".Trc"];
-  cv::Mat &Trc = Trc_;
-  Eigen::Matrix3d &Rcr = Rcr_;
-  Eigen::Vector3d &tcr = tcr_;
   if (!node_tmp.empty()) {
-    Trc = node_tmp.mat();
-    if (Trc.rows != 3 || Trc.cols != 4) {
+    cv::Mat cvTrc = node_tmp.mat();
+    if (cvTrc.rows != 3 || cvTrc.cols != 4) {
       std::cerr << "*Trc matrix have to be a 3x4 transformation matrix*" << std::endl;
       bmiss_param = true;
       return;
     }
-    Rcr = Converter::toMatrix3d(Trc.rowRange(0, 3).colRange(0, 3)).transpose();
-    tcr = -Rcr * Converter::toVector3d(Trc.col(3));
+    SetTrc(Sophus::SE3d(Sophus::SO3exd(Converter::toMatrix3d(cvTrc.rowRange(0, 3).colRange(0, 3))),
+                        Converter::toVector3d(cvTrc.col(3))));
   } else {
     PRINT_INFO_MUTEX("Warning:*Trc matrix doesn't exist*" << std::endl);
-    Trc = cv::Mat::eye(3, 4, CV_32F);
   }
-  PRINT_INFO_MUTEX("- Trc: \n" << Trc << std::endl);
+  PRINT_INFO_MUTEX("- Trc: \n" << Trc_.matrix3x4() << std::endl);
 
   bmiss_param = false;
 

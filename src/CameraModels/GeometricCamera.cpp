@@ -40,7 +40,7 @@ cv::Mat GeometricCamera::unprojectMat(const cv::Point2f &p2D) {
 //  return Jac;
 //}
 
-void GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, const aligned_vector<Matrix34> &Tcws,
+bool GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, const aligned_vector<Matrix34> &Tcws,
                                   Eigen::Vector3d &x3D) {
   typedef double Tcalc;
   typedef Eigen::Matrix<Tcalc, Eigen::Dynamic, 4> MatrixX4calc;
@@ -65,80 +65,95 @@ void GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, con
   // http://blog.csdn.net/zhyh1435589631/article/details/62218421
   Eigen::JacobiSVD<MatrixXXcalc> svdA(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
   const auto &x4D = svdA.matrixV().col(3);
+  if (!x4D(3)) return false;
   x3D = x4D.segment<3>(0) / x4D(3);
   //  cv::Mat u, w, vt;
   //  cv::SVD::compute(A, w, u, vt, cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
   //  x3D = vt.row(3).t();
   //  x3D = x3D.rowRange(0, 3) / x3D.at<float>(3);
+  return true;
 }
 
-GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<GeometricCamera *> pCamerasOther,
-                                                                   const vector<cv::KeyPoint> &kps,
-                                                                   const vector<float> &sigmaLevels, cv::Mat *p3D,
-                                                                   double thresh_cosdisparity) {
+GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
+    vector<GeometricCamera *> pCamerasOther, const aligned_vector<Eigen::Vector2d> &kps,
+    const vector<float> &sigmaLevels, cv::Mat *p3D, double thresh_cosdisparity, const vector<vector<float>> *purbf,
+    const aligned_vector<Sophus::SE3d> *pTwr, bool just_check_p3d) {
   size_t n_cams = pCamerasOther.size() + 1;
   CV_Assert(n_cams == kps.size());
   aligned_vector<Eigen::Vector3d> normedcPs(n_cams);
-  vector<Eigen::Matrix3d> R1i(n_cams);
-  vector<Eigen::Vector3d> t1i(n_cams);
+  vector<Eigen::Matrix3d> Rwi(n_cams);  // if no pTwr, w means r here
+  vector<Eigen::Vector3d> twi(n_cams);
   GeometricCamera *pcam = this;
+  CV_Assert(!pTwr || n_cams == pTwr->size());
   for (size_t i = 0, iother; i < n_cams; iother = i++) {
-    if (i) {
+    if (!i) {
+      pcam = this;
+    } else {
       pcam = pCamerasOther[iother];
-      R1i[iother] = Rcr_ * pcam->Rcr_.transpose();
-      t1i[iother] = Rcr_ * (-pcam->Rcr_.transpose() * pcam->tcr_) + tcr_;
     }
-    normedcPs[i] = pcam->unproject(Eigen::Vector2d(kps[i].pt.x, kps[i].pt.y));
+    auto Twi = pcam->GetTcr().inverse();  // Tri
+    if (pTwr) Twi = (*pTwr)[i] * Twi;
+    Rwi[i] = Twi.rotationMatrix();
+    twi[i] = Twi.translation();
+    normedcPs[i] = pcam->unproject(kps[i]);
   }
 
   // Check parallax
-  bool bret = true;
-  for (size_t i = 0, iother = -1; i < n_cams - 1; iother = i++) {
-    for (size_t j = i + 1, jother = i; j < n_cams; jother = j++) {
-      Eigen::Vector3d j2iP = (-1 == iother) ? R1i[jother] * normedcPs[j]
-                                            : Eigen::Vector3d(R1i[iother].transpose() * R1i[jother] * normedcPs[j]);
-      const float cosParallaxRays = normedcPs[i].dot(j2iP) / (normedcPs[i].norm() * j2iP.norm());
-      if (cosParallaxRays <= thresh_cosdisparity) {
-        bret = false;
-        break;
+  if (thresh_cosdisparity < 1.) {
+    bool bret = true;
+    for (size_t i = 0; i < n_cams - 1; ++i) {
+      for (size_t j = i + 1; j < n_cams; ++j) {
+        Eigen::Vector3d j2iP = Eigen::Vector3d(Rwi[i].transpose() * Rwi[j] * normedcPs[j]);
+        const float cosParallaxRays = normedcPs[i].dot(j2iP) / (normedcPs[i].norm() * j2iP.norm());
+        if (cosParallaxRays <= thresh_cosdisparity) {
+          bret = false;
+          break;
+        }
       }
+      if (!bret) break;
     }
-    if (!bret) break;
+    if (bret) return vector<float>();
   }
-  if (bret) return vector<float>();
 
   // Parallax is good, so we try to triangulate
   Eigen::Vector3d x3D;
   aligned_vector<Eigen::Vector2d> cPs(n_cams);
   aligned_vector<Matrix34> Tcws(n_cams);
-  for (size_t i = 0, iother; i < n_cams; iother = i++) {
+  for (size_t i = 0; i < n_cams; ++i) {
     CV_Assert(1. == normedcPs[i](2));
-    cPs[i] = normedcPs[i].segment<2>(0);
-    if (!i)
-      Tcws[i] = Matrix34::Identity();
-    else {
-      Tcws[i].block<3, 3>(0, 0) = R1i[iother].transpose();
-      Tcws[i].col(3) = -Tcws[i].block<3, 3>(0, 0) * t1i[iother];
-    }
+    if (!just_check_p3d) cPs[i] = normedcPs[i].segment<2>(0);
+
+    Tcws[i].block<3, 3>(0, 0) = Rwi[i].transpose();
+    Tcws[i].col(3) = -Tcws[i].block<3, 3>(0, 0) * twi[i];
   }
-  Triangulate(cPs, Tcws, x3D);
+  if (!just_check_p3d) {
+    if (!Triangulate(cPs, Tcws, x3D)) return vector<float>();
+  }
   vector<float> czs(n_cams);
+  CV_Assert(!purbf || n_cams == purbf->size());
   for (size_t i = 0, iother; i < n_cams; iother = i++) {
     // Check positive depth
-    const auto &Ri1 = Tcws[i].block<3, 3>(0, 0);
-    const auto &ti1 = Tcws[i].col(3);
-    czs[i] = Ri1.row(2) * x3D + ti1(2);
+    const auto &Riw = Tcws[i].block<3, 3>(0, 0);
+    const auto &tiw = Tcws[i].col(3);
+    czs[i] = Riw.row(2) * x3D + tiw(2);
     if (czs[i] <= 0) return vector<float>();
 
     // Check reprojection error
-    if (i)
-      pcam = pCamerasOther[iother];
-    else
+    if (!i)
       pcam = this;
-    Eigen::Vector2d uv = pcam->project(Ri1 * x3D + ti1);
-    double errs[2] = {uv[0] - kps[i].pt.x, uv[1] - kps[i].pt.y};
+    else
+      pcam = pCamerasOther[iother];
+    Eigen::Vector2d uv = pcam->project(Riw * x3D + tiw);
+    Eigen::VectorXd errs = uv - kps[i];
+    double thresh_chi2 = 5.991;
+    if (purbf && -1 != (*purbf)[i][0]) {
+      errs.conservativeResize(3);
+      float u2_r = uv[0] - (*purbf)[i][1] / czs[i];
+      errs[2] = u2_r - (*purbf)[i][0];
+      thresh_chi2 = 7.8;
+    }
     // Reprojection error is high
-    if (errs[0] * errs[0] + errs[1] * errs[1] > 5.991 * sigmaLevels[i]) return vector<float>();
+    if (errs.squaredNorm() > thresh_chi2 * sigmaLevels[i]) return vector<float>();
   }
 
   if (p3D) *p3D = Converter::toCvMat(x3D);
@@ -180,6 +195,8 @@ bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::Key
 
   return dsqr < 3.84 * unc;  // 2sigma rule;1.96^2,95.45%
 }
+
+const cv::Mat GeometricCamera::Getcvtrc() { return Converter::toCvMat(GetTrc().translation()); }
 
 //    bool GeometricCamera::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const
 //    std::vector<cv::KeyPoint>& vKeys2, const std::vector<int> &vMatches12,

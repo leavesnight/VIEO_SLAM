@@ -176,7 +176,7 @@ public:
 
     // Current Frame
     Frame mCurrentFrame;
-    vector<cv::Mat> mImGrays;//used by FrameDrawer
+    vector<cv::Mat> mImGrays = vector<cv::Mat>(1);//used by FrameDrawer
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;

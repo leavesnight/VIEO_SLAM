@@ -95,7 +95,7 @@ cv::Mat Tracking::CacheOdom(const double &timestamp, const double* odomdata, con
 void Tracking::TrackWithOnlyOdom(bool bMapUpdated){
   if (!mpIMUInitiator->GetVINSInited()){//VEO, we use mVelocity as EncPreIntegrator from LastFrame if EncPreIntegrator exists
     assert(!mVelocity.empty());
-    cv::Mat Tcw=mVelocity*mLastFrame.mTcw;//To avoid accumulated numerical error of pure encoder predictions causing Rcw is not Unit Lie Group (|Rcw|=1)!!!
+    cv::Mat Tcw=mVelocity*mLastFrame.GetTcwRef();//To avoid accumulated numerical error of pure encoder predictions causing Rcw is not Unit Lie Group (|Rcw|=1)!!!
     Matrix3d eigRcw=Converter::toMatrix3d(Tcw.rowRange(0,3).colRange(0,3));
     cv::Mat Rcw=Converter::toCvMat(mLastFrame.mOdomPreIntEnc.normalizeRotationM(eigRcw));
     Rcw.copyTo(Tcw.rowRange(0,3).colRange(0,3));
@@ -114,7 +114,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated){
     cv::Mat Tij=Converter::toCvSE3(Rij,pij);
     //get Tc2c1
     cv::Mat Tec=Converter::toCvMatInverse(Frame::mTce);
-    cv::Mat TlwIE=bMapUpdated?mpLastKeyFrame->GetPose():mLastFrame.mTcw;
+    cv::Mat TlwIE=bMapUpdated?mpLastKeyFrame->GetPose():mLastFrame.GetTcwRef();
     cv::Mat Tcw=Frame::mTce*Converter::toCvMatInverse(Tij)*Tec*TlwIE;//To avoid accumulated numerical error of pure encoder predictions
     Matrix3d eigRcw=Converter::toMatrix3d(Tcw.rowRange(0,3).colRange(0,3));
     cv::Mat Rcw=Converter::toCvMat(encpreint.normalizeRotationM(eigRcw));
@@ -146,7 +146,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated){
     cv::Mat LastTwc=cv::Mat::eye(4,4,CV_32F);
     mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0,3).colRange(0,3));
     mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0,3).col(3));
-    mVelocity=mCurrentFrame.mTcw*LastTwc;//Tc2c1/Tcl
+    mVelocity=mCurrentFrame.GetTcwRef()*LastTwc;//Tc2c1/Tcl
     cout<<greenSTR<<"IEODOM KF: "<<mCurrentFrame.mTimeStamp<<whiteSTR<<endl;
   }
 }
@@ -482,8 +482,8 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
     cv::Mat dp12=Converter::toCvMat(imupreint12.mpij);cv::Mat dp23=Converter::toCvMat(imupreint23.mpij);
     cv::Mat dv12=Converter::toCvMat(imupreint12.mvij);cv::Mat Jav12=Converter::toCvMat(imupreint12.mJavij);
     cv::Mat Jap12 = Converter::toCvMat(imupreint12.mJapij);cv::Mat Jap23=Converter::toCvMat(imupreint23.mJapij);
-    cv::Mat Twb1=Converter::toCvMatInverse(mv20pFramesReloc[i]->mTcw)*Tcb;//Twbi for pwbi&Rwbi, not necessary for clone()
-    cv::Mat Twb2=Converter::toCvMatInverse(pKF2->mTcw)*Tcb;cv::Mat Twb3=Converter::toCvMatInverse(pKF3->mTcw)*Tcb;
+    cv::Mat Twb1=Converter::toCvMatInverse(mv20pFramesReloc[i]->GetTcwRef())*Tcb;//Twbi for pwbi&Rwbi, not necessary for clone()
+    cv::Mat Twb2=Converter::toCvMatInverse(pKF2->GetcvTcwCst())*Tcb;cv::Mat Twb3=Converter::toCvMatInverse(pKF3->GetcvTcwCst())*Tcb;
     cv::Mat pb1=Twb1.rowRange(0,3).col(3);//pwbi=pwci_right_scaled+Rwc*tcb
     cv::Mat pb2=Twb2.rowRange(0,3).col(3);cv::Mat pb3=Twb3.rowRange(0,3).col(3);
     cv::Mat Rb1=Twb1.rowRange(0,3).colRange(0,3);//Rwbi
@@ -521,7 +521,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
   // Compute Velocity of the mCurrentFrame(j/i+1) (but need (i)lastF's Velocity)
   Vector3d pwbjeig,vwbjeig;Matrix3d Rwbjeig;
   Frame* pCurF=mv20pFramesReloc[N-1];
-  cv::Mat Twbj=Converter::toCvMatInverse(pCurF->mTcw)*Tcb,Twbi=Converter::toCvMatInverse(mv20pFramesReloc[N-2]->mTcw)*Tcb;
+  cv::Mat Twbj=Converter::toCvMatInverse(pCurF->GetcvTcwCst())*Tcb,Twbi=Converter::toCvMatInverse(mv20pFramesReloc[N-2]->GetcvTcwCst())*Tcb;
   const IMUPreintegrator& imupreint=pCurF->mOdomPreIntIMU;//the same condition as the paper
   double dt=imupreint.mdeltatij;                                		// deltatij
   cv::Mat pwbj=Twbj.rowRange(0,3).col(3);pwbjeig=Converter::toVector3d(pwbj);	// pwbj
@@ -772,13 +772,12 @@ cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRe
 
     Track();
 
-    return mCurrentFrame.mTcw.clone();
+    return mCurrentFrame.GetTcwRef().clone();
 }
 
 cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp)
 {
     mtmGrabDelay=chrono::steady_clock::now();//zzh
-    mImGrays.resize(1);
     mImGrays[0] = imRGB;
     cv::Mat imDepth = imD;
 
@@ -807,14 +806,13 @@ cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const d
     cv::Mat img[2]={imRGB.clone(),imD.clone()};
     Track(img);
 
-    return mCurrentFrame.mTcw.clone();
+    return mCurrentFrame.GetTcwRef().clone();
 }
 
 
 cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
 {
     mtmGrabDelay=chrono::steady_clock::now();//zzh
-    mImGrays.resize(1);
     mImGrays[0] = im;
 
     if(mImGrays[0].channels()==3)
@@ -839,7 +837,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
 
     Track();
 
-    return mCurrentFrame.mTcw.clone();
+    return mCurrentFrame.GetTcwRef().clone();
 }
 
 void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
@@ -931,7 +929,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
                         }
                     }
                 }else{
-                    if (!mLastFrame.mTcw.empty()) GetVelocityByEnc();//try to utilize the Encoder's data
+                    if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc();//try to utilize the Encoder's data
                     else cout<<redSTR<<"LastFrame has no Tcw!"<<whiteSTR<<endl;
                     if(mVelocity.empty()){// || mCurrentFrame.mnId<mnLastRelocFrameId+2){//if last frame relocalized, there's no motion could be calculated, so I think 2nd condition is useless
 //                        if (!mVelocity.empty()) cerr<<redSTR"Error in Velocity.empty()!!!"<<endl;//check if right
@@ -971,7 +969,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
                 cout<<redSTR<<"Entering Wrong Tracking Mode With VIO/VIEO, Please Check!"<<endl;
                 assert(0);
             }else{
-                if (!mLastFrame.mTcw.empty()) GetVelocityByEnc();//try to utilize the Encoder's data
+                if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc();//try to utilize the Encoder's data
                 else cout<<redSTR<<"LastFrame has no Tcw!"<<whiteSTR<<endl;
                 if(!mbVO)
                 {
@@ -1003,7 +1001,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
                         bOKMM = TrackWithMotionModel();
                         vpMPsMM = mCurrentFrame.GetMapPointMatches();
                         vbOutMM = mCurrentFrame.mvbOutlier;
-                        TcwMM = mCurrentFrame.mTcw.clone();
+                        TcwMM = mCurrentFrame.GetTcwRef().clone();
                     }
                     bOKReloc = Relocalization();
 
@@ -1104,19 +1102,19 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
         if(bOK)
         {
             // Update motion model
-            if(!mLastFrame.mTcw.empty())
+            if(!mLastFrame.GetTcwRef().empty())
             {
                 cv::Mat LastTwc = cv::Mat::eye(4,4,CV_32F);
                 mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0,3).colRange(0,3));
                 mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0,3).col(3));
-                mVelocity = mCurrentFrame.mTcw*LastTwc;//Tc2c1/Tcl
+                mVelocity = mCurrentFrame.GetTcwRef()*LastTwc;//Tc2c1/Tcl
             }
             else{
                 mVelocity = cv::Mat();//can use odometry data here!
                 //cout<<redSTR"Error in mVelocity=cv::Mat()"<<whiteSTR<<endl;
             }
 
-            mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
+            mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
           // Clean VO matches, related to Localization mode
           const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1158,7 +1156,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
         }else if (mState==ODOMOK) {  // if it's lost in Camera mode we use Odom mode
           // not necessary to update motion model for mVelocity is already got through odom data
 
-          mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
+          mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
           // Clean VO matches, related to Localization mode
           const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1201,9 +1199,9 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
     }
 
     // Store frame pose information to retrieve the complete camera trajectory afterwards.
-    if(!mCurrentFrame.mTcw.empty())
+    if(!mCurrentFrame.GetTcwRef().empty())
     {
-        cv::Mat Tcr = mCurrentFrame.mTcw*mCurrentFrame.mpReferenceKF->GetPoseInverse();//when it's lost but get an initial pose through motion-only BA , it can still recover one low-quality estimation, used in UpdateLastFrame()
+        cv::Mat Tcr = mCurrentFrame.GetTcwRef()*mCurrentFrame.mpReferenceKF->GetPoseInverse();//when it's lost but get an initial pose through motion-only BA , it can still recover one low-quality estimation, used in UpdateLastFrame()
         mlRelativeFramePoses.push_back(Tcr);
         const NavStated &ns = mCurrentFrame.mNavState;
         relative_frame_bvwbs_.push_back(ns.mRwb.inverse() * ns.mvwb);
@@ -1307,7 +1305,7 @@ void Tracking::StereoInitialization(cv::Mat img[2])
 
         mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 
-        mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.mTcw);
+        mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
         mState=OK;
     }
@@ -1572,7 +1570,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs,int thMatch)
         return false;
 
     mCurrentFrame.GetMapPointsRef() = vpMapPointMatches;//use temporary vector<MapPoint*> for not believe SBBow() so much
-    mCurrentFrame.SetPose(mLastFrame.mTcw);//but use lF as the initial value for BA
+    mCurrentFrame.SetPose(mLastFrame.GetTcwRef());//but use lF as the initial value for BA
 
   PRINT_DEBUG_INFO_MUTEX("bef opt="<<nmatches<<endl, imu_tightly_debug_path, "debug.txt");
     int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
@@ -1698,7 +1696,7 @@ bool Tracking::TrackWithMotionModel()
 
     UpdateLastFrame();
 
-    mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);//Tc2c1*Tc1w
+    mCurrentFrame.SetPose(mVelocity*mLastFrame.GetTcwRef());//Tc2c1*Tc1w
 
   //fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));//already initialized in Frame constructor if this Track function is firstly called
 
@@ -2363,7 +2361,7 @@ bool Tracking::Relocalization()
             // If a Camera Pose is computed, optimize
             if(!Tcw.empty())
             {
-                Tcw.copyTo(mCurrentFrame.mTcw);
+                Tcw.copyTo(mCurrentFrame.GetTcwRef());
 
                 set<MapPoint*> sFound;
 

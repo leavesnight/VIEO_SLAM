@@ -36,6 +36,10 @@ Eigen::Matrix3d Frame::meigRcb;Eigen::Vector3d Frame::meigtcb;
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
 bool Frame::usedistort_ = false;
 
+const cv::Mat &Frame::GetcvTcwCst() const {
+  return Tcw_;
+}
+
 void Frame::UpdatePoseFromNS()
 {
   cv::Mat Rbc = mTbc.rowRange(0,3).colRange(0,3);//don't need clone();
@@ -56,7 +60,7 @@ void Frame::UpdatePoseFromNS()
 }
 void Frame::UpdateNavStatePVRFromTcw()
 {
-  cv::Mat Twb = Converter::toCvMatInverse(mTbc*mTcw);
+  cv::Mat Twb = Converter::toCvMatInverse(mTbc*Tcw_);
   Eigen::Matrix3d Rwb=Converter::toMatrix3d(Twb.rowRange(0,3).colRange(0,3));
   Eigen::Vector3d Pwb=Converter::toVector3d(Twb.rowRange(0,3).col(3));
 
@@ -254,7 +258,7 @@ Frame::Frame(const Frame &frame)
   for (int i = 0; i < vdescriptors_.size(); ++i) vdescriptors_[i] = frame.vdescriptors_[i].clone();
   vgrids_ = frame.vgrids_;
 
-  if (!frame.mTcw.empty()) SetPose(frame.mTcw);
+  if (!frame.Tcw_.empty()) SetPose(frame.Tcw_);
 
   // created by zzh
   mOdomPreIntIMU = frame.mOdomPreIntIMU;
@@ -504,15 +508,15 @@ void Frame::ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingA
 
 void Frame::SetPose(cv::Mat Tcw)
 {
-    mTcw = Tcw.clone();
+    Tcw_ = Tcw.clone();
     UpdatePoseMatrices();
 }
 
 void Frame::UpdatePoseMatrices()
 {
-    mRcw = mTcw.rowRange(0,3).colRange(0,3);
+    mRcw = Tcw_.rowRange(0,3).colRange(0,3);
     mRwc = mRcw.t();
-    mtcw = mTcw.rowRange(0,3).col(3);
+    mtcw = Tcw_.rowRange(0,3).col(3);
     mOw = -mRcw.t()*mtcw;
 }
 
@@ -534,7 +538,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   cv::Mat Pn = pMP->GetNormal();
   const float maxDistance = pMP->GetMaxDistanceInvariance();
   const float minDistance = pMP->GetMinDistanceInvariance();
-  cv::Mat Rcrw = mTcw.rowRange(0,3).colRange(0,3);
+  cv::Mat Rcrw = Tcw_.rowRange(0,3).colRange(0,3);
   // 3D in camera coordinates
   const cv::Mat Pcr = mRcw * wP + mtcw;
   pMP->vtrack_cami.clear();
@@ -545,8 +549,8 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
     cv::Mat twc = mOw.clone(); // wO
     if (mpCameras.size() > cami) {
       pcam1 = mpCameras[cami];
-      Pc = pcam1->Rcr_ * Pc + pcam1->tcr_;
-      twc += Rcrw.t() * pcam1->Trc_.col(3);
+      Pc = pcam1->GetTcr() * Pc;
+      twc += Rcrw.t() * pcam1->Getcvtrc();
     }
     const float &PcZ = Pc(2);
 
@@ -1005,9 +1009,10 @@ void Frame::ComputeStereoFishEyeMatches() {
           if (checkdepth[0] || checkdepth[1]) {
             cv::Mat p3D;
             vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
-            auto depths = mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]),
-                                                           {vvkeys_[i][idxi], vvkeys_[j][idxj]}, sigmas, &p3D,
-                                                           thresh_cosdisparity);
+            aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(vvkeys_[i][idxi].pt.x, vvkeys_[i][idxi].pt.y),
+                                                    Eigen::Vector2d(vvkeys_[j][idxj].pt.x, vvkeys_[j][idxj].pt.y)};
+            auto depths = mpCameras[i]->TriangulateMatches(vector<GeometricCamera *>(1, mpCameras[j]), kpts, sigmas,
+                                                           &p3D, thresh_cosdisparity);
             if (depths.empty()) {
               // cout << "dpeth emtpy" << endl;
               continue;
@@ -1065,8 +1070,8 @@ void Frame::ComputeStereoFishEyeMatches() {
       vector<float> sigmas;
       vector<size_t> vidx_used;
       vector<GeometricCamera *> pCamsOther;
-      vector<cv::KeyPoint> kpts;
       GeometricCamera *pcam0 = nullptr;
+      aligned_vector<Eigen::Vector2d> kpts;
       for (int k = 0; k < idx.size(); ++k) {
         if (-1 != idx[k]) {
           vidx_used.push_back(idx[k]);
@@ -1075,7 +1080,7 @@ void Frame::ComputeStereoFishEyeMatches() {
             pcam0 = mpCameras[k];
           else
             pCamsOther.push_back(mpCameras[k]);
-          kpts.push_back(vvkeys_[k][idx[k]]);
+          kpts.emplace_back(vvkeys_[k][idx[k]].pt.x, vvkeys_[k][idx[k]].pt.y);
         }
       }
       auto depths = pcam0->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D, thresh_cosdisparity);
@@ -1109,9 +1114,7 @@ void Frame::ComputeStereoFishEyeMatches() {
         auto &ididxs = iteridxs->second;
         if (-1 != ididxs && goodmatches_[ididxs]) {
           auto &idxs = mvidxsMatches[ididxs];
-          Matrix3d Rcr = ((KannalaBrandt8 *)mpCameras[i])->Rcr_;
-          Vector3d tcr = ((KannalaBrandt8 *)mpCameras[i])->tcr_;
-          Vector3d x3Dc = Rcr * mv3Dpoints[ididxs] + tcr;
+          Vector3d x3Dc = ((KannalaBrandt8 *)mpCameras[i])->GetTcr() * mv3Dpoints[ididxs];
           mvDepth.push_back(x3Dc[2]);
         } else
           mvDepth.push_back(-1);
@@ -1172,21 +1175,12 @@ size_t Frame::GetMapn2idxs(size_t i) {
 }
 
 cv::Mat Frame::UnprojectStereo(const int &i) {
-  //if (mapn2ijn_.size() > i) {
   if (mapn2in_.size() > i) {
     const float z = mvDepth[i];
     if (z > 0) {
-//      cv::Mat Rrc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->Trc_.rowRange(0, 3).colRange(0, 3);
-//      cv::Mat trc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->Trc_.col(3);
-//      cv::Mat x3Dc = ((KannalaBrandt8 *)mpCameras[get<0>(mapn2in_[i])])->unprojectMat(mvKeys[i].pt) * z;  // x_Cr
-//      x3Dc = Rrc * x3Dc + trc;
-
       auto ididxs = GetMapn2idxs(i);
       CV_Assert(-1 != ididxs && goodmatches_[ididxs]);
-      Vector3d x3Dw = Converter::toMatrix3d(mRwc) * mv3Dpoints[ididxs] + Converter::toVector3d(mOw);
-      // cout << "check w3Dw=" << x3Dw.transpose() << ", z=" << z << ", xy=" << mvKeys[i].pt << " " << endl;
-//           << (mRwc * x3Dc + mOw).t() << endl;
-
+      Vector3d x3Dw = Converter::toMatrix3d(mRwc) * (GetTcr() * mv3Dpoints[ididxs]) + Converter::toVector3d(mOw);
       return Converter::toCvMat(x3Dw);
     } else {
       return cv::Mat();

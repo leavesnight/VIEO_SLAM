@@ -312,7 +312,7 @@ void PnPsolver::Getuv(const Vector3d &Pcr, double &ue, double&ve, size_t i) {
     ve = vc + fv * Pcr[1] * invZc;
   } else {
     GeometricCamera *pcam1 = pcams_[mapidx2cami_[i]];
-    Vector3d Pc = pcam1->Rcr_ * Pcr + pcam1->tcr_;
+    Vector3d Pc = pcam1->GetTcr() * Pcr;
     auto pt = pcam1->project(Pc);
     ue = pt[0];
     ve = pt[1];
@@ -390,7 +390,7 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
     auto &pcam1 = pcams_[mapidx2cami_[idx]];
     cv::Point3f cvPc = pcam1->unproject(cv::Point2f(u, v));
     Vector3d Pc = Vector3d(cvPc.x, cvPc.y, cvPc.z);
-    Vector3d keyun_ = pcam1->toK() * (pcam1->Rcr_.transpose() * (Pc - pcam1->tcr_));
+    Vector3d keyun_ = pcam1->toK() * (pcam1->GetTrc() * Pc);
     double invz = 1. / keyun_[2];
     keyun.x = keyun_[0] * invz;
     keyun.y = keyun_[1] * invz;

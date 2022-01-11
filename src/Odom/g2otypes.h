@@ -404,8 +404,9 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   void SetParams(GeometricCamera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
                  const Vector3d tcrb_ = Vector3d::Zero(), const float* bf = NULL) {
     intr_ = intr;
-    Rcb = intr_->Rcr_ * Rcrb_;
-    tcb = intr_->Rcr_ * tcrb_ + intr_->tcr_;
+    auto Tcb = intr_->GetTcr() * Sophus::SE3d(Sophus::SO3exd(Rcrb_), tcrb_);
+    Rcb = Tcb.rotationMatrix();
+    tcb = Tcb.translation();
     if (bf) bf_ = *bf;
   }
   void SetParams(const Matrix3d& Rbch, const Vector3d& tbch) {

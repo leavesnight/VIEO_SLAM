@@ -30,6 +30,10 @@ class Pinhole : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
+  Pinhole(const vector<float> &params) : GeometricCamera(params) {
+    mnId = nNextId++;
+    mnType = CAM_PINHOLE;
+  }
   Pinhole(cv::FileStorage& fSettings, int id, bool& bmiss_param);
   ~Pinhole() {}
 

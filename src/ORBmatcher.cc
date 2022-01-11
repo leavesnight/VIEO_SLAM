@@ -83,8 +83,8 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
       cv::Mat twc = twcr.clone();  // wO
       if (pKF->mpCameras.size() > cami) {
         pcam1 = pKF->mpCameras[cami];
-        Pc = pcam1->Rcr_ * Pc + pcam1->tcr_;
-        twc += Rcrw.t() * pcam1->Trc_.col(3);
+        Pc = pcam1->GetTcr() * Pc;
+        twc += Rcrw.t() * pcam1->Getcvtrc();
       }
       // Depth must be positive
       if (Pc(2) <= 0.0)  //== rectified by zzh
@@ -541,8 +541,8 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
       GeometricCamera *pcam1 = nullptr;
       if (pKF->mpCameras.size() > cami) {
         pcam1 = pKF->mpCameras[cami];
-        Pc = pcam1->Rcr_ * Pc + pcam1->tcr_;
-        twc += Rcrw.t() * pcam1->Trc_.col(3);
+        Pc = pcam1->GetTcr() * Pc;
+        twc += Rcrw.t() * pcam1->Getcvtrc();
       }
       // Depth must be positive
       if (Pc(2) <= 0.0)  //== rectified by zzh
@@ -896,8 +896,12 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
   return nmatches;
 }
 
-int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<size_t, size_t>> &vMatchedPairs,
+int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
+                                       vector<pair<vector<size_t>, vector<size_t>>> &vMatchedPairs,
                                        const bool bOnlyStereo) {
+  size_t vn_cams[2] = {pKF1->mpCameras.size(), pKF2->mpCameras.size()};
+  for (int i = 0; i < 2; ++i)
+    if (0 >= vn_cams[i]) vn_cams[i] = 1;
   bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
   const DBoW2::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
   const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
@@ -909,9 +913,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pa
   cv::Mat C2 =
       R2w * Cw + t2w;  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
   float ex, ey;
-  cv::Mat Rr1r2 = pKF1->GetRotation() * R2w.t();  // Rr1r2 = Rr1w * Rwr2
-  // Tr2r1 = Tr2w * Twr1=>tr2r1=Rr2w*twr1+tr2w=-Rr2w*Rwr1*tr1w+tr2w
-  cv::Mat tr2r1 = -Rr1r2.t() * pKF1->GetTranslation() + t2w;
+  auto Tr1r2 = pKF1->GetTcw() * pKF2->GetTwc();
   if (!usedistort[1]) {
     const float invz = 1.0f / C2.at<float>(2);
     ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
@@ -943,16 +945,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pa
   shared_ptr<Pinhole> pcaminst[2];
   if (!usedistort[0]) {
     CV_Assert(!usedistort[1]);
-    pcaminst[0] = make_shared<Pinhole>();
-    pcaminst[0]->setParameter(pKF1->fx, 0);
-    pcaminst[0]->setParameter(pKF1->fy, 1);
-    pcaminst[0]->setParameter(pKF1->cx, 2);
-    pcaminst[0]->setParameter(pKF1->cy, 3);
-    pcaminst[1] = make_shared<Pinhole>();
-    pcaminst[1]->setParameter(pKF2->fx, 0);
-    pcaminst[1]->setParameter(pKF2->fy, 1);
-    pcaminst[1]->setParameter(pKF2->cx, 2);
-    pcaminst[1]->setParameter(pKF2->cy, 3);
+    pcaminst[0] = make_shared<Pinhole>(vector<float>({pKF1->fx, pKF1->fy, pKF1->cx, pKF1->cy}));
+    pcaminst[1] = make_shared<Pinhole>(vector<float>({pKF2->fx, pKF2->fy, pKF2->cx, pKF2->cy}));
   } else
     CV_Assert(usedistort[1]);
 
@@ -1032,11 +1026,10 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pa
             pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])];
             pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
           }
-          cv::Mat R1r1 = pcam1->Trc_.colRange(0, 3).t();
-          cv::Mat R1r2 = R1r1 * Rr1r2;              // Rc1r2 = Rc1r1 * Rr1r2
-          cv::Mat R12 = R1r2 * pcam2->Trc_.colRange(0, 3);  // Rc1c2 = Rc1r2 * Rr2c2
+          auto T12 = pcam1->GetTcr() * Tr1r2 * pcam2->GetTrc();
+          cv::Mat R12 = Converter::toCvMat(T12.rotationMatrix());
           // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
-          cv::Mat t12 = R1r2 * (pcam2->Trc_.col(3) - tr2r1) - R1r1 * pcam1->Trc_.col(3);
+          cv::Mat t12 = Converter::toCvMat(T12.translation());
           if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
                                        pKF2->mvLevelSigma2[kp2.octave])) {
             vbestIdx2[img_id] = idx2;
@@ -1094,7 +1087,12 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pa
 
   for (size_t i = 0, iend = vMatches12.size(); i < iend; i++) {
     if (vMatches12[i] < 0) continue;
-    vMatchedPairs.push_back(make_pair(i, vMatches12[i]));
+    size_t cami[2] = {pKF1->mapn2in_.size() <= i ? 0 : get<0>(pKF1->mapn2in_[i]),
+                      pKF2->mapn2in_.size() <= vMatches12[i] ? 0 : get<0>(pKF2->mapn2in_[vMatches12[i]])};
+    auto matchedpair = make_pair(vector<size_t>(vn_cams[cami[0]], -1), vector<size_t>(vn_cams[cami[0]], -1));
+    matchedpair.first[cami[0]] = i;
+    matchedpair.second[cami[1]] = vMatches12[i];
+    vMatchedPairs.push_back(matchedpair);
   }
 
   return nmatches;
@@ -1261,18 +1259,13 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
   for (int i = 0; i < HISTO_LENGTH; i++) rotHist[i].reserve(500);
   const float factor = 1.0f / HISTO_LENGTH;
 
-  const cv::Mat Rcrw = CurrentFrame.mTcw.rowRange(0, 3).colRange(0, 3);
-  const cv::Mat tcrw = CurrentFrame.mTcw.rowRange(0, 3).col(3);
+  const auto &Tcrw = CurrentFrame.GetTcwCst();
+  const auto &Tlrw = LastFrame.GetTcwCst();
+  const auto &Tlrcr = Tlrw * Tcrw.inverse();
+  const auto &tlrcr = Tlrcr.translation();
 
-  const cv::Mat twcr = -Rcrw.t() * tcrw;
-
-  const cv::Mat Rlrw = LastFrame.mTcw.rowRange(0, 3).colRange(0, 3);
-  const cv::Mat tlrw = LastFrame.mTcw.rowRange(0, 3).col(3);
-
-  const cv::Mat tlrcr = Rlrw * twcr + tlrw;
-
-  const bool bForward = tlrcr.at<float>(2) > CurrentFrame.mb && !bMono;    // delta z >0.08m
-  const bool bBackward = -tlrcr.at<float>(2) > CurrentFrame.mb && !bMono;  // delta z<-0.08m
+  const bool bForward = tlrcr(2) > CurrentFrame.mb && !bMono;    // delta z >0.08m
+  const bool bBackward = -tlrcr(2) > CurrentFrame.mb && !bMono;  // delta z<-0.08m
 
   size_t num_mp = 0;
   set<MapPoint *> sMP;
@@ -1286,23 +1279,21 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", imu_tightly_debug_path, "debug.txt");
         ++num_mp;
         // Project
-        cv::Mat x3Dw = pMP->GetWorldPos();
-        cv::Mat x3Dr = Rcrw * x3Dw + tcrw, x3Dc;
+        Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
+        Eigen::Vector3d x3Dr = Tcrw * x3Dw, x3Dc;
         size_t n_camsj = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
         // CV_Assert(LastFrame.mapn2in_.size() > i);
         // size_t camj = get<0>(LastFrame.mapn2in_[i]);
         // CV_Assert(CurrentFrame.mpCameras.size() > camj;)
         for (size_t camj = 0; camj < n_camsj; ++camj) {
           if (CurrentFrame.mpCameras.size() > camj) {
-            const cv::Mat Rcr = CurrentFrame.mpCameras[camj]->Trc_.rowRange(0, 3).colRange(0, 3).t();
-            const cv::Mat tcr = -Rcr * CurrentFrame.mpCameras[camj]->Trc_.rowRange(0, 3).col(3);
-            x3Dc = Rcr * x3Dr + tcr;
+            x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
           } else
             x3Dc = x3Dr;
 
-          const float xc = x3Dc.at<float>(0);
-          const float yc = x3Dc.at<float>(1);
-          const float invzc = 1.0 / x3Dc.at<float>(2);  // inverse depth
+          const float xc = x3Dc(0);
+          const float yc = x3Dc(1);
+          const float invzc = 1.0 / x3Dc(2);  // inverse depth
 
           if (invzc < 0)  // behind the focus, cannot be photoed
             continue;
@@ -1310,8 +1301,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
           float u, v;
           if (CurrentFrame.mpCameras.size() > camj && Frame::usedistort_) {
             auto pt = CurrentFrame.mpCameras[camj]->project(x3Dc);
-            u = pt.x;
-            v = pt.y;
+            u = pt[0];
+            v = pt[1];
           } else {
             u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;  // K*Xc
             v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
@@ -1434,9 +1425,10 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 {
   int nmatches = 0;
 
-  const cv::Mat Rcrw = CurrentFrame.mTcw.rowRange(0, 3).colRange(0, 3);
-  const cv::Mat tcrw = CurrentFrame.mTcw.rowRange(0, 3).col(3);
-  const cv::Mat twcr = -Rcrw.t() * tcrw;
+  const auto &Tcrw = CurrentFrame.GetTcwCst();
+  const auto &Twcr = Tcrw.inverse();
+  const auto &twcr = Twcr.translation();
+  const auto Rwcr = Twcr.rotationMatrix();
 
   // Rotation Histogram (to check rotation consistency)
   vector<int> rotHist[HISTO_LENGTH];
@@ -1452,18 +1444,18 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
       if (!pMP->isBad() && !sAlreadyFound.count(pMP))  // if this MP is good and not found in sFound
       {
         // Project
-        cv::Mat x3Dw = pMP->GetWorldPos();
+        Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
 
-        cv::Mat x3Dcr = Rcrw * x3Dw + tcrw;
+        Eigen::Vector3d x3Dcr = Tcrw * x3Dw;
         size_t n_cams = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
         for (size_t cami = 0; cami < n_cams; ++cami) {
-          Vector3d Pc = Converter::toVector3d(x3Dcr);
-          cv::Mat twc = twcr.clone();
+          Vector3d Pc = x3Dcr;
+          Eigen::Vector3d twc = twcr;
           GeometricCamera *pcam1 = nullptr;
           if (CurrentFrame.mpCameras.size() > cami) {
             pcam1 = CurrentFrame.mpCameras[cami];
-            Pc = pcam1->Rcr_ * Pc + pcam1->tcr_;
-            twc += Rcrw.t() * pcam1->Trc_.col(3);
+            Pc = pcam1->GetTcr() * Pc;
+            twc += Rwcr * pcam1->GetTrc().translation();
           }
           const float invzc = 1.0 / Pc(2);
 
@@ -1483,8 +1475,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
           if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
 
           // Compute predicted scale level
-          cv::Mat PO = x3Dw - twc;
-          float dist3D = cv::norm(PO);
+          Eigen::Vector3d PO = x3Dw - twc;
+          float dist3D = PO.norm();
           const float maxDistance = pMP->GetMaxDistanceInvariance();
           const float minDistance = pMP->GetMinDistanceInvariance();
           // Depth must be inside the scale pyramid of the image

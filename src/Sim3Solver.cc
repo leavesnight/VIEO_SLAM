@@ -413,7 +413,7 @@ void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, ve
   for (size_t i = 0, iend = vP3Dw.size(); i < iend; i++) {
     Eigen::Vector3d crP3D = Converter::toVector3d(pTcrw ? Rcw * vP3Dw[i] + tcw : vP3Dw[i]);
     auto pcam = pcams[mapidx2cami[i]];
-    Eigen::Vector3d cP3d = pcam->Rcr_ * crP3D + pcam->tcr_;
+    Eigen::Vector3d cP3d = pcam->GetTcr() * crP3D;
 
     Eigen::Vector2d p2dnorm = pcam->project(cP3d);
     vP2D.push_back(cv::Mat_<float>(2, 1) << (p2dnorm[0], p2dnorm[1]));

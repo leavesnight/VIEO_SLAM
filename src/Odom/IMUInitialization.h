@@ -186,6 +186,8 @@ public:
   IMUKeyFrameInit* mpPrevKeyFrame;//but it's important for mOdomPreIntIMU computation && KeyFrameCulling()
 
   IMUKeyFrameInit(KeyFrame& kf);
+
+  cv::Mat &GetTcwRef() { return mTcw; }
   
   void ComputePreInt(){//0th frame don't use this function, mpPrevKeyFrame shouldn't be bad
     if (mpPrevKeyFrame==NULL) return;
