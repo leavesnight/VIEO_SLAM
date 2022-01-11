@@ -79,7 +79,7 @@ class GeometricCamera {
 
   static long unsigned int nNextId;
 
-  cv::Mat Trc_;  // ref->cam, Tlr for 2cams
+  cv::Mat Trc_ = cv::Mat::eye(3, 4, CV_32F);  // ref->cam, Tlr for 2cams
   Eigen::Matrix3d Rcr_ = Eigen::Matrix3d::Identity();
   Eigen::Vector3d tcr_ = Eigen::Vector3d::Zero();
 

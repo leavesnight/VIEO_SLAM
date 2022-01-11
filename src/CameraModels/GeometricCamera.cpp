@@ -151,29 +151,34 @@ cv::Mat GeometricCamera::toKcv() { return Converter::toCvMat(toK()); }
 bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                         const cv::Mat &R12in, const cv::Mat &t12in, const float sigmaLevel,
                                         const float unc) {
-  // Compute Fundamental Matrix
+  // Compute Fundamental Matrix F12=K1^(-T)*t12^R12*K2^(-1)
   Eigen::Vector3d t12 = Converter::toVector3d(t12in);
   Eigen::Matrix3d R12 = Converter::toMatrix3d(R12in);
-  auto t12x = Sophus::SO3exd::hat(t12);
   auto K1 = this->toK();
   auto K2 = pCamera2->toK();
-  Eigen::Matrix3d F12 = K1.transpose().inverse() * t12x * R12 * K2.inverse();
+  Eigen::Matrix3d F12 = K1.transpose().inverse() * Sophus::SO3exd::hat(t12) * R12 * K2.inverse();
 
-  // Epipolar line in second image l = x1'F12 = [a b c]
+  // Epipolar line in second image l = x1'F12 = [a b c], or l2=e2 cross x2=F21*x1=[a;b;c](easy to prove F21'=F12), here
+  // l2 means n vector(perpendicular to x2&&e2), e2 means epipolar point in 2nd image
   auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
-  const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);
+  const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);  // p1'*F12
   const float b = pt1.x * F12(0, 1) + pt1.y * F12(1, 1) + F12(2, 1);
   const float c = pt1.x * F12(0, 2) + pt1.y * F12(1, 2) + F12(2, 2);
 
+  // here norm(n)==|n|
+  // p1'*F12*p2==num near 0, or this dot result is |dist|*cos(theta)*|n|(imagine a
+  // plane(x2&&e2) with a point(p2) |dist|cos(theta) away)
+  // theta is the angle between dist vector and n vector
   const float num = a * pt2.x + b * pt2.y + c;
 
-  const float den = a * a + b * b;
+  const float den = a * a + b * b;  // this nx^2+ny^2 is the projection of n, or it's (norm(n)*cos(theta))^2
 
   if (den == 0) return false;
 
+  // here is the |dist|^2, dist vector is the distance vector pointing to x2 from the epipolar line
   const float dsqr = num * num / den;
 
-  return dsqr < 3.84 * unc;
+  return dsqr < 3.84 * unc;  // 2sigma rule;1.96^2,95.45%
 }
 
 //    bool GeometricCamera::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const

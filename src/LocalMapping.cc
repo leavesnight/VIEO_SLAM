@@ -350,12 +350,9 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
         }
 
-        // Compute Fundamental Matrix
-        cv::Mat F12 = ComputeF12(mpCurrentKeyFrame,pKF2);
-
         // Search matches that fullfil epipolar constraint(with 2 sigma rule)
         vector<pair<size_t,size_t> > vMatchedIndices;
-        matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,F12,vMatchedIndices,false);//matching method is like SBBoW
+        matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,vMatchedIndices,false);//matching method is like SBBoW
 
         cv::Mat Rcw2 = pKF2->GetRotation();
         cv::Mat Rwc2 = Rcw2.t();
@@ -659,25 +656,6 @@ void LocalMapping::SearchInNeighbors()
 
     // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs incurrent KF
     mpCurrentKeyFrame->UpdateConnections();
-}
-
-cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
-{
-    cv::Mat R1w = pKF1->GetRotation();
-    cv::Mat t1w = pKF1->GetTranslation();
-    cv::Mat R2w = pKF2->GetRotation();
-    cv::Mat t2w = pKF2->GetTranslation();
-    //T12=T1w*Tw2
-    cv::Mat R12 = R1w*R2w.t();
-    cv::Mat t12 = -R1w*R2w.t()*t2w+t1w;//R1w*tw2+t1w;tw2=-R2w.t()*t2w
-
-    cv::Mat t12x = SkewSymmetricMatrix(t12);//t12^
-
-    const cv::Mat &K1 = pKF1->mK;
-    const cv::Mat &K2 = pKF2->mK;
-
-
-    return K1.t().inv()*t12x*R12*K2.inv();//K1^(-T)*t12^R12*K2^(-1)=F12
 }
 
 void LocalMapping::RequestStop()

@@ -98,8 +98,6 @@ protected:
 
     void KeyFrameCulling();//erase redundant localKFs(all 1st layer covisibility KFs), redundant means 90% close stereo MPs seen by other >=3 KFs in same/finer scale
 
-    cv::Mat ComputeF12(KeyFrame* &pKF1, KeyFrame* &pKF2);//calculate Fundamental Matrix F12=K1^(-T)*t12^R12*K2^(-1)
-
     cv::Mat SkewSymmetricMatrix(const cv::Mat &v);//calculate the v^=[0 -c b;c 0 -a;-b a 0]
 
     bool mbMonocular;
