@@ -1066,15 +1066,19 @@ void Frame::ComputeStereoFishEyeMatches() {
       vector<size_t> vidx_used;
       vector<GeometricCamera *> pCamsOther;
       vector<cv::KeyPoint> kpts;
+      GeometricCamera *pcam0 = nullptr;
       for (int k = 0; k < idx.size(); ++k) {
         if (-1 != idx[k]) {
           vidx_used.push_back(idx[k]);
           sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
-          pCamsOther.push_back(mpCameras[k]);
+          if (!pcam0)
+            pcam0 = mpCameras[k];
+          else
+            pCamsOther.push_back(mpCameras[k]);
           kpts.push_back(vvkeys_[k][idx[k]]);
         }
       }
-      auto depths = mpCameras[0]->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D, thresh_cosdisparity);
+      auto depths = pcam0->TriangulateMatches(pCamsOther, kpts, sigmas, &p3D, thresh_cosdisparity);
       bool bgoodmatch = depths.empty() ? false : true;
       for (auto d : depths) {
         if (d <= 0.0001f) {
