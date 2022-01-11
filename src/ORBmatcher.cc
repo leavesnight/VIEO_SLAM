@@ -29,7 +29,7 @@
 
 #include <stdint-gcc.h>
 
-#include "GeometricCamera.h"
+#include "Pinhole.h"
 #include "Converter.h"
 #include "common/log.h"
 #include "common/common.h"
@@ -340,31 +340,6 @@ float ORBmatcher::RadiusByViewingCos(const float &viewCos) {
     return 2.5;
   else
     return 4.0;
-}
-
-bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &F12,
-                                       const KeyFrame *pKF2) {
-  // Epipolar line in second image l = x1'F12 = [a b c], or l2=e2 cross x2=F21*x1=[a;b;c](easy to prove F21'=F12), here
-  // l2 means n vector(perpendicular to x2&&e2), e2 means epipolar point in 2nd image
-  const float a = kp1.pt.x * F12.at<float>(0, 0) + kp1.pt.y * F12.at<float>(1, 0) + F12.at<float>(2, 0);  // p1'*F12
-  const float b = kp1.pt.x * F12.at<float>(0, 1) + kp1.pt.y * F12.at<float>(1, 1) + F12.at<float>(2, 1);
-  const float c = kp1.pt.x * F12.at<float>(0, 2) + kp1.pt.y * F12.at<float>(1, 2) + F12.at<float>(2, 2);
-
-  // here norm(n)==|n|
-  const float num =
-      a * kp2.pt.x + b * kp2.pt.y + c;  // p1'*F12*p2==num near 0, or this dot result is |dist|*cos(theta)*|n|(imagine a
-                                        // plane(x2&&e2) with a point(p2) |dist|cos(theta) away)
-  // theta is the angle between dist vector and n vector
-
-  const float den = a * a + b * b;  // this nx^2+ny^2 is the projection of n, or it's (norm(n)*cos(theta))^2
-
-  if (den == 0) return false;
-
-  const float dsqr =
-      num * num /
-      den;  // here is the |dist|^2, dist vector is the distance vector pointing to x2 from the epipolar line
-
-  return dsqr < 3.84 * pKF2->mvLevelSigma2[kp2.octave];  // 2sigma rule;1.96^2,95.45%
 }
 
 int ORBmatcher::SearchByBoW(KeyFrame *pKF, Frame &F, vector<MapPoint *> &vpMapPointMatches) {
@@ -921,8 +896,8 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
   return nmatches;
 }
 
-int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12,
-                                       vector<pair<size_t, size_t>> &vMatchedPairs, const bool bOnlyStereo) {
+int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pair<size_t, size_t>> &vMatchedPairs,
+                                       const bool bOnlyStereo) {
   bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
   const DBoW2::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
   const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
@@ -934,7 +909,9 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
   cv::Mat C2 =
       R2w * Cw + t2w;  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
   float ex, ey;
-  cv::Mat Rr1r2, tr2r1;
+  cv::Mat Rr1r2 = pKF1->GetRotation() * R2w.t();  // Rr1r2 = Rr1w * Rwr2
+  // Tr2r1 = Tr2w * Twr1=>tr2r1=Rr2w*twr1+tr2w=-Rr2w*Rwr1*tr1w+tr2w
+  cv::Mat tr2r1 = -Rr1r2.t() * pKF1->GetTranslation() + t2w;
   if (!usedistort[1]) {
     const float invz = 1.0f / C2.at<float>(2);
     ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
@@ -943,9 +920,6 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
     auto pt = pKF2->mpCameras[0]->project(C2);
     ex = pt.x;
     ey = pt.y;
-    Rr1r2 = pKF1->GetRotation() * R2w.t();  // Rr1r2 = Rr1w * Rwr2
-    // Tr2r1 = Tr2w * Twr1=>tr2r1=Rr2w*twr1+tr2w=-Rr2w*Rwr1*tr1w+tr2w
-    tr2r1 = -Rr1r2.t() * pKF1->GetTranslation() + t2w;
   }
 
   // Find matches between not tracked keypoints
@@ -965,6 +939,22 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
   DBoW2::FeatureVector::const_iterator f2it = vFeatVec2.begin();
   DBoW2::FeatureVector::const_iterator f1end = vFeatVec1.end();
   DBoW2::FeatureVector::const_iterator f2end = vFeatVec2.end();
+
+  shared_ptr<Pinhole> pcaminst[2];
+  if (!usedistort[0]) {
+    CV_Assert(!usedistort[1]);
+    pcaminst[0] = make_shared<Pinhole>();
+    pcaminst[0]->setParameter(pKF1->fx, 0);
+    pcaminst[0]->setParameter(pKF1->fy, 1);
+    pcaminst[0]->setParameter(pKF1->cx, 2);
+    pcaminst[0]->setParameter(pKF1->cy, 3);
+    pcaminst[1] = make_shared<Pinhole>();
+    pcaminst[1]->setParameter(pKF2->fx, 0);
+    pcaminst[1]->setParameter(pKF2->fy, 1);
+    pcaminst[1]->setParameter(pKF2->cx, 2);
+    pcaminst[1]->setParameter(pKF2->cy, 3);
+  } else
+    CV_Assert(usedistort[1]);
 
   while (f1it != f1end && f2it != f2end) {
     if (f1it->first == f2it->first) {
@@ -1008,7 +998,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
 
           size_t img_id = 0;
 //#define MATCH_KNN_IN_EACH_IMG //TODO: add match_knn_in_each_img for SearchForTriangulation, need map comparing dist
-//and use vector<pair<size_t, vector<size_t>> > &vMatchedPairs
+// and use vector<pair<size_t, vector<size_t>> > &vMatchedPairs
 #ifdef MATCH_KNN_IN_EACH_IMG
           if (pKF2->mapn2in_.size() > idx2) {
             img_id = get<0>(pKF2->mapn2in_[idx2]);
@@ -1034,26 +1024,23 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
             if (distex * distex + distey * distey < 100 * pKF2->mvScaleFactors[kp2.octave]) continue;
           }
 
+          GeometricCamera *pcam1, *pcam2;
           if (!usedistort[0]) {
-            CV_Assert(!usedistort[1]);
-            if (CheckDistEpipolarLine(kp1, kp2, F12, pKF2)) {
-              vbestIdx2[img_id] = idx2;
-              vbestDist[img_id] = dist;
-            }
+            pcam1 = pcaminst[0].get();
+            pcam2 = pcaminst[1].get();
           } else {
-            CV_Assert(usedistort[1]);
-            GeometricCamera *pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])],
-                            *pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
-            cv::Mat R1r1 = pcam1->Trc_.colRange(0, 3).t();
-            cv::Mat R1r2 = R1r1 * Rr1r2;                      // Rc1r2 = Rc1r1 * Rr1r2
-            cv::Mat R12 = R1r2 * pcam2->Trc_.colRange(0, 3);  // Rc1c2 = Rc1r2 * Rr2c2
-            // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
-            cv::Mat t12 = R1r2 * (pcam2->Trc_.col(3) - tr2r1) - R1r1 * pcam1->Trc_.col(3);
-            if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
-                                         pKF2->mvLevelSigma2[kp2.octave])) {
-              vbestIdx2[img_id] = idx2;
-              vbestDist[img_id] = dist;
-            }
+            pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])];
+            pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
+          }
+          cv::Mat R1r1 = pcam1->Trc_.colRange(0, 3).t();
+          cv::Mat R1r2 = R1r1 * Rr1r2;                      // Rc1r2 = Rc1r1 * Rr1r2
+          cv::Mat R12 = R1r2 * pcam2->Trc_.colRange(0, 3);  // Rc1c2 = Rc1r2 * Rr2c2
+          // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
+          cv::Mat t12 = R1r2 * (pcam2->Trc_.col(3) - tr2r1) - R1r1 * pcam1->Trc_.col(3);
+          if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
+                                       pKF2->mvLevelSigma2[kp2.octave])) {
+            vbestIdx2[img_id] = idx2;
+            vbestDist[img_id] = dist;
           }
         }
 
@@ -1197,8 +1184,8 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> 
   cv::Mat sR12 = s12 * R12;
   cv::Mat sR21 = (1.0 / s12) * R12.t();  // s21=s2/s1=1/(s1/s2)=1/s12, notice si means use the right/real/true scale
                                          // ti(Tiw) to get saved/calculated tiw(Siw)=si*ti(Tiw)
-  cv::Mat t21 = -sR21 * t12;  // S12*S21=I/S21=S12^(-1) => s12*R12*s21*R21=I,s12R12*t21+t12=0 =>
-                              // sR21=s21*R21=1/s12*R12.t()/s21,t21=-(s12R12)^(-1)*t12=-s21*R21*t12=-sR21*t12
+  cv::Mat t21 = -sR21 * t12;             // S12*S21=I/S21=S12^(-1) => s12*R12*s21*R21=I,s12R12*t21+t12=0 =>
+                                         // sR21=s21*R21=1/s12*R12.t()/s21,t21=-(s12R12)^(-1)*t12=-s21*R21*t12=-sR21*t12
 
   const vector<MapPoint *> vpMapPoints1 = pKF1->GetMapPointMatches();
   const int N1 = vpMapPoints1.size();
@@ -1633,8 +1620,8 @@ int ORBmatcher::DescriptorDistance(
     v = (v & 0x33333333) +
         ((v >> 2) & 0x33333333);  // use 4 bit to show the ham. dis. of 4bit, only possible results are 0~4 < 16
     dist +=
-        (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;  // use 8 bit to show the ham. dis of 8bit, 0~8<256 and then
-                                                           // get A+B+C+D B+C+D C+D D>>24 or the result A+B+C+D!
+        (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;  // use 8 bit to show the ham. dis of 8bit, 0~8<256 and
+                                                           // then get A+B+C+D B+C+D C+D D>>24 or the result A+B+C+D!
   }
 
   return dist;

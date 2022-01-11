@@ -83,7 +83,7 @@ class ORBmatcher {
 
   // Matching to triangulate new MapPoints. Check Epipolar Constraint.
   int SearchForTriangulation(
-      KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12, std::vector<pair<size_t, size_t>> &vMatchedPairs,
+      KeyFrame *pKF1, KeyFrame *pKF2, std::vector<pair<size_t, size_t>> &vMatchedPairs,
       const bool bOnlyStereo);  //used in CreateNewMapPoints() in LocalMapping thread without checkOri(=false)\
                                return number of additional matches which haven't been created as MapPoints\
                                old_vesrion may return some vMatchedPairs with same it->second!
