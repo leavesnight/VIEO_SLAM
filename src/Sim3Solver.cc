@@ -92,17 +92,18 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
 
       if (!pMP1)  // here pMP1=nullptr means pMP2=nullptr too before last SBP() in ComputeSIm3()
         continue;
+      CV_Assert(pMP2);
 
       if (pMP1->isBad() || pMP2->isBad()) continue;
 
-      int indexKF1 = i1;  //*pMP1->GetIndexInKeyFrame(pKF1).begin();
+      int indexKF1 = i1;
       auto indicesKF2 = pMP2->GetIndexInKeyFrame(pKF2);
       for (auto indexKF2 : indicesKF2) {
-        if (/*indexKF1<0 || */ indexKF2 < 0)  // it's for safe
+        if (indexKF2 < 0)  // it's for safe
           continue;
 
-        const cv::KeyPoint &kp1 = !usedistort_ ? pKF1->mvKeysUn[indexKF1] : pKF1->mvKeys[indexKF1];
-        const cv::KeyPoint &kp2 = !usedistort_ ? pKF2->mvKeysUn[indexKF1] : pKF2->mvKeys[indexKF1];
+        const cv::KeyPoint &kp1 = !usedistort_[0] ? pKF1->mvKeysUn[indexKF1] : pKF1->mvKeys[indexKF1];
+        const cv::KeyPoint &kp2 = !usedistort_[1] ? pKF2->mvKeysUn[indexKF2] : pKF2->mvKeys[indexKF2];
 
         const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
         const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];

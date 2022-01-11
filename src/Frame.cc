@@ -24,6 +24,7 @@
 #include <thread>
 #include "KannalaBrandt8.h"
 #include "common/log.h"
+#include "common/common.h"
 
 namespace VIEO_SLAM
 {
@@ -948,11 +949,13 @@ void Frame::ComputeStereoFishEyeMatches() {
 
   int nMatches = 0;
   int descMatches = 0;
-  const double thresh_cosdisparity = 1. - 1e-6; // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
+  const double thresh_cosdisparity = 1. - 1e-6;  // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
 
   // Check matches using Lowe's ratio
   CV_Assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());
+#ifdef USE_STRATEGY_MIN_DIST
   vector<vector<double>> lastdists;
+#endif
   aligned_vector<Vector3d> pts;
   for (size_t i = 0, idmatches = 0; i < n_cams - 1; ++i) {
     for (size_t j = i + 1; j < n_cams; ++j, ++idmatches) {
@@ -972,16 +975,28 @@ void Frame::ComputeStereoFishEyeMatches() {
           if (iteri != mapcamidx2idxs_.end()) {
             ididxs = iteri->second;
             auto &idxs = mvidxsMatches[ididxs];
-            if (-1 == idxs[i] || lastdists[ididxs][i] > (*it)[0].distance) {
+            if (-1 == idxs[i]
+#ifdef USE_STRATEGY_MIN_DIST
+                || lastdists[ididxs][i] > (*it)[0].distance
+#endif
+            ) {
               checkdepth[0] = 2;
             }
-            //            else if (idxi != idxs[i])
-            //              goodmatches_[ididxs] = false;
-            if (-1 == idxs[j] || lastdists[ididxs][j] > (*it)[0].distance) {
+#ifdef USE_STRATEGY_ABANDON
+            else if (idxi != idxs[i])
+              goodmatches_[ididxs] = false;
+#endif
+            if (-1 == idxs[j]
+#ifdef USE_STRATEGY_MIN_DIST
+                || lastdists[ididxs][j] > (*it)[0].distance
+#endif
+            ) {
               checkdepth[1] = 2;
             }
-            //            else if (idxj != idxs[j])
-            //              goodmatches_[ididxs] = false;
+#ifdef USE_STRATEGY_ABANDON
+            else if (idxj != idxs[j])
+              goodmatches_[ididxs] = false;
+#endif
           } else {
             checkdepth[0] = 1;
             checkdepth[1] = 1;
@@ -1014,11 +1029,23 @@ void Frame::ComputeStereoFishEyeMatches() {
                 mvidxsMatches.push_back(idxs);
                 mv3Dpoints.resize(mvidxsMatches.size());
                 goodmatches_.push_back(true);
+#ifdef USE_STRATEGY_MIN_DIST
                 vector<double> dists(n_cams, INFINITY);
                 dists[i] = (*it)[0].distance;
                 dists[j] = (*it)[0].distance;
                 lastdists.push_back(dists);
+#endif
               }
+#ifdef USE_STRATEGY_MIN_DIST
+              else {
+                if (2 == checkdepth[0]) {
+                  lastdists[ididxs][i] = (*it)[0].distance;
+                }
+                if (2 == checkdepth[1]) {
+                  lastdists[ididxs][j] = (*it)[0].distance;
+                }
+              }
+#endif
               mv3Dpoints[ididxs] =
                   Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
               nMatches++;
