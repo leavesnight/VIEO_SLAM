@@ -436,7 +436,7 @@ void MapPoint::UpdateNormalAndDepth() {
       if (pKF->mpCameras.size() > cami) {
         GeometricCamera* pcam1 = pKF->mpCameras[cami];
         const cv::Mat Rcrw = pKF->GetRotation();
-        twc += Rcrw.t() * pcam1->Trc_.col(3);
+        twc += Rcrw.t() * pcam1->Getcvtrc();
       }
       cv::Mat normali = mWorldPos - twc;
       normal = normal + normali / cv::norm(normali);

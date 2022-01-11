@@ -208,6 +208,8 @@ public:
     void SetPose(const cv::Mat &Tcw);
     cv::Mat GetPose();//Tcw
     cv::Mat GetPoseInverse();
+    const Sophus::SE3d GetTwc() override;
+    const Sophus::SE3d GetTcw() override;
     cv::Mat GetCameraCenter();
     cv::Mat GetStereoCenter();
     cv::Mat GetRotation();
@@ -352,7 +354,6 @@ public:
 protected:
 
     // SE3 Pose and camera center
-    cv::Mat Tcw;
     cv::Mat Twc;
     cv::Mat Ow;
     cv::Mat Cw; // Stereo middel point. Only for visualization
@@ -386,6 +387,8 @@ protected:
     std::mutex mMutexPose;
     std::mutex mMutexConnections;
     std::mutex mMutexFeatures;//the mutex of mvpMapPoints(landmarks' states/vertices)
+
+    inline const Sophus::SE3d GetTcwCst() const { CV_Assert(0 && "Need Lock Mutex, cannot use ()const!"); }
 };
 
 //created by zzh

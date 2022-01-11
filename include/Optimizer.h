@@ -744,8 +744,8 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
     eBiasg->deltaRij = imupreint.mRij;  // deltaRij/deltaRii+1
     eBiasg->JgRij = imupreint.mJgRij;   // Jg_deltaR
     eBiasg->Rwbi =
-        Converter::toMatrix3d(vpKFInit[i - 1]->mTcw.rowRange(0, 3).colRange(0, 3).t()) * Rcb;  // Rwbi=Rwci*Rcb
-    eBiasg->Rwbj = Converter::toMatrix3d(vpKFInit[i]->mTcw.rowRange(0, 3).colRange(0, 3).t()) *
+        Converter::toMatrix3d(vpKFInit[i - 1]->GetTcwRef().rowRange(0, 3).colRange(0, 3).t()) * Rcb;  // Rwbi=Rwci*Rcb
+    eBiasg->Rwbj = Converter::toMatrix3d(vpKFInit[i]->GetTcwRef().rowRange(0, 3).colRange(0, 3).t()) *
                    Rcb;  // Rwbj/Rwbi+1=Rwcj/Rwci+1 * Rcb
     if (bInfo)
       eBiasg->setInformation(imupreint.mSigmaijPRV.block<3, 3>(3, 3).inverse());

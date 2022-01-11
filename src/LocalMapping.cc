@@ -294,283 +294,245 @@ void LocalMapping::MapPointCulling()
     }
 }
 
-void LocalMapping::CreateNewMapPoints()
-{
-    // Retrieve neighbor keyframes in covisibility graph
-    int nn = 10;
-    if(mbMonocular)
-        nn=20;
-    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
-
-    ORBmatcher matcher(0.6,false);
-
-    cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
-    cv::Mat Rwc1 = Rcw1.t();
-    cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
-    cv::Mat Tcw1(3,4,CV_32F);
-    Rcw1.copyTo(Tcw1.colRange(0,3));
-    tcw1.copyTo(Tcw1.col(3));
-    cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
-
-    const float &fx1 = mpCurrentKeyFrame->fx;
-    const float &fy1 = mpCurrentKeyFrame->fy;
-    const float &cx1 = mpCurrentKeyFrame->cx;
-    const float &cy1 = mpCurrentKeyFrame->cy;
-    const float &invfx1 = mpCurrentKeyFrame->invfx;
-    const float &invfy1 = mpCurrentKeyFrame->invfy;
-
-    const float ratioFactor = 1.5f*mpCurrentKeyFrame->mfScaleFactor;//1.5*1.2=1.8
-
-    int nnew=0;//unused here
-
-    // Search matches with epipolar restriction and triangulate
-    for(size_t i=0; i<vpNeighKFs.size(); i++)
-    {
-        if(i>0 && CheckNewKeyFrames())//if it's busy then just triangulate the best covisible KF
-            return;
-
-        KeyFrame* pKF2 = vpNeighKFs[i];
-
-        // Check first that baseline is not too short
-        cv::Mat Ow2 = pKF2->GetCameraCenter();
-        cv::Mat vBaseline = Ow2-Ow1;
-        const float baseline = cv::norm(vBaseline);
-
-        if(!mbMonocular)
-        {
-            if(baseline<pKF2->mb)//for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe for it cannot see farther than depth camera
-            continue;
-        }
-        else
-        {
-            const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
-            const float ratioBaselineDepth = baseline/medianDepthKF2;
-
-            if(ratioBaselineDepth<0.01)//at least baseline>=0.08m/8m(medianDepth)
-                continue;
-        }
-
-        // Search matches that fullfil epipolar constraint(with 2 sigma rule)
-        vector<pair<size_t,size_t> > vMatchedIndices;
-        matcher.SearchForTriangulation(mpCurrentKeyFrame,pKF2,vMatchedIndices,false);//matching method is like SBBoW
-
-        cv::Mat Rcw2 = pKF2->GetRotation();
-        cv::Mat Rwc2 = Rcw2.t();
-        cv::Mat tcw2 = pKF2->GetTranslation();
-        cv::Mat Tcw2(3,4,CV_32F);
-        Rcw2.copyTo(Tcw2.colRange(0,3));
-        tcw2.copyTo(Tcw2.col(3));
-
-        const float &fx2 = pKF2->fx;
-        const float &fy2 = pKF2->fy;
-        const float &cx2 = pKF2->cx;
-        const float &cy2 = pKF2->cy;
-        const float &invfx2 = pKF2->invfx;
-        const float &invfy2 = pKF2->invfy;
-
-        // Triangulate each match
-        const int nmatches = vMatchedIndices.size();
-        for(int ikp=0; ikp<nmatches; ikp++)
-        {
-            const int &idx1 = vMatchedIndices[ikp].first;
-            const int &idx2 = vMatchedIndices[ikp].second;
-
-            bool usedistort = mpCurrentKeyFrame->mpCameras.size() && Frame::usedistort_;
-            GeometricCamera *pcam1 = nullptr, *pcam2;
-            if (mpCurrentKeyFrame->mpCameras.size()) {
-              CV_Assert(mpCurrentKeyFrame->mapn2in_.size() > idx1 && pKF2->mpCameras.size() &&
-                        pKF2->mapn2in_.size() > idx2);
-              pcam1 = mpCurrentKeyFrame->mpCameras[get<0>(mpCurrentKeyFrame->mapn2in_[idx1])];
-              pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
-            }
-            const cv::KeyPoint &kp1 = (!usedistort) ? mpCurrentKeyFrame->mvKeysUn[idx1] : mpCurrentKeyFrame->mvKeys[idx1];
-            const float kp1_ur=mpCurrentKeyFrame->mvuRight[idx1];
-            bool bStereo1 = kp1_ur>=0;
-
-            const cv::KeyPoint &kp2 = (!usedistort) ? pKF2->mvKeysUn[idx2] : pKF2->mvKeys[idx2];
-            const float kp2_ur = pKF2->mvuRight[idx2];
-            bool bStereo2 = kp2_ur>=0;
-
-            // Check parallax between rays
-            cv::Mat xn1, xn2;
-            if (!usedistort) {
-              //(x'1/z'2,y'2/z'2,1)
-              xn1 = (cv::Mat_<float>(3, 1) << (kp1.pt.x - cx1) * invfx1, (kp1.pt.y - cy1) * invfy1, 1.0);
-              //(x'2/z'2,y'2/z'2,1)
-              xn2 = (cv::Mat_<float>(3, 1) << (kp2.pt.x - cx2) * invfx2, (kp2.pt.y - cy2) * invfy2, 1.0);
-            } else {
-              xn1 = pcam1->unprojectMat(kp1.pt);
-              xn2 = pcam2->unprojectMat(kp2.pt);
-            }
-            if (mpCurrentKeyFrame->mpCameras.size()) {
-              xn1 = pcam1->Trc_.rowRange(0, 3).colRange(0, 3) * xn1 + pcam1->Trc_.col(3);
-              xn2 = pcam2->Trc_.rowRange(0, 3).colRange(0, 3) * xn2 + pcam2->Trc_.col(3);
-            }
-
-            cv::Mat ray1 = Rwc1*xn1;
-            cv::Mat ray2 = Rwc2*xn2;
-            const float cosParallaxRays = ray1.dot(ray2)/(cv::norm(ray1)*cv::norm(ray2));//the Rays parallax angle must be in [0,180) for depth >0
-
-            float cosParallaxStereo = cosParallaxRays+1;//+1 && cosParallaxRays>0 -> always choosing stereo parallax(if exists) cos value as the cosParallaxStereo
-            float cosParallaxStereo1 = cosParallaxStereo;
-            float cosParallaxStereo2 = cosParallaxStereo;
-
-            if(bStereo1)
-                cosParallaxStereo1 = cos(2*atan2(mpCurrentKeyFrame->mb/2,mpCurrentKeyFrame->mvDepth[idx1]));
-            else if(bStereo2)//maybe here can be improved
-                cosParallaxStereo2 = cos(2*atan2(pKF2->mb/2,pKF2->mvDepth[idx2]));//this cos value is the min stereo parallax value
-		//(the point with certain depth has max stereo parallax angle when its Xc is at the centre of baseline), here stereo parallax!=Rays parallax
-
-            cosParallaxStereo = min(cosParallaxStereo1,cosParallaxStereo2);
-
-	    //use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less accuracy in depth data
-            cv::Mat x3D;
-	    //if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature matching unreliable?)
-            if(cosParallaxRays<cosParallaxStereo && cosParallaxRays>0 && (bStereo1 || bStereo2 || cosParallaxRays<0.9998))//if both monocular then parallax angle must be in [1.15,90) degrees
-            {
-                // Linear Triangulation Method, though it's not the best method
-                cv::Mat A(4,4,CV_32F);//Xc=K^(-1)*P=[Rcw|tcw]*Xw;(Xc*1-[Rcw|tcw]*Xw)(0:1),1=([Rcw|tcw]*Xw)(2)=Tcw.row(2)
-                //=>A=[Xc1(0)*Tc1w.row(2)-Tc1w.row(0);Xc1(1)*Tc1w.row(2)-Tc1w.row(1);Xc2(0)*Tc2w.row(2)-Tc2w.row(0);Xc2(1)*Tc2w.row(2)-Tc2w.row(1)]=4*4 matrix,
-                //AX=0, see http://www.robots.ox.ac.uk/~az/tutorials/tutoriala.pdf
-                A.row(0) = xn1.at<float>(0)*Tcw1.row(2)-Tcw1.row(0);
-                A.row(1) = xn1.at<float>(1)*Tcw1.row(2)-Tcw1.row(1);
-                A.row(2) = xn2.at<float>(0)*Tcw2.row(2)-Tcw2.row(0);
-                A.row(3) = xn2.at<float>(1)*Tcw2.row(2)-Tcw2.row(1);
-
-		//min(X) ||AX||^2 s.t. ||x||=1 should use SVD method, see  http://blog.csdn.net/zhyh1435589631/article/details/62218421
-                cv::Mat w,u,vt;
-                cv::SVD::compute(A,w,u,vt,cv::SVD::MODIFY_A| cv::SVD::FULL_UV);
-
-                x3D = vt.row(3).t();//get the min eigen/singular value's corresponding eigen vector v.col(3)
-
-                if(x3D.at<float>(3)==0)//cannot be SVD decomposed
-                    continue;
-
-                // Euclidean coordinates
-                x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
-
-            }
-            else if(bStereo1 && cosParallaxStereo1<cosParallaxStereo2)//when 1st condition true then 2nd condition is false can only happen when cosParallaxRays<=0
-            {
-                x3D = mpCurrentKeyFrame->UnprojectStereo(idx1);                
-            }
-            else if(bStereo2 && cosParallaxStereo2<cosParallaxStereo1)
-            {
-                x3D = pKF2->UnprojectStereo(idx2);
-            }
-            else
-                continue; //No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax angle>=90 degrees with >=1 stereo point
-
-            cv::Mat x3Dt = x3D.t();
-
-            //Check triangulation in front of cameras, depth must be >0
-            float z1 = Rcw1.row(2).dot(x3Dt)+tcw1.at<float>(2);//zc=Xc(2)=[Rcw|tcw](2)*Xw
-            if(z1<=0)
-                continue;
-
-            float z2 = Rcw2.row(2).dot(x3Dt)+tcw2.at<float>(2);
-            if(z2<=0)
-                continue;
-
-            //Check reprojection error in first keyframe by chi2 distribution
-            const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave];
-            const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);//xc1
-            const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);//yc1
-            const float invz1 = 1.0/z1;
-
-            {
-              float u1, v1;
-              if (!usedistort) {
-                u1 = fx1 * x1 * invz1 + cx1;
-                v1 = fy1 * y1 * invz1 + cy1;
-              } else {
-                auto pt = pcam1->project(cv::Point3f(x1, y1, z1));
-                u1 = pt.x;
-                v1 = pt.y;
-              }
-              if (!bStereo1) {
-                float errX1 = u1 - kp1.pt.x;
-                float errY1 = v1 - kp1.pt.y;
-                //(e^2-0^2)/sigma^2 (if sigma&&0 is population supposed variance&&expected value not sample parameters then degree of freedom is n not n-1)
-                if ((errX1 * errX1 + errY1 * errY1) >
-                    5.991 * sigmaSquare1)  // if e'*[1/sigma^2 0;0 1/sigma^2](/Omiga)*e>chi2(0.05 significance level,2 degrees of freedom), it's wrong(95% judgement is right)
-                  continue;
-              } else {  // TODO: think if this necessary
-                float u1_r = u1 - mpCurrentKeyFrame->mbf * invz1;
-                float errX1 = u1 - kp1.pt.x;
-                float errY1 = v1 - kp1.pt.y;
-                float errX1_r = u1_r - kp1_ur;
-                if ((errX1 * errX1 + errY1 * errY1 + errX1_r * errX1_r) > 7.8 * sigmaSquare1)  // chi2(0.05,3)
-                  continue;
-              }
-
-              // Check reprojection error in second keyframe
-              const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
-              const float x2 = Rcw2.row(0).dot(x3Dt) + tcw2.at<float>(0);
-              const float y2 = Rcw2.row(1).dot(x3Dt) + tcw2.at<float>(1);
-              const float invz2 = 1.0 / z2;
-              float u2, v2;
-              if (!usedistort) {
-                u2 = fx2 * x2 * invz2 + cx2;
-                v2 = fy2 * y2 * invz2 + cy2;
-              } else {
-                auto pt = pcam2->project(cv::Point3f(x2, y2, z2));
-                u2 = pt.x;
-                v2 = pt.y;
-              }
-              if (!bStereo2) {
-                float errX2 = u2 - kp2.pt.x;
-                float errY2 = v2 - kp2.pt.y;
-                if ((errX2 * errX2 + errY2 * errY2) > 5.991 * sigmaSquare2)  // chi2(0.05,2)
-                  continue;
-              } else {
-                float u2_r = u2 - pKF2->mbf * invz2;
-                float errX2 = u2 - kp2.pt.x;
-                float errY2 = v2 - kp2.pt.y;
-                float errX2_r = u2_r - kp2_ur;
-                if ((errX2 * errX2 + errY2 * errY2 + errX2_r * errX2_r) > 7.8 * sigmaSquare2)  // chi2(0.05,3)
-                  continue;
-              }
-            }
-
-            //Check scale consistency, is this dist not depth very good?
-            cv::Mat normal1 = x3D-Ow1;
-            float dist1 = cv::norm(normal1);
-
-            cv::Mat normal2 = x3D-Ow2;
-            float dist2 = cv::norm(normal2);
-
-            if(dist1==0 || dist2==0)//it seems impossible for zi>0, if possible it maybe numerical error
-                continue;
-
-            const float ratioDist = dist2/dist1;
-            const float ratioOctave = mpCurrentKeyFrame->mvScaleFactors[kp1.octave]/pKF2->mvScaleFactors[kp2.octave];
-
-            /*if(fabs(ratioDist-ratioOctave)>ratioFactor)
-                continue;*/
-            if(ratioDist*ratioFactor<ratioOctave || ratioDist>ratioOctave*ratioFactor)//ratioOctave must be in [ratioDist/ratioFactor,ratioDist*ratioFactor], notice ratioFactor is 1.5*mpCurrentKeyFrame->mfScaleFactor
-                continue;
-
-            // Triangulation is succesfull
-            MapPoint* pMP = new MapPoint(x3D,mpCurrentKeyFrame,mpMap);//notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
-
-            pMP->AddObservation(mpCurrentKeyFrame,idx1);            
-            pMP->AddObservation(pKF2,idx2);
-
-            PRINT_DEBUG_INFO_MUTEX("addmp1"<<endl, imu_tightly_debug_path, "debug.txt");
-            mpCurrentKeyFrame->AddMapPoint(pMP,idx1);
-            pKF2->AddMapPoint(pMP,idx2);
-
-            pMP->ComputeDistinctiveDescriptors();
-
-            pMP->UpdateNormalAndDepth();
-
-            mpMap->AddMapPoint(pMP);
-            mlpRecentAddedMapPoints.push_back(pMP);
-
-            nnew++;
-        }
+static inline void PrepareDataForTraingulate(vector<GeometricCamera *> &pcams_in, KeyFrame* pKF1, const vector<size_t> &idxs1,
+                                             vector<GeometricCamera *> &pcams, aligned_vector<Sophus::SE3d> &Twrs,
+                                             aligned_vector<Eigen::Vector2d> &kps2d, vector<cv::KeyPoint> &kps,
+                                             vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool &bStereos, float &cosdisparity) {
+  bStereos = false;
+  cosdisparity = 1.1;  // >1 designed for future inifity point
+  pcams.clear();
+  Twrs.clear();
+  kps.clear();
+  sigma_lvs.clear();
+  urbfs.clear();
+  CV_Assert(pcams_in.size() == idxs1.size());
+  bool usedistort = Frame::usedistort_ && pKF1->mpCameras.size();
+  for (size_t ididxs = 0; ididxs < idxs1.size(); ++ididxs) {
+    size_t idx = idxs1[ididxs];
+    if (-1 != idx) {
+      size_t cami = pKF1->mapn2in_.size() <= idx ? 0 : get<0>(pKF1->mapn2in_[idx]);
+      pcams.push_back(pcams_in[cami]);
+      Twrs.push_back(pKF1->GetTwc() * pKF1->GetTcr());
+      const auto &kp = (!usedistort) ? pKF1->mvKeysUn[idx] : pKF1->mvKeys[idx];
+      kps.push_back(kp);
+      kps2d.push_back(Eigen::Vector2d(kp.pt.x, kp.pt.y));
+      sigma_lvs.push_back(pKF1->mvLevelSigma2[kp.octave]);
+      urbfs.push_back(vector<float>({pKF1->mvuRight[idx], pKF1->mbf}));
+      // TODO: record cosdisparity in Frame.cc for StereoDistort one
+      if (!bStereos) {
+        if (0 <= urbfs.back()[0]) bStereos = true;
+      } else
+        CV_Assert(0 <= urbfs.back()[0]);
+      if (bStereos) {
+        // this cos value is the min stereo parallax value, (the point with certain depth has max stereo parallax angle
+        // when its Xc is at the centre of baseline), here stereo parallax!=Rays parallax
+        const float cosParallaxRays = cos(2 * atan2(pKF1->mb / 2., pKF1->mvDepth[idx]));
+        if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
+      }
     }
+  }
+}
+static inline bool PrepareDatasForTraingulate(vector<GeometricCamera *> *pcams_in, const vector<KeyFrame*> &pKFs,
+                                              const vector<vector<size_t>> &idxs, vector<GeometricCamera *> &pcams,
+                                              aligned_vector<Sophus::SE3d> &Twrs, aligned_vector<Eigen::Vector2d> &kps2d,
+                                              vector<cv::KeyPoint> *kps, vector<float> &sigma_lvs, vector<vector<float>> &urbfs,
+                                              bool *bStereos, float &cosdisparity, float *cosdisparities) {
+  cosdisparity = 1.1;
+  vector<GeometricCamera *> vpcams[2];
+  aligned_vector<Sophus::SE3d> vTwrs[2];
+  aligned_vector<Eigen::Vector2d> vkps[2];
+  vector<float> vsigma_lvs[2];
+  vector<vector<float>> vurbfs[2];
+  for (int i = 0; i < 2; ++i)
+    PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i], vurbfs[i],
+                              bStereos[i], cosdisparities[i]);
+  if (!vpcams[0].size() || !vpcams[1].size()) return false;
+  Eigen::Matrix3d Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()),
+                            Converter::toMatrix3d(pKFs[1]->GetRotation().t())};
+  for (size_t i1 = 0; i1 < vpcams[0].size(); ++i1) {
+    auto &pcam1 = vpcams[0][i1];
+    auto xn1 = pcam1->GetTrc() * pcam1->unproject(vkps[0][i1]);
+    auto ray1 = Rwc[0] * xn1;
+    for (size_t i2 = 0; i2 < vpcams[1].size(); ++i2) {
+      auto &pcam2 = vpcams[1][i2];
+      auto xn2 = pcam2->GetTrc() * pcam2->unproject(vkps[1][i2]);
+      auto ray2 = Rwc[1] * xn2;
+      // the Rays parallax angle must be in [0,180) for depth >0 (TODO: when angle >= 180, rectify here)
+      const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
+      if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
+    }
+  }
+  pcams = std::move(vpcams[0]);
+  pcams.insert(pcams.end(), vpcams[1].begin(), vpcams[1].end());
+  Twrs = std::move(vTwrs[0]);
+  Twrs.insert(Twrs.end(), vTwrs[1].begin(), vTwrs[1].end());
+  kps2d = std::move(vkps[0]);
+  kps2d.insert(kps2d.end(), vkps[1].begin(), vkps[1].end());
+  sigma_lvs = std::move(vsigma_lvs[0]);
+  sigma_lvs.insert(sigma_lvs.end(), vsigma_lvs[1].begin(), vsigma_lvs[1].end());
+  urbfs = std::move(vurbfs[0]);
+  urbfs.insert(urbfs.end(), vurbfs[1].begin(), vurbfs[1].end());
+  return true;
+}
+void LocalMapping::CreateNewMapPoints() {
+  // Retrieve neighbor keyframes in covisibility graph
+  int nn = 10;
+  if (mbMonocular) nn = 20;
+  const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+
+  ORBmatcher matcher(0.6, false);
+
+  cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
+  cv::Mat Rwc1 = Rcw1.t();
+  cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
+  cv::Mat Tcw1(3, 4, CV_32F);
+  Rcw1.copyTo(Tcw1.colRange(0, 3));
+  tcw1.copyTo(Tcw1.col(3));
+  cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
+
+  const float &fx1 = mpCurrentKeyFrame->fx;
+  const float &fy1 = mpCurrentKeyFrame->fy;
+  const float &cx1 = mpCurrentKeyFrame->cx;
+  const float &cy1 = mpCurrentKeyFrame->cy;
+  const float &invfx1 = mpCurrentKeyFrame->invfx;
+  const float &invfy1 = mpCurrentKeyFrame->invfy;
+
+  const float ratioFactor = 1.5f * mpCurrentKeyFrame->mfScaleFactor;  // 1.5*1.2=1.8
+
+  int nnew = 0;  // unused here
+
+  // Search matches with epipolar restriction and triangulate
+  for (size_t i = 0; i < vpNeighKFs.size(); i++) {
+    if (i > 0 && CheckNewKeyFrames())  // if it's busy then just triangulate the best covisible KF
+      return;
+
+    KeyFrame *pKF2 = vpNeighKFs[i];
+    KeyFrame *&pKF1 = mpCurrentKeyFrame;
+
+    // Check first that baseline is not too short
+    cv::Mat Ow2 = pKF2->GetCameraCenter();
+    cv::Mat vBaseline = Ow2 - Ow1;
+    const float baseline = cv::norm(vBaseline);
+
+    if (!mbMonocular) {
+      if (baseline < pKF2->mb)  // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe for it cannot see farther than depth camera
+        continue;
+    } else {
+      const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
+      const float ratioBaselineDepth = baseline / medianDepthKF2;
+
+      if (ratioBaselineDepth < 0.01)  // at least baseline>=0.08m/8m(medianDepth)
+        continue;
+    }
+
+    // Search matches that fullfil epipolar constraint(with 2 sigma rule)
+    vector<pair<vector<size_t>, vector<size_t>>> vMatchedIndices;
+    matcher.SearchForTriangulation(pKF1, pKF2, vMatchedIndices, false);  // matching method is like SBBoW
+
+    shared_ptr<Pinhole> pcaminst[2];
+    vector<GeometricCamera *> pcams_in[2];
+    bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
+    if (!usedistort[0]) {
+      CV_Assert(!usedistort[1]);
+      pcaminst[0] = make_shared<Pinhole>(vector<float>({pKF1->fx, pKF1->fy, pKF1->cx, pKF1->cy}));
+      pcaminst[1] = make_shared<Pinhole>(vector<float>({pKF2->fx, pKF2->fy, pKF2->cx, pKF2->cy}));
+      pcams_in[0].push_back(pcaminst[0].get());
+      pcams_in[1].push_back(pcaminst[1].get());
+    } else {
+      CV_Assert(usedistort[1]);
+      pcams_in[0] = pKF1->mpCameras;
+      pcams_in[1] = pKF2->mpCameras;
+    }
+
+    // Triangulate each match
+    const int nmatches = vMatchedIndices.size();
+    for (int ikp = 0; ikp < nmatches; ikp++) {
+      const auto &idxs1 = vMatchedIndices[ikp].first;
+      const auto &idxs2 = vMatchedIndices[ikp].second;
+
+      vector<GeometricCamera *> pcams;
+      aligned_vector<Sophus::SE3d> Twrs;
+      vector<cv::KeyPoint> kps[2];
+      aligned_vector<Eigen::Vector2d> kps2d;
+      vector<float> sigma_lvs;
+      vector<vector<float>> urbfs;
+      bool bStereos[2];
+      float cosParallaxRays;
+      //+1 && cosParallaxRays>0 -> always choosing stereo parallax(if exists) cos value as the cosParallaxStereo
+      float cosParallaxStereo = cosParallaxRays + 1;
+      float cosParallaxStereos[2];
+      if (!PrepareDatasForTraingulate(pcams_in, vector<KeyFrame *>{pKF1, pKF2}, vector<vector<size_t>>{idxs1, idxs2},
+                                      pcams, Twrs, kps2d, kps, sigma_lvs, urbfs, bStereos, cosParallaxRays,
+                                      cosParallaxStereos))
+        continue;
+
+      cosParallaxStereo = min(cosParallaxStereos[0], cosParallaxStereos[1]);
+
+      // use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less accuracy in depth data
+      cv::Mat x3D;
+      vector<GeometricCamera *> pcams1other;
+      pcams1other.insert(pcams1other.begin(), pcams.begin() + 1, pcams.end());
+      // if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
+      if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
+          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {
+        const double thresh_cosdisparity = 1. - 1e-6;
+        if (!pcams[0]
+                 ->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs)
+                 .size())
+          continue;
+      } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
+        CV_Assert(bStereos[0]);
+        x3D = pKF1->UnprojectStereo(idxs1.front());
+        pcams[0]->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+      } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
+        CV_Assert(bStereos[1]);
+        x3D = pKF2->UnprojectStereo(idxs2.front());
+        pcams[0]->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+      } else
+        continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax angle>=90 degrees with >=1 stereo point
+
+      // Check scale consistency, is this dist not depth very good?
+      cv::Mat normal1 = x3D - Ow1;
+      float dist1 = cv::norm(normal1);
+      cv::Mat normal2 = x3D - Ow2;
+      float dist2 = cv::norm(normal2);
+      if (dist1 == 0 || dist2 == 0)  // it seems impossible for zi>0, if possible it maybe numerical error
+        continue;
+      const float ratioDist = dist2 / dist1;
+      float ratioOctave[2] = {INFINITY, -INFINITY};
+      for (auto kp1 : kps[0]) {
+        for (auto kp2 : kps[1]) {
+          float rat_tmp = pKF1->mvScaleFactors[kp1.octave] / pKF2->mvScaleFactors[kp2.octave];
+          if (rat_tmp < ratioOctave[0]) ratioOctave[0] = rat_tmp;
+          if (rat_tmp > ratioOctave[1]) ratioOctave[1] = rat_tmp;
+        }
+      }
+      /*if(fabs(ratioDist-ratioOctave)>ratioFactor) continue;*/
+      // ratioOctave must be in [ratioDist/ratioFactor,ratioDist*ratioFactor], notice ratioFactor is 1.5*mpCurrentKeyFrame->mfScaleFactor
+      if (ratioDist * ratioFactor < ratioOctave[1] || ratioDist > ratioOctave[0] * ratioFactor) continue;
+
+      // Triangulation is succesfull
+      MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
+
+      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, imu_tightly_debug_path, "debug.txt");
+      for (auto idx : idxs1) {
+        if (-1 == idx) continue;
+        pMP->AddObservation(mpCurrentKeyFrame, idx);
+        pKF1->AddMapPoint(pMP, idx);
+      }
+      for (auto idx : idxs2) {
+        if (-1 == idx) continue;
+        pMP->AddObservation(pKF2, idx);
+        pKF2->AddMapPoint(pMP, idx);
+      }
+      pMP->ComputeDistinctiveDescriptors();
+      pMP->UpdateNormalAndDepth();
+
+      mpMap->AddMapPoint(pMP);
+      mlpRecentAddedMapPoints.push_back(pMP);
+      nnew++;
+    }
+  }
 }
 
 void LocalMapping::SearchInNeighbors()

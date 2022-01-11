@@ -54,7 +54,7 @@ void KeyFrame::UpdateNavStatePVRFromTcw()
   cv::Mat Twb;
   {
     unique_lock<mutex> lock(mMutexPose);//important for using Tcw for this func. is multi threads!
-    Twb=Converter::toCvMatInverse(Frame::mTbc*Tcw);
+    Twb=Converter::toCvMatInverse(Frame::mTbc*Tcw_);
   }
   Eigen::Matrix3d Rwb=Converter::toMatrix3d(Twb.rowRange(0,3).colRange(0,3));
   Eigen::Vector3d Pwb=Converter::toVector3d(Twb.rowRange(0,3).col(3));
@@ -122,7 +122,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
 
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
-  SetPose(F.mTcw);  // we have already used UpdatePoseFromNS() in Frame
+  SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
 }
@@ -240,7 +240,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
 
-  SetPose(F.mTcw);
+  SetPose(F.GetTcwRef());
   PRINT_DEBUG_INFO_MUTEX("checkkf"<<mnId<<" ", imu_tightly_debug_path, "debug.txt");
   size_t i =0;
   for(auto iter:mvpMapPoints) {
@@ -260,16 +260,16 @@ void KeyFrame::ComputeBoW()
     }
 }
 
-void KeyFrame::SetPose(const cv::Mat &Tcw_)
+void KeyFrame::SetPose(const cv::Mat &Tcw)
 {
     unique_lock<mutex> lock(mMutexPose);
-    Tcw_.copyTo(Tcw);
-    cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
-    cv::Mat tcw = Tcw.rowRange(0,3).col(3);
+    Tcw.copyTo(Tcw_);
+    cv::Mat Rcw = Tcw_.rowRange(0,3).colRange(0,3);
+    cv::Mat tcw = Tcw_.rowRange(0,3).col(3);
     cv::Mat Rwc = Rcw.t();
     Ow = -Rwc*tcw;
 
-    Twc = cv::Mat::eye(4,4,Tcw.type());
+    Twc = cv::Mat::eye(4,4,Tcw_.type());
     Rwc.copyTo(Twc.rowRange(0,3).colRange(0,3));
     Ow.copyTo(Twc.rowRange(0,3).col(3));
     cv::Mat center = (cv::Mat_<float>(4,1) << mHalfBaseline, 0 , 0, 1);
@@ -279,13 +279,22 @@ void KeyFrame::SetPose(const cv::Mat &Tcw_)
 cv::Mat KeyFrame::GetPose()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.clone();
+    return Tcw_.clone();
 }
 
 cv::Mat KeyFrame::GetPoseInverse()
 {
     unique_lock<mutex> lock(mMutexPose);
     return Twc.clone();
+}
+const Sophus::SE3d KeyFrame::GetTwc() {
+  //  unique_lock<mutex> lock(mMutexPose);
+  //  return FrameBase::GetTwc();
+  return GetTcw().inverse();
+}
+const Sophus::SE3d KeyFrame::GetTcw() {
+  unique_lock<mutex> lock(mMutexPose);
+  return FrameBase::GetTcw();
 }
 
 cv::Mat KeyFrame::GetCameraCenter()
@@ -304,13 +313,13 @@ cv::Mat KeyFrame::GetStereoCenter()
 cv::Mat KeyFrame::GetRotation()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.rowRange(0,3).colRange(0,3).clone();
+    return Tcw_.rowRange(0,3).colRange(0,3).clone();
 }
 
 cv::Mat KeyFrame::GetTranslation()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.rowRange(0,3).col(3).clone();
+    return Tcw_.rowRange(0,3).col(3).clone();
 }
 
 void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
@@ -775,7 +784,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
 	}
 // 	if (mpParent!=NULL){
         mpParent->EraseChild(this);//notice here mspChildrens may not be empty, and it doesn't take part in the propagation in LoopClosing thread
-        if (!bKeepTree) mTcp = Tcw*mpParent->GetPoseInverse();//the inter spot/link of Frames with its refKF in spanning tree
+        if (!bKeepTree) mTcp = Tcw_*mpParent->GetPoseInverse();//the inter spot/link of Frames with its refKF in spanning tree
 // 	}
     }
 
@@ -912,19 +921,19 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
 float KeyFrame::ComputeSceneMedianDepth(const int q)
 {
     vector<MapPoint*> vpMapPoints;
-    cv::Mat Tcw_;
+    cv::Mat Tcw;
     {
         unique_lock<mutex> lock(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPose);
         vpMapPoints = mvpMapPoints;
-        Tcw_ = Tcw.clone();
+        Tcw = Tcw_.clone();
     }
 
     vector<float> vDepths;
     vDepths.reserve(N);
-    cv::Mat Rcw2 = Tcw_.row(2).colRange(0,3);
+    cv::Mat Rcw2 = Tcw.row(2).colRange(0,3);
     Rcw2 = Rcw2.t();
-    float zcw = Tcw_.at<float>(2,3);
+    float zcw = Tcw.at<float>(2,3);
     for(int i=0; i<N; i++)
     {
         if(vpMapPoints[i])

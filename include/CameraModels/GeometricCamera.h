@@ -24,6 +24,7 @@
 
 #include "common/log.h"
 #include "eigen_utils.h"
+#include "sophus/se3.hpp"
 
 //#include "TwoViewReconstruction.h"
 
@@ -53,9 +54,12 @@ class GeometricCamera {
   virtual Eigen::Matrix<double, 2, 3> projectJac(const Eigen::Vector3d& v3D) = 0;
   // virtual cv::Mat projectJac(const cv::Point3f& p3D);
 
-  virtual vector<float> TriangulateMatches(vector<GeometricCamera*> pCamerasOther, const vector<cv::KeyPoint>& kps,
-                                           const vector<float>& sigmaLevels, cv::Mat* p3D = nullptr,
-                                           double thresh_cosdisparity = 0.9998);
+  virtual vector<float> TriangulateMatches(vector<GeometricCamera*> pCamerasOther,
+                                           const aligned_vector<Eigen::Vector2d>& kps, const vector<float>& sigmaLevels,
+                                           cv::Mat* p3D = nullptr, double thresh_cosdisparity = 0.9998,
+                                           const vector<vector<float>>* pur = nullptr,
+                                           const aligned_vector<Sophus::SE3d>* pTwr = nullptr,
+                                           bool just_check_p3d = false);
 
   // virtual float uncertainty2(const Eigen::Matrix<double, 2, 1>& p2D);
 
@@ -80,9 +84,13 @@ class GeometricCamera {
 
   static long unsigned int nNextId;
 
-  cv::Mat Trc_ = cv::Mat::eye(3, 4, CV_32F);  // ref->cam, Tlr for 2cams
-  Eigen::Matrix3d Rcr_ = Eigen::Matrix3d::Identity();
-  Eigen::Vector3d tcr_ = Eigen::Vector3d::Zero();
+  const Sophus::SE3d& GetTrc() { return Trc_; }
+  const Sophus::SE3d& GetTcr() { return Tcr_; }
+  void SetTrc(const Sophus::SE3d& Trc) {
+    Trc_ = Trc;
+    Tcr_ = Trc.inverse();
+  }
+  const cv::Mat Getcvtrc();
 
  protected:
   std::vector<float> mvParameters;
@@ -91,9 +99,10 @@ class GeometricCamera {
 
   unsigned int mnType;
 
+  Sophus::SE3d Trc_ = Sophus::SE3d(), Tcr_ = Sophus::SE3d();  // ref->cam, e.g. Tlr for 2cams
   //        TwoViewReconstruction* tvr;
 
-  void Triangulate(const aligned_vector<Eigen::Vector2d>& ps, const aligned_vector<Matrix34>& Tcws,
+  bool Triangulate(const aligned_vector<Eigen::Vector2d>& ps, const aligned_vector<Matrix34>& Tcws,
                    Eigen::Vector3d& x3D);
 };
 }  // namespace VIEO_SLAM

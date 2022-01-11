@@ -9,6 +9,13 @@ using namespace VIEO_SLAM;
 using std::set;
 using std::pair;
 
+const Sophus::SE3d FrameBase::GetTwc() {
+  return GetTcw().inverse();
+}
+const Sophus::SE3d FrameBase::GetTcw() {
+  return GetTcwCst();
+}
+
 void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
   assert(mvpMapPoints.size() > idx);
