@@ -1089,7 +1089,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
     if (vMatches12[i] < 0) continue;
     size_t cami[2] = {pKF1->mapn2in_.size() <= i ? 0 : get<0>(pKF1->mapn2in_[i]),
                       pKF2->mapn2in_.size() <= vMatches12[i] ? 0 : get<0>(pKF2->mapn2in_[vMatches12[i]])};
-    auto matchedpair = make_pair(vector<size_t>(vn_cams[cami[0]], -1), vector<size_t>(vn_cams[cami[0]], -1));
+    auto matchedpair = make_pair(vector<size_t>(vn_cams[0], -1), vector<size_t>(vn_cams[1], -1));
     matchedpair.first[cami[0]] = i;
     matchedpair.second[cami[1]] = vMatches12[i];
     vMatchedPairs.push_back(matchedpair);
