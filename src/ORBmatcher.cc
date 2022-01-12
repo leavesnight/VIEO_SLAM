@@ -896,8 +896,7 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
   return nmatches;
 }
 
-int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
-                                       vector<pair<vector<size_t>, vector<size_t>>> &vMatchedPairs,
+int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<vector<vector<size_t>>> &vMatchedPairs,
                                        const bool bOnlyStereo) {
   size_t vn_cams[2] = {pKF1->mpCameras.size(), pKF2->mpCameras.size()};
   for (int i = 0; i < 2; ++i)
@@ -929,8 +928,6 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
   // Compare only ORB that share the same node
 
   int nmatches = 0;
-  vector<bool> vbMatched2(pKF2->N, false);
-  vector<int> vMatches12(pKF1->N, -1);
 
   vector<int> rotHist[HISTO_LENGTH];
   for (int i = 0; i < HISTO_LENGTH; i++) rotHist[i].reserve(500);
@@ -950,6 +947,13 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
   } else
     CV_Assert(usedistort[1]);
 
+#ifdef USE_STRATEGY_MIN_DIST
+  vector<vector<double>> lastdists;
+#endif
+  vector<vector<size_t>> vidxs_matches;
+  vector<bool> goodmatches;
+  map<pair<size_t, size_t>, size_t> mapcamidx2idxs;  // tot 8 cams
+  size_t n_cams = vn_cams[0] + vn_cams[1];
   while (f1it != f1end && f2it != f2end) {
     if (f1it->first == f2it->first) {
       for (size_t i1 = 0, iend1 = f1it->second.size(); i1 < iend1; i1++) {
@@ -962,8 +966,9 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
 
         const bool bStereo1 = pKF1->mvuRight[idx1] >= 0;  // can be optimized in RGBD by using mvDepth[idx1]>0
 
-        if (bOnlyStereo)  // in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point
-                          // without stereo matches(may happen in RGBD even with depth>0)
+        // in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point
+        // without stereo matches(may happen in RGBD even with depth>0)
+        if (bOnlyStereo)
           if (!bStereo1) continue;
 
         const cv::KeyPoint &kp1 = !usedistort[0] ? pKF1->mvKeysUn[idx1] : pKF1->mvKeys[idx1];
@@ -973,13 +978,18 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
         vector<int> vbestDist = vector<int>(1, TH_LOW);
         vector<int> vbestIdx2 = vector<int>(1, -1);
 
+        size_t cam1 = pKF1->mapn2in_.size() <= idx1 ? 0 : get<0>(pKF1->mapn2in_[idx1]);
         for (size_t i2 = 0, iend2 = f2it->second.size(); i2 < iend2; i2++) {
           size_t idx2 = f2it->second[i2];
 
           MapPoint *pMP2 = pKF2->GetMapPoint(idx2);
 
           // If we have already matched or there is a MapPoint skip, avoid for replicated match
-          if (vbMatched2[idx2] || pMP2) continue;
+          if (pMP2) continue;
+          size_t cam2 = (pKF2->mapn2in_.size() <= idx2 ? 0 : get<0>(pKF2->mapn2in_[idx2])) + vn_cams[0];
+          // notice here we avoid multi2one match done in knnmatch in computestereofisheye(), to ensure injection match
+          auto iterj = mapcamidx2idxs.find(make_pair(cam2, idx2));
+          if (mapcamidx2idxs.end() != iterj && -1 != vidxs_matches[iterj->second][cam1]) continue;
 
           const bool bStereo2 = pKF2->mvuRight[idx2] >= 0;
 
@@ -991,8 +1001,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
           const int dist = DescriptorDistance(d1, d2);
 
           size_t img_id = 0;
-//#define MATCH_KNN_IN_EACH_IMG //TODO: add match_knn_in_each_img for SearchForTriangulation, need map comparing dist
-// and use vector<pair<size_t, vector<size_t>> > &vMatchedPairs
+#define MATCH_KNN_IN_EACH_IMG
 #ifdef MATCH_KNN_IN_EACH_IMG
           if (pKF2->mapn2in_.size() > idx2) {
             img_id = get<0>(pKF2->mapn2in_[idx2]);
@@ -1041,9 +1050,31 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
           if (vbestIdx2[img_id] >= 0)  // if exist good epipolar constraint match
           {
             const cv::KeyPoint &kp2 = pKF2->mvKeys[vbestIdx2[img_id]];  // Un
-            vMatches12[idx1] = vbestIdx2[img_id];
-            vbMatched2[vbestIdx2[img_id]] = true;  // added by zzh!!!
-            nmatches++;
+            auto &idx2 = vbestIdx2[img_id];
+            pair<size_t, size_t> kfidxi = make_pair(0, idx1), kfidxj = make_pair(1, idx2);
+            size_t cami[2] = {cam1, (pKF2->mapn2in_.size() <= idx2 ? 0 : get<0>(pKF2->mapn2in_[idx2])) + vn_cams[0]};
+            uint8_t checkdepth[2] = {0};  // 1 means create, 2 means replace
+            GeometricCamera *pcam1, *pcam2;
+            if (!usedistort[0]) {
+              pcam1 = pcaminst[0].get();
+              pcam2 = pcaminst[1].get();
+            } else {
+              pcam1 = pKF1->mpCameras[cami[0]];
+              pcam2 = pKF2->mpCameras[cami[1]];
+            }
+            if (pcam1->FillMatchesFromPair(
+                    vector<GeometricCamera *>(1, pcam2), n_cams,
+                    vector<pair<size_t, size_t>>{make_pair(cami[0], idx1), make_pair(cami[1], idx2)}, vbestDist[img_id],
+                    vidxs_matches, goodmatches, mapcamidx2idxs, 1. - 1.e-6, nullptr, nullptr, nullptr
+#ifdef USE_STRATEGY_MIN_DIST
+                    ,
+                    &lastdists
+#else
+                    ,
+                    nullptr
+#endif
+                    ))
+              ++nmatches;
 
             if (mbCheckOrientation) {
               float rot = kp1.angle - kp2.angle;  // kp ref - kp rectifying(vbMatched2)
@@ -1076,7 +1107,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
     for (int i = 0; i < HISTO_LENGTH; i++) {
       if (i == ind1 || i == ind2 || i == ind3) continue;
       for (size_t j = 0, jend = rotHist[i].size(); j < jend; j++) {
-        vMatches12[rotHist[i][j]] = -1;
+        const auto &idx1 = rotHist[i][j];
+        size_t cam1 = pKF1->mapn2in_.size() <= idx1 ? 0 : get<0>(pKF1->mapn2in_[idx1]);
+        auto iteri = mapcamidx2idxs.find(make_pair(cam1, idx1));
+        if (mapcamidx2idxs.end() == iteri) continue;
+        goodmatches[iteri->second] = false;
         nmatches--;
       }
     }
@@ -1085,16 +1120,28 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2,
   vMatchedPairs.clear();
   vMatchedPairs.reserve(nmatches);
 
-  for (size_t i = 0, iend = vMatches12.size(); i < iend; i++) {
-    if (vMatches12[i] < 0) continue;
-    size_t cami[2] = {pKF1->mapn2in_.size() <= i ? 0 : get<0>(pKF1->mapn2in_[i]),
-                      pKF2->mapn2in_.size() <= vMatches12[i] ? 0 : get<0>(pKF2->mapn2in_[vMatches12[i]])};
-    auto matchedpair = make_pair(vector<size_t>(vn_cams[0], -1), vector<size_t>(vn_cams[1], -1));
-    matchedpair.first[cami[0]] = i;
-    matchedpair.second[cami[1]] = vMatches12[i];
+  //  set<pair<size_t, size_t>> checkred;
+  for (size_t i = 0, iend = vidxs_matches.size(); i < iend; i++) {
+    // CV_Assert(vidxs_matches[i].size() == n_cams);
+#ifdef USE_STRATEGY_MIN_DIST
+    size_t count_num = 0;
+    for (size_t itmp = 0; itmp < n_cams; ++itmp) {
+      if (-1 == vidxs_matches[i][itmp]) continue;
+      ++count_num;
+      //      pair<size_t, size_t> pairtmp = make_pair(itmp, vidxs_matches[i][itmp]);
+      //      if (checkred.end() != checkred.find(pairtmp))
+      //        CV_Assert(0 && "checkred fail");
+      //      else
+      //        checkred.insert(pairtmp);
+    }
+    if (count_num < 2) goodmatches[i] = false;
+#endif
+    if (!goodmatches[i]) continue;
+    vector<vector<size_t>> matchedpair(2);
+    matchedpair[0].insert(matchedpair[0].begin(), vidxs_matches[i].begin(), vidxs_matches[i].begin() + vn_cams[0]);
+    matchedpair[1].insert(matchedpair[1].begin(), vidxs_matches[i].begin() + vn_cams[0], vidxs_matches[i].end());
     vMatchedPairs.push_back(matchedpair);
   }
-
   return nmatches;
 }
 

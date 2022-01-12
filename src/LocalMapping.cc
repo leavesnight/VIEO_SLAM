@@ -294,7 +294,7 @@ void LocalMapping::MapPointCulling()
     }
 }
 
-static inline void PrepareDataForTraingulate(vector<GeometricCamera *> &pcams_in, KeyFrame* pKF1, const vector<size_t> &idxs1,
+static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pcams_in, KeyFrame* pKF1, const vector<size_t> &idxs1,
                                              vector<GeometricCamera *> &pcams, aligned_vector<Sophus::SE3d> &Twrs,
                                              aligned_vector<Eigen::Vector2d> &kps2d, vector<cv::KeyPoint> &kps,
                                              vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool &bStereos, float &cosdisparity) {
@@ -332,7 +332,7 @@ static inline void PrepareDataForTraingulate(vector<GeometricCamera *> &pcams_in
     }
   }
 }
-static inline bool PrepareDatasForTraingulate(vector<GeometricCamera *> *pcams_in, const vector<KeyFrame*> &pKFs,
+static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *pcams_in, const vector<KeyFrame*> &pKFs,
                                               const vector<vector<size_t>> &idxs, vector<GeometricCamera *> &pcams,
                                               aligned_vector<Sophus::SE3d> &Twrs, aligned_vector<Eigen::Vector2d> &kps2d,
                                               vector<cv::KeyPoint> *kps, vector<float> &sigma_lvs, vector<vector<float>> &urbfs,
@@ -344,8 +344,8 @@ static inline bool PrepareDatasForTraingulate(vector<GeometricCamera *> *pcams_i
   vector<float> vsigma_lvs[2];
   vector<vector<float>> vurbfs[2];
   for (int i = 0; i < 2; ++i)
-    PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i], vurbfs[i],
-                              bStereos[i], cosdisparities[i]);
+    PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i],
+                              vurbfs[i], bStereos[i], cosdisparities[i]);
   if (!vpcams[0].size() || !vpcams[1].size()) return false;
   Eigen::Matrix3d Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()),
                             Converter::toMatrix3d(pKFs[1]->GetRotation().t())};
@@ -426,7 +426,7 @@ void LocalMapping::CreateNewMapPoints() {
     }
 
     // Search matches that fullfil epipolar constraint(with 2 sigma rule)
-    vector<pair<vector<size_t>, vector<size_t>>> vMatchedIndices;
+    vector<vector<vector<size_t>>> vMatchedIndices;
     matcher.SearchForTriangulation(pKF1, pKF2, vMatchedIndices, false);  // matching method is like SBBoW
 
     shared_ptr<Pinhole> pcaminst[2];
@@ -447,8 +447,8 @@ void LocalMapping::CreateNewMapPoints() {
     // Triangulate each match
     const int nmatches = vMatchedIndices.size();
     for (int ikp = 0; ikp < nmatches; ikp++) {
-      const auto &idxs1 = vMatchedIndices[ikp].first;
-      const auto &idxs2 = vMatchedIndices[ikp].second;
+      const auto &idxs1 = vMatchedIndices[ikp][0];
+      const auto &idxs2 = vMatchedIndices[ikp][1];
 
       vector<GeometricCamera *> pcams;
       aligned_vector<Sophus::SE3d> Twrs;
@@ -465,29 +465,26 @@ void LocalMapping::CreateNewMapPoints() {
                                       pcams, Twrs, kps2d, kps, sigma_lvs, urbfs, bStereos, cosParallaxRays,
                                       cosParallaxStereos))
         continue;
+      // cout << "check pcams.size="<<pcams.size()<<endl;
 
       cosParallaxStereo = min(cosParallaxStereos[0], cosParallaxStereos[1]);
 
       // use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less accuracy in depth data
       cv::Mat x3D;
-      vector<GeometricCamera *> pcams1other;
-      pcams1other.insert(pcams1other.begin(), pcams.begin() + 1, pcams.end());
       // if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
       if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
           (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {
         const double thresh_cosdisparity = 1. - 1e-6;
-        if (!pcams[0]
-                 ->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs)
-                 .size())
+        if (!pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).size())
           continue;
       } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
         CV_Assert(bStereos[0]);
         x3D = pKF1->UnprojectStereo(idxs1.front());
-        pcams[0]->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+        pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
       } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
         CV_Assert(bStereos[1]);
         x3D = pKF2->UnprojectStereo(idxs2.front());
-        pcams[0]->TriangulateMatches(pcams1other, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+        pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
       } else
         continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax angle>=90 degrees with >=1 stereo point
 
@@ -517,7 +514,7 @@ void LocalMapping::CreateNewMapPoints() {
       PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, imu_tightly_debug_path, "debug.txt");
       for (auto idx : idxs1) {
         if (-1 == idx) continue;
-        pMP->AddObservation(mpCurrentKeyFrame, idx);
+        pMP->AddObservation(pKF1, idx);
         pKF1->AddMapPoint(pMP, idx);
       }
       for (auto idx : idxs2) {
