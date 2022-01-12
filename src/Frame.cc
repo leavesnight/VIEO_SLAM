@@ -976,12 +976,36 @@ void Frame::ComputeStereoFishEyeMatches() {
           }
           uint8_t checkdepth[2] = {0};  // 1 means create, 2 means replace
           size_t ididxs;
+          uint8_t contradict = 0;
           if (iteri != mapcamidx2idxs_.end()) {
             ididxs = iteri->second;
-            auto &idxs = mvidxsMatches[ididxs];
+            contradict = (iterj != mapcamidx2idxs_.end() && iterj->second != ididxs) ? 1 : 0;
+            auto idxs = mvidxsMatches[ididxs];
+#ifdef USE_STRATEGY_MIN_DIST
+            if (contradict) {
+              auto &idxsj = mvidxsMatches[iterj->second];
+              double dists_sum[2] = {0, 0};
+              size_t count_num[2] = {0, 0};
+              for (size_t itmp = 0; itmp < n_cams; ++itmp) {
+                if (-1 != idxs[itmp]) {
+                  dists_sum[0] += lastdists[ididxs][itmp];
+                  ++count_num[0];
+                }
+                if (-1 != idxsj[itmp]) {
+                  dists_sum[1] += lastdists[iterj->second][itmp];
+                  ++count_num[1];
+                }
+              }
+              if (dists_sum[1] * count_num[0] < dists_sum[0] * count_num[1]) {
+                idxs = idxsj;
+                ididxs = iterj->second;
+                contradict = 2;
+              }
+            }
+#endif
             if (-1 == idxs[i]
 #ifdef USE_STRATEGY_MIN_DIST
-                || lastdists[ididxs][i] > (*it)[0].distance
+                || idxi != idxs[i] && lastdists[ididxs][i] > (*it)[0].distance
 #endif
             ) {
               checkdepth[0] = 2;
@@ -992,7 +1016,7 @@ void Frame::ComputeStereoFishEyeMatches() {
 #endif
             if (-1 == idxs[j]
 #ifdef USE_STRATEGY_MIN_DIST
-                || lastdists[ididxs][j] > (*it)[0].distance
+                || idxj != idxs[j] && lastdists[ididxs][j] > (*it)[0].distance
 #endif
             ) {
               checkdepth[1] = 2;
@@ -1019,15 +1043,11 @@ void Frame::ComputeStereoFishEyeMatches() {
             }
             // cout << "dp21=" << depths[1] << " " << depths[0] << endl;
             if (depths[0] > 0.0001f && depths[1] > 0.0001f) {
-              vector<size_t> idxs(n_cams, -1);
-              if (checkdepth[0]) {
-                idxs[i] = idxi;
-              }
-              if (checkdepth[1]) {
-                idxs[j] = idxj;
-              }
               if (1 == checkdepth[0]) {
                 CV_Assert(1 == checkdepth[1]);
+                vector<size_t> idxs(n_cams, -1);
+                idxs[i] = idxi;
+                idxs[j] = idxj;
                 ididxs = mvidxsMatches.size();
                 mapcamidx2idxs_.emplace(camidxi, ididxs);
                 mapcamidx2idxs_.emplace(camidxj, ididxs);
@@ -1042,13 +1062,45 @@ void Frame::ComputeStereoFishEyeMatches() {
 #endif
               }
 #ifdef USE_STRATEGY_MIN_DIST
-              else {
+              else if (2 == checkdepth[0] || 2 == checkdepth[1]) {
+                if (contradict) {
+                  auto ididxs_contradict = 1 == contradict ? iteri->second : iterj->second;
+                  auto &idxs = mvidxsMatches[ididxs_contradict];
+                  size_t count_num = 0;
+                  for (size_t itmp = 0; itmp < n_cams; ++itmp) {
+                    if (idxi == idxs[itmp]) {
+                      mapcamidx2idxs_.erase(camidxi);
+                      lastdists[ididxs_contradict][itmp] = INFINITY;
+                      idxs[itmp] = -1;
+                    } else if (idxj == idxs[itmp]) {
+                      mapcamidx2idxs_.erase(camidxj);
+                      lastdists[ididxs_contradict][itmp] = INFINITY;
+                      idxs[itmp] = -1;
+                    } else if (-1 != idxs[itmp])
+                      ++count_num;
+                  }
+                }
+                auto &idxs = mvidxsMatches[ididxs];
                 if (2 == checkdepth[0]) {
+                  if (idxi != idxs[i]) {
+                    if (-1 != idxs[i]) mapcamidx2idxs_.erase(make_pair(i, idxs[i]));
+                    mapcamidx2idxs_.emplace(camidxi, ididxs);
+                    idxs[i] = idxi;
+                  }
+
                   lastdists[ididxs][i] = (*it)[0].distance;
-                }
+                } else if (lastdists[ididxs][i] > (*it)[0].distance)
+                  lastdists[ididxs][i] = (*it)[0].distance;
                 if (2 == checkdepth[1]) {
+                  if (idxj != idxs[j]) {
+                    if (-1 != idxs[j]) mapcamidx2idxs_.erase(make_pair(j, idxs[j]));
+                    mapcamidx2idxs_.emplace(camidxj, ididxs);
+                    idxs[j] = idxj;
+                  }
+
                   lastdists[ididxs][j] = (*it)[0].distance;
-                }
+                } else if (lastdists[ididxs][j] > (*it)[0].distance)
+                  lastdists[ididxs][j] = (*it)[0].distance;
               }
 #endif
               mv3Dpoints[ididxs] =
@@ -1060,6 +1112,15 @@ void Frame::ComputeStereoFishEyeMatches() {
       }
     }
   }
+#ifdef USE_STRATEGY_MIN_DIST
+  for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
+    size_t count_num = 0;
+    for (size_t itmp = 0; itmp < n_cams; ++itmp) {
+      if (-1 != mvidxsMatches[i][itmp]) ++count_num;
+    }
+    if (count_num < 2) goodmatches_[i] = false;
+  }
+#endif
   if (n_cams > 2) {
     nMatches = 0;
     for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
