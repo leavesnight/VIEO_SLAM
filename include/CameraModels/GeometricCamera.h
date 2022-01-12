@@ -54,7 +54,7 @@ class GeometricCamera {
   virtual Eigen::Matrix<double, 2, 3> projectJac(const Eigen::Vector3d& v3D) = 0;
   // virtual cv::Mat projectJac(const cv::Point3f& p3D);
 
-  virtual vector<float> TriangulateMatches(vector<GeometricCamera*> pCamerasOther,
+  virtual vector<float> TriangulateMatches(const vector<GeometricCamera*>& pcams_in,
                                            const aligned_vector<Eigen::Vector2d>& kps, const vector<float>& sigmaLevels,
                                            cv::Mat* p3D = nullptr, double thresh_cosdisparity = 0.9998,
                                            const vector<vector<float>>* pur = nullptr,
@@ -69,6 +69,16 @@ class GeometricCamera {
   virtual cv::Mat toKcv();
   virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
                                  const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
+
+  virtual bool FillMatchesFromPair(const vector<GeometricCamera*>& pcams, size_t n_cams_tot,
+                                   const vector<std::pair<size_t, size_t>>& vcamidx, double dist,
+                                   vector<vector<size_t>>& mvidxsMatches, vector<bool>& goodmatches_,
+                                   std::map<std::pair<size_t, size_t>, size_t>& mapcamidx2idxs_,
+                                   const double thresh_cosdisparity = 1. - 1.e-6,
+                                   aligned_vector<Eigen::Vector3d>* pv3dpoints = nullptr,
+                                   aligned_vector<Eigen::Vector2d>* pkpts = nullptr, vector<float>* psigmas = nullptr,
+                                   vector<vector<double>>* plastdists = nullptr, int* pcount_descmatch = nullptr);
+
   // for monocular init
   //  virtual bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
   //  vKeys2,

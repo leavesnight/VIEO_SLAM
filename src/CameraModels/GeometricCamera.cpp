@@ -6,6 +6,7 @@
 #include "Converter.h"
 #include "so3_extra.h"
 #include <string>
+#include "common/common.h"
 
 using std::cout;
 using std::endl;
@@ -75,22 +76,25 @@ bool GeometricCamera::Triangulate(const aligned_vector<Eigen::Vector2d> &ps, con
 }
 
 GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
-    vector<GeometricCamera *> pCamerasOther, const aligned_vector<Eigen::Vector2d> &kps,
+    const vector<GeometricCamera *> &pcams_in, const aligned_vector<Eigen::Vector2d> &kps,
     const vector<float> &sigmaLevels, cv::Mat *p3D, double thresh_cosdisparity, const vector<vector<float>> *purbf,
     const aligned_vector<Sophus::SE3d> *pTwr, bool just_check_p3d) {
-  size_t n_cams = pCamerasOther.size() + 1;
-  CV_Assert(n_cams == kps.size());
+  size_t n_cams = kps.size();
+  vector<GeometricCamera *> pcams;
+  const vector<GeometricCamera *> *ppcams = &pcams_in;
+  if (pcams_in.size() == n_cams - 1) {
+    pcams.push_back(this);
+    pcams.insert(pcams.end(), pcams_in.begin(), pcams_in.end());
+    ppcams = &pcams;
+  } else if (pcams_in.size() != n_cams)
+    return vector<float>();
   aligned_vector<Eigen::Vector3d> normedcPs(n_cams);
   vector<Eigen::Matrix3d> Rwi(n_cams);  // if no pTwr, w means r here
   vector<Eigen::Vector3d> twi(n_cams);
   GeometricCamera *pcam = this;
   CV_Assert(!pTwr || n_cams == pTwr->size());
-  for (size_t i = 0, iother; i < n_cams; iother = i++) {
-    if (!i) {
-      pcam = this;
-    } else {
-      pcam = pCamerasOther[iother];
-    }
+  for (size_t i = 0; i < n_cams; ++i) {
+    auto &pcam = (*ppcams)[i];
     auto Twi = pcam->GetTcr().inverse();  // Tri
     if (pTwr) Twi = (*pTwr)[i] * Twi;
     Rwi[i] = Twi.rotationMatrix();
@@ -139,10 +143,7 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
     if (czs[i] <= 0) return vector<float>();
 
     // Check reprojection error
-    if (!i)
-      pcam = this;
-    else
-      pcam = pCamerasOther[iother];
+    auto &pcam = (*ppcams)[i];
     Eigen::Vector2d uv = pcam->project(Riw * x3D + tiw);
     Eigen::VectorXd errs = uv - kps[i];
     double thresh_chi2 = 5.991;
@@ -194,6 +195,176 @@ bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::Key
   const float dsqr = num * num / den;
 
   return dsqr < 3.84 * unc;  // 2sigma rule;1.96^2,95.45%
+}
+
+bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams_in, size_t n_cams_tot,
+                                          const vector<std::pair<size_t, size_t>> &vcamidx, double dist,
+                                          vector<vector<size_t>> &mvidxsMatches, vector<bool> &goodmatches,
+                                          std::map<std::pair<size_t, size_t>, size_t> &mapcamidx2idxs_,
+                                          const double thresh_cosdisparity, aligned_vector<Eigen::Vector3d> *pv3dpoints,
+                                          aligned_vector<Eigen::Vector2d> *pkpts, vector<float> *psigmas,
+                                          vector<vector<double>> *plastdists, int *pcount_descmatch) {
+  using std::get;
+  using std::make_pair;
+  size_t n_cams = vcamidx.size();
+  vector<GeometricCamera *> pcams;
+  const vector<GeometricCamera *> *ppcams = &pcams_in;
+  if (pcams_in.size() == n_cams - 1) {
+    pcams.push_back(this);
+    pcams.insert(pcams.end(), pcams_in.begin(), pcams_in.end());
+    ppcams = &pcams;
+  } else if (pcams_in.size() != n_cams)
+    return false;
+  auto &idxi = get<1>(vcamidx[0]), &idxj = get<1>(vcamidx[1]);
+  auto &cami = get<0>(vcamidx[0]), &camj = get<0>(vcamidx[1]);
+  auto camidxi = make_pair(cami, idxi), camidxj = make_pair(camj, idxj);
+  CV_Assert(cami < n_cams_tot);
+  CV_Assert(camj < n_cams_tot);
+  auto iteri = mapcamidx2idxs_.find(camidxi), iterj = mapcamidx2idxs_.find(camidxj);
+  if (iteri == mapcamidx2idxs_.end() && iterj != mapcamidx2idxs_.end()) {
+    iteri = iterj;
+  }
+  uint8_t checkdepth[2] = {0};  // 1 means create, 2 means replace
+  size_t ididxs;
+  uint8_t contradict = 0;
+  if (iteri != mapcamidx2idxs_.end()) {
+    ididxs = iteri->second;
+    contradict = (iterj != mapcamidx2idxs_.end() && iterj->second != ididxs) ? 1 : 0;
+    auto idxs = mvidxsMatches[ididxs];
+#ifdef USE_STRATEGY_MIN_DIST
+    if (contradict && plastdists) {
+      auto &lastdists = *plastdists;
+      auto &idxsj = mvidxsMatches[iterj->second];
+      double dists_sum[2] = {0, 0};
+      size_t count_num[2] = {0, 0};
+      for (size_t itmp = 0; itmp < n_cams_tot; ++itmp) {
+        if (-1 != idxs[itmp]) {
+          dists_sum[0] += lastdists[ididxs][itmp];
+          ++count_num[0];
+        }
+        if (-1 != idxsj[itmp]) {
+          dists_sum[1] += lastdists[iterj->second][itmp];
+          ++count_num[1];
+        }
+      }
+      if (dists_sum[1] * count_num[0] < dists_sum[0] * count_num[1]) {
+        idxs = idxsj;
+        ididxs = iterj->second;
+        contradict = 2;
+      }
+    }
+#endif
+    if (-1 == idxs[cami]
+#ifdef USE_STRATEGY_MIN_DIST
+        || plastdists && idxi != idxs[cami] && (*plastdists)[ididxs][cami] > dist
+#endif
+    ) {
+      checkdepth[0] = 2;
+    }
+#ifdef USE_STRATEGY_ABANDON
+    else if (idxi != idxs[cami])
+      goodmatches[ididxs] = false;
+#endif
+    if (-1 == idxs[camj]
+#ifdef USE_STRATEGY_MIN_DIST
+        || plastdists && idxj != idxs[camj] && (*plastdists)[ididxs][camj] > dist
+#endif
+    ) {
+      checkdepth[1] = 2;
+    }
+#ifdef USE_STRATEGY_ABANDON
+    else if (idxj != idxs[camj])
+      goodmatches[ididxs] = false;
+#endif
+  } else {
+    checkdepth[0] = 1;
+    checkdepth[1] = 1;
+  }
+  if (pcount_descmatch) ++*pcount_descmatch;
+  if (checkdepth[0] || checkdepth[1]) {
+#ifndef USE_STRATEGY_MIN_DIST
+    CV_Assert(!contradict);
+#endif
+    cv::Mat p3D;
+    bool bdepth_ok = !psigmas || !pkpts;
+    if (!bdepth_ok) {
+      auto depths = (*ppcams)[0]->TriangulateMatches(vector<GeometricCamera *>(1, (*ppcams)[1]), *pkpts, *psigmas, &p3D,
+                                                     thresh_cosdisparity);
+      if (depths.empty()) {
+        // cout << "dpeth emtpy" << endl;
+        return false;
+      }
+      // cout << "dp21=" << depths[1] << " " << depths[0] << endl;
+      if (depths[0] > 0.0001f && depths[1] > 0.0001f) bdepth_ok = true;
+    }
+    if (bdepth_ok) {
+      if (1 == checkdepth[0]) {
+        CV_Assert(1 == checkdepth[1]);
+        vector<size_t> idxs(n_cams_tot, -1);
+        idxs[cami] = idxi;
+        idxs[camj] = idxj;
+        ididxs = mvidxsMatches.size();
+        mapcamidx2idxs_.emplace(camidxi, ididxs);
+        mapcamidx2idxs_.emplace(camidxj, ididxs);
+        mvidxsMatches.push_back(idxs);
+        if (pv3dpoints) pv3dpoints->resize(mvidxsMatches.size());
+        goodmatches.push_back(true);
+#ifdef USE_STRATEGY_MIN_DIST
+        if (plastdists) {
+          vector<double> dists(n_cams_tot, INFINITY);
+          dists[cami] = dist;
+          dists[camj] = dist;
+          plastdists->push_back(dists);
+        }
+#endif
+      }
+#ifdef USE_STRATEGY_MIN_DIST
+      else if (2 == checkdepth[0] || 2 == checkdepth[1]) {
+        if (contradict) {
+          auto ididxs_contradict = 1 == contradict ? iterj->second : iteri->second;
+          auto &idxs = mvidxsMatches[ididxs_contradict];
+          size_t count_num = 0;
+          for (size_t itmp = 0; itmp < n_cams_tot; ++itmp) {
+            if (idxi == idxs[itmp]) {
+              mapcamidx2idxs_.erase(camidxi);
+              if (plastdists) (*plastdists)[ididxs_contradict][itmp] = INFINITY;
+              idxs[itmp] = -1;
+            } else if (idxj == idxs[itmp]) {
+              mapcamidx2idxs_.erase(camidxj);
+              if (plastdists) (*plastdists)[ididxs_contradict][itmp] = INFINITY;
+              idxs[itmp] = -1;
+            } else if (-1 != idxs[itmp])
+              ++count_num;
+          }
+        }
+        auto &idxs = mvidxsMatches[ididxs];
+        if (2 == checkdepth[0]) {
+          if (idxi != idxs[cami]) {
+            if (-1 != idxs[cami]) mapcamidx2idxs_.erase(make_pair(cami, idxs[cami]));
+            mapcamidx2idxs_.emplace(camidxi, ididxs);
+            idxs[cami] = idxi;
+          }
+          if (plastdists) (*plastdists)[ididxs][cami] = dist;
+        } else if (plastdists && (*plastdists)[ididxs][cami] > dist)
+          (*plastdists)[ididxs][cami] = dist;
+        if (2 == checkdepth[1]) {
+          if (idxj != idxs[camj]) {
+            if (-1 != idxs[camj]) mapcamidx2idxs_.erase(make_pair(camj, idxs[camj]));
+            mapcamidx2idxs_.emplace(camidxj, ididxs);
+            idxs[camj] = idxj;
+          }
+          if (plastdists) (*plastdists)[ididxs][camj] = dist;
+        } else if (plastdists && (*plastdists)[ididxs][camj] > dist)
+          (*plastdists)[ididxs][camj] = dist;
+      }
+#endif
+      if (pv3dpoints)
+        (*pv3dpoints)[ididxs] =
+            Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
+    }
+  } else
+    return false;
+  return true;
 }
 
 const cv::Mat GeometricCamera::Getcvtrc() { return Converter::toCvMat(GetTrc().translation()); }
