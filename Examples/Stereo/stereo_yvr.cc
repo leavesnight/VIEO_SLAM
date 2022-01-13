@@ -14,11 +14,14 @@
 #include <dirent.h>
 #include <libgen.h>
 
+#include <rapidjson/document.h>
+
 using namespace std;
+using namespace rapidjson;
 
 static void GetFileNames(const string& path, vector<string>& filenames, const string& suffix=".pgm", const string& prefix="");
 
-void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps);
+void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps, const string& suffix = ".pgm");
 
 void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vector<cv::Point3f> &vAcc,
              vector<cv::Point3f> &vGyro);
@@ -68,26 +71,46 @@ int main(int argc, char **argv) {
   const int num_seq = argc < 3 ? 1 : argc - 3;
   int seq = 0;
   string pathSeq(argv[(seq) + 3]);
-  vector<vector<double>> vTimestampsImu;
-  vector<vector<cv::Point3f>> vAcc, vGyro;
-  vTimestampsImu.resize(num_seq);
-  vAcc.resize(num_seq);
-  vGyro.resize(num_seq);
+  vector< vector<vector<cv::Point3f>> > vAcc, vGyro;
+  vector< vector<vector<double>> > vTimestampsImu;
+  vAcc.resize(num_seq, vector<vector<cv::Point3f>>(1));
+  vGyro.resize(num_seq, vector<vector<cv::Point3f>>(1));
+  vTimestampsImu.resize(num_seq, vector<vector<double>>(1));
 
+  int dataset_type = 0;
   string mode = "VIO";
   switch (argc) {
     case 5:
       mode = argv[4];
     case 4: {
       vector<string> pathImu = {pathSeq + "/Sensors/gyroscope.xml", pathSeq + "/Sensors/accelerometer.xml"};
-      LoadIMU(pathImu, vTimestampsImu[seq], vAcc[seq], vGyro[seq]);
-      PRINT_INFO_MUTEX( "IMU size="<<vTimestampsImu[seq].size()<<endl);
-      if (!vTimestampsImu[seq].size()) {
+      auto &vacc = vAcc[seq], &vgyr = vGyro[seq];
+      auto &vtmimu = vTimestampsImu[seq];
+      LoadIMU(pathImu, vtmimu[0], vacc[0], vgyr[0]);
+      if (vtmimu[0].empty()) {
+        int n_imu_max = 3;
+        vtmimu.resize(n_imu_max);
+        vacc.resize(n_imu_max);
+        vgyr.resize(n_imu_max);
+        pathImu.resize(1);
+        for (int i = 0; i < n_imu_max; ++i) {
+          pathImu[0] = pathSeq + "/IMU" + to_string(i) + "/data.json";
+          LoadIMU(pathImu, vtmimu[i], vacc[i], vgyr[i]);
+          if (vtmimu[i].empty()) {
+            vtmimu.resize(i);
+            vacc.resize(i);
+            vgyr.resize(i);
+            break;
+          }
+        }
+      }
+      PRINT_INFO_MUTEX( "IMU size="<<vtmimu[0].size()<<endl);
+      if (!vtmimu[0].size()) {
         cerr << redSTR "Please check the last path_to_odometryFolder" << endl;
         return -1;
       }
       string strTmp;
-      pOdomThread = new thread(&odomRun, ref(vTimestampsImu[seq]), ref(vAcc[seq]), ref(vGyro[seq]));
+      pOdomThread = new thread(&odomRun, ref(vtmimu[0]), ref(vacc[0]), ref(vgyr[0]));
       PRINT_INFO_MUTEX( "OdomThread created!" << endl);
     } break;
     default:
@@ -107,11 +130,30 @@ int main(int argc, char **argv) {
   }
 
   // Retrieve paths to images
-  vector<vector<string>> vstrImages(2);  // TODO: 4
-  vector<vector<double>> vTimestampsCam(2);
+  vector< vector<vector<string>> > vstrImages;
+  vector< vector<vector<double>> > vTimestampsCam;
+  vstrImages.resize(num_seq, vector<vector<string>>(1));
+  vTimestampsCam.resize(num_seq, vector<vector<double>>(1));
   string pathCam0 = pathSeq + "/Camera8";
-  LoadImages(pathCam0, vstrImages[seq], vTimestampsCam[seq]);
-  PRINT_INFO_MUTEX( "Img size="<<vTimestampsCam[seq].size()<<endl);
+  auto &vstrimg = vstrImages[seq];
+  auto &vtmcam = vTimestampsCam[seq];
+  LoadImages(pathCam0, vstrimg[0], vtmcam[0]);
+  if (vtmcam[0].empty()) {
+    dataset_type = 1;
+    int n_cams_max = 4;
+    vstrimg.resize(n_cams_max);
+    vtmcam.resize(n_cams_max);
+    for (int i = 0; i < n_cams_max; ++i) {
+      pathCam0 = pathSeq + "/Camera" + to_string(i) + "/images";
+      LoadImages(pathCam0, vstrimg[i], vtmcam[i], ".bmp");
+      if (vtmcam[i].empty()) {
+        vtmcam.resize(i);
+        vstrimg.resize(i);
+        break;
+      }
+    }
+  }
+  PRINT_INFO_MUTEX( "Img size="<<vtmcam[0].size()<<endl);
 
   if (vstrImages[0].empty()) {
     cerr << "ERROR: No images in provided path." << endl;
@@ -125,7 +167,7 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  const int nImages = vstrImages[0].size();
+  const int nImages = vstrimg[0].size();
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
@@ -140,24 +182,29 @@ int main(int argc, char **argv) {
   PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
   // Main loop
-  cv::Mat imLeft, imRight;
+  vector<cv::Mat> ims(2);
   for (int ni = 0; ni < nImages; ni++) {
     // Read left and right images from file
-    imLeft = cv::imread(vstrImages[seq][ni],cv::IMREAD_GRAYSCALE);
-    imRight = imLeft.colRange(imLeft.cols / 2, imLeft.cols);
-    imLeft = imLeft.colRange(0, imLeft.cols / 2);
-
-    if (imLeft.empty()) {
-      cerr << endl << "Failed to load image at: " << string(vstrImages[seq][ni]) << endl;
-      return 1;
+    ims[0] = cv::imread(vstrimg[0][ni],cv::IMREAD_GRAYSCALE);
+    if (!dataset_type) {
+      ims[1] = ims[0].colRange(ims[0].cols / 2, ims[0].cols);
+      ims[0] = ims[0].colRange(0, ims[0].cols / 2);
+    } else {
+//      ims.resize(vstrimg.size());
+//      for (int i = 0; i < ims.size(); ++i)
+//        ims[i] = cv::imread(vstrimg[i][ni], cv::IMREAD_GRAYSCALE);
+      ims[1] = cv::imread(vstrimg[3][ni], cv::IMREAD_GRAYSCALE);
+      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
     }
 
-    if (imRight.empty()) {
-      cerr << endl << "Failed to load image at: " << string(vstrImages[seq][ni]) << endl;
-      return 1;
+    for (int i = 0; i < ims.size(); ++i) {
+      if (ims[i].empty()) {
+        cerr << endl << "Failed to load image at: " << string(vstrimg[i][ni]) << endl;
+        return 1;
+      }
     }
 
-    double tframe = vTimestampsCam[seq][ni];
+    double tframe = vtmcam[0][ni];
     {  // zzh
       unique_lock<mutex> lock(g_mutex);
       g_simulateTimestamp = tframe;  // update g_simulateTimestamp
@@ -170,7 +217,7 @@ int main(int argc, char **argv) {
 #endif
 
     // Pass the images to the SLAM system
-    SLAM.TrackStereo(imLeft, imRight, tframe, false);
+    SLAM.TrackStereo(ims[0], ims[1], tframe, false);
 
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
@@ -185,9 +232,9 @@ int main(int argc, char **argv) {
     // Wait to load the next frame
     double T = 0;
     if (ni < nImages - 1)
-      T = vTimestampsCam[seq][ni + 1] - tframe;
+      T = vtmcam[0][ni + 1] - tframe;
     else if (ni > 0)
-      T = tframe - vTimestampsCam[seq][ni - 1];
+      T = tframe - vtmcam[0][ni - 1];
 
     if (ttrack < T) usleep((T - ttrack) * 1e6);
   }
@@ -261,10 +308,10 @@ static void GetFileNames(const string& path, vector<string>& filenames, const st
   closedir(pDir);
 }
 
-void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps)
+void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps, const string& suffix)
 {
   ifstream fTimes;
-  GetFileNames(strImagePath, vstrImages);
+  GetFileNames(strImagePath, vstrImages, suffix);
   sort(vstrImages.begin(),vstrImages.end());
   for (int i = 0; i < vstrImages.size(); ++i) {
     string dir_path = dirname(strdup(vstrImages[i].c_str()));
@@ -307,9 +354,13 @@ void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vect
              vector<cv::Point3f> &vGyro) {
   ifstream fImu, fAcc;
   fImu.open(strImuPath[0].c_str());
+  if (!fImu.is_open()) return;
+  int mode = 0;
   if (strImuPath.size() > 1) {
     fAcc.open(strImuPath[1].c_str());
-  }
+    if (!fAcc.is_open()) return;
+  } else
+    mode = 1;
   vTimeStamps.reserve(5000);
   vAcc.reserve(5000);
   vGyro.reserve(5000);
@@ -319,22 +370,37 @@ void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vect
     string s;
     getline(fImu, s);
 
-    string keystr[kNumKeyStrType] = {"Data x='", "' time", "' *='"};
-    size_t last_pos = 0;
-    if (!GetFloatArray(s, keystr, last_pos, ret_vals)) {
-      CV_Assert(3 == ret_vals.size());
-      vGyro.push_back(cv::Point3f(ret_vals[0], ret_vals[1], ret_vals[2]));
-      ret_vals.clear();
-    }
+    if (!mode) {
+      string keystr[kNumKeyStrType] = {"Data x='", "' time", "' *='"};
+      size_t last_pos = 0;
+      if (!GetFloatArray(s, keystr, last_pos, ret_vals)) {
+        CV_Assert(3 == ret_vals.size());
+        vGyro.push_back(cv::Point3f(ret_vals[0], ret_vals[1], ret_vals[2]));
+        ret_vals.clear();
+      }
 
-    keystr[kStrStart] = "stamp='";
-    keystr[kStrEnd] = "' index";
-    if (!GetFloatArray(s, keystr, last_pos, ret_vals)) {
-      CV_Assert(1 == ret_vals.size());
-      vTimeStamps.push_back(ret_vals[0] / 1e9);
-      ret_vals.clear();
+      keystr[kStrStart] = "stamp='";
+      keystr[kStrEnd] = "' index";
+      if (!GetFloatArray(s, keystr, last_pos, ret_vals)) {
+        CV_Assert(1 == ret_vals.size());
+        vTimeStamps.push_back(ret_vals[0] / 1e9);
+        ret_vals.clear();
+      }
+    } else {
+      rapidjson::Document imu_doc;
+      imu_doc.Parse<0>(s.c_str());
+      Value &IMUData = imu_doc["Sequence"]["Dataset"]["Data"];
+      for (std::size_t i = 0; i < IMUData.Size(); i++) {
+        vTimeStamps.push_back(IMUData[i]["timestamp"].GetUint64() / 1.e9);
+        vGyro.push_back(
+            cv::Point3f(IMUData[i]["g_x"].GetFloat(), IMUData[i]["g_y"].GetFloat(), IMUData[i]["g_z"].GetFloat()));
+        vAcc.push_back(
+            cv::Point3f(IMUData[i]["a_x"].GetFloat(), IMUData[i]["a_y"].GetFloat(), IMUData[i]["a_z"].GetFloat()));
+        //cout << "check tm="<<vTimeStamps.back()<<",ga="<<vGyro.back().x<<","<<vGyro.back().y<<","<<vGyro.back().z<<"/"<<vAcc.back().x<<","<<vAcc.back().y<<","<<vAcc.back().z<<endl;
+      }
     }
   }
+  if (mode) return;
 
   int id_acc = 0;
   while (!fAcc.eof() && !fAcc.fail()) {
