@@ -8,6 +8,7 @@ ENDIF ()
 set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
+set(ADD_YVR_EXAMPLE 1)
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -183,9 +184,12 @@ add_executable(stereo_euroc
         Examples/Stereo/stereo_euroc.cc)
 target_link_libraries(stereo_euroc ${PROJECT_NAME})
 
-add_executable(stereo_yvr
-        Examples/Stereo/stereo_yvr.cc)
-target_link_libraries(stereo_yvr ${PROJECT_NAME})
+if (${ADD_YVR_EXAMPLE})
+    find_package(RapidJSON)
+    add_executable(stereo_yvr
+            Examples/Stereo/stereo_yvr.cc)
+    target_link_libraries(stereo_yvr ${PROJECT_NAME})
+endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Monocular)
 

@@ -579,7 +579,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
   PRINT_INFO_MUTEX( "Tbc:" << mTbc << endl);
   Frame::mTbc = mTbc.clone();
   cv::Mat Tcb = Converter::toCvMatInverse(mTbc);
-  Frame::meigRcb = Converter::toMatrix3d(Tcb.rowRange(0, 3).colRange(0, 3));
+  Frame::meigRcb = Sophus::SO3exd(Converter::toMatrix3d(Tcb.rowRange(0, 3).colRange(0, 3))).matrix();
   Frame::meigtcb = Converter::toVector3d(Tcb.rowRange(0, 3).col(3));
   // load Sigma etad & etawi & gd,ad,bgd,bad & if accelerate needs to *9.81
   cv::FileNode fnSig[3] = {fSettings["IMU.SigmaI"], fSettings["IMU.sigma"], fSettings["IMU.dMultiplyG"]};
