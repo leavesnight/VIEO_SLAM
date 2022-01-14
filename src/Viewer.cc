@@ -134,8 +134,40 @@ void Viewer::Run()
 
         pangolin::FinishFrame();
 
-        cv::Mat im = mpFrameDrawer->DrawFrame();
-        cv::imshow("VIEO_SLAM: Current Frame",im);
+      cv::Mat toShow;
+      cv::Mat im = mpFrameDrawer->DrawFrame(0);
+      if(mpFrameDrawer->showallimages_) {
+        if (1 <= mpFrameDrawer->n_cams_) {
+          int n_cams = mpFrameDrawer->n_cams_;
+          int n_cols = 2;
+          int n_rows = n_cams / n_cols;
+          vector<cv::Mat> ims(n_rows);
+          ims[0] = im;
+          int i = 1;
+          for (; i < n_cams; ++i) {
+            int row = i / n_cols;
+            cv::Mat im_other = mpFrameDrawer->DrawFrame(i);
+            if (i % n_cols)
+              cv::hconcat(ims[row], im_other, ims[row]);
+            else {
+              ims[row] = im_other;
+              if (i != n_cols)
+                cv::vconcat(toShow, ims[row - 1], toShow);
+              else
+                toShow = ims[0];
+            }
+          }
+          if (i == n_cols)
+            toShow = ims[0];
+          else
+            cv::vconcat(toShow, ims[1], toShow);
+        }
+      }
+      else{
+        toShow = im;
+      }
+
+      cv::imshow("VIEO_SLAM: Current Frame",toShow);
         cv::waitKey(mT);
 
         if(menuReset)

@@ -38,6 +38,7 @@
 #include "KeyFrameDatabase.h"
 #include "ORBVocabulary.h"
 #include "Viewer.h"
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {
@@ -54,27 +55,28 @@ class System
 {
   //used to make pcl
   cv::FileStorage fsSettings;
-  
+
   // Local Mapper. It manages the local map and performs local bundle adjustment.
   IMUInitialization* mpIMUInitiator;
   //System thread: a new IMUInitialization thread added
   std::thread* mptIMUInitialization;
-  
+
 public:
   enum eOdom{
     ENCODER=0,
     IMU,
     BOTH
   };
-  
+
   // Process the given (IMU/encoder)odometry data. \
   mode==0:Encoder data 2 vl,vr; 1:qIMU data 4 qxyzw; \
   2:Both 6 vl,vr,qxyzw; 3:Pure-IMU data 6 ax~z,wx~z(opposite of the order of EuRoc)
   cv::Mat TrackOdom(const double &timestamp, const double* odomdata, const char mode);
   void FinalGBA(int nIterations=15,bool bRobust=false);//please call this after Shutdown(), Full BA (column/at the end of execution) in V-B of the VIORBSLAM paper
-  
+
   // TODO: Save/Load functions
   void SaveKeyFrameTrajectoryNavState(const string &filename,bool bUseTbc=true);//we will save filename(like "KeyFrameTrajectoryIMU.txt")(including t,q,v,bg,ba) from Tcw by using Tbc or directly from Twb
+  void SaveTrajectoryNavState(const string &filename,bool bUseTbc=true);
   void SaveMap(const string &filename,bool bPCL=true,bool bUseTbc=true,bool bSaveBadKF=false);
   bool LoadMap(const string &filename,bool bPCL=true,bool bReadBadKF=false);//if read bad KFs, we correct mpTracker->mlpReferences
   void SaveFrame(string foldername,const cv::Mat& im,const cv::Mat& depthmap,double tm_stamp);
@@ -86,9 +88,9 @@ public:
   bool GetKeyFrameCreated();
   bool SetKeyFrameCreated(bool bTmp);
   cv::Mat GetKeyFramePose();
-  
+
 //created by zzh over.
-  
+
 public:
     // Input sensor
     enum eSensor{
@@ -96,15 +98,17 @@ public:
         STEREO=1,
         RGBD=2
     };
+    static bool usedistort_;
 
 public:
     // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
     System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer = true);
 
-    // Proccess the given stereo frame. Images must be synchronized and rectified.
+    // Proccess the given stereo frame. Images must be synchronized.
     // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+    // inputRect=true(default) means Images are rectified.
     // Returns the camera pose (empty if tracking fails).
-    cv::Mat TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp);
+    cv::Mat TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
 
     // Process the given rgbd frame. Depthmap must be registered to the RGB frame.
     // Input image: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
@@ -161,7 +165,7 @@ public:
 private:
     // Input sensor
     eSensor mSensor;
-    
+
     // ORB vocabulary used for place recognition and feature matching.
     ORBVocabulary* mpVocabulary;
 
@@ -207,7 +211,7 @@ private:
     // Tracking state
     int mTrackingState;
     std::vector<MapPoint*> mTrackedMapPoints;
-    std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
+    //std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
     std::mutex mMutexState;
 };
 

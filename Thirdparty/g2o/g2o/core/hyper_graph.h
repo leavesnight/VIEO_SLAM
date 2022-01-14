@@ -34,6 +34,7 @@
 #include <vector>
 #include <limits>
 #include <cstddef>
+#include "common/log.h"
 
 #ifdef _MSC_VER
 #include <unordered_map>

@@ -217,8 +217,8 @@ void IMUInitialization::Run(){
                     max_duration = duration;
                 tot_duration += duration;
                 ++mean_times;
-                cout << "OptimizeInitialGyroBias cost : " << duration << "s; max = " << max_duration << "; mean = "<<
-                     tot_duration / mean_times << endl;
+              PRINT_INFO_MUTEX("OptimizeInitialGyroBias cost : " << duration << "s; max = " << max_duration << "; mean = "<<
+                     tot_duration / mean_times << endl);
             }
         }
         //reduce vKFsInit to vKFsInit2
@@ -231,8 +231,8 @@ void IMUInitialization::Run(){
 //        cerr<<"check reduce bef:"<<vKFsInit2.size()<<" "<<vKFsInit2[0]->size()<<" "<<(*vKFsInit2[0])[1]->mOdomPreIntIMU.getlOdom().size()<<endl;
         if (verbose) {
             for (int i = 0; i < num_handlers; ++i)
-                cout << "bgs_est[" << (int) id_cams[i] << "]: " << bgs_est[i].transpose() << endl;
-            cout << "Step2: left num_handlers=" << num_handlers << endl;
+                PRINT_INFO_MUTEX( "bgs_est[" << (int) id_cams[i] << "]: " << bgs_est[i].transpose() << endl);
+            PRINT_INFO_MUTEX( "Step2: left num_handlers=" << num_handlers << endl);
         }
 
         // Update biasg and pre-integration in LocalWindow(here all KFs).
@@ -279,8 +279,8 @@ void IMUInitialization::Run(){
                 double dt12 = pKF2->mOdomPreIntIMU.mdeltatij;//deltat12
                 double dt23 = pKF3->mOdomPreIntIMU.mdeltatij;
                 if (dt12 == 0 || dt23 == 0) {
-                    cout << redSTR << "Tm=" << fixed << setprecision(9) << pKF2->mTimeStamp << " lack IMU data!"
-                         << dt12 << "," << dt23 << whiteSTR << defaultfloat << endl;
+                    PRINT_INFO_MUTEX( redSTR << "Tm=" << fixed << setprecision(9) << pKF2->mTimeStamp << " lack IMU data!"
+                         << dt12 << "," << dt23 << whiteSTR << defaultfloat << endl);
                     continue;
                 }
                 ++numEquations;
@@ -394,7 +394,7 @@ void IMUInitialization::Run(){
         } else {
             gw_star = x;
         }
-        cout << "gw_star: " << gw_star.transpose() << ", |gw_star|=" << gw_star.norm() << endl;
+        PRINT_INFO_MUTEX( "gw_star: " << gw_star.transpose() << ", |gw_star|=" << gw_star.norm() << endl);
 
         //reduce vKFsInit2 to vKFsInit
         reduceKFs(reduced_hids, vKFsInit2, vKFsInit, Ns, num_handlers, id_cams2, &id_cams);
@@ -530,11 +530,11 @@ void IMUInitialization::Run(){
         // Record data for analysis
         //direction of gwbefore is the same as gwstar, but value is different!
         Vector3calc gwbefore = RwI * GI, gwafter = RwI_ * GI;
-        cout << "gwbefore=" << gwbefore.transpose() << ", gwafter=" << gwafter.transpose() << endl;
+        PRINT_INFO_MUTEX( "gwbefore=" << gwbefore.transpose() << ", gwafter=" << gwafter.transpose() << endl);
 
         //Debug the frequency & sstar2&sstar
-        cout << "Time: " << fixed << setprecision(9) << pNewestKF->mTimeStamp - mdStartTime << ", s_star: " <<
-             s_star << ", s: " << s_ << defaultfloat << endl;
+        PRINT_INFO_MUTEX( "Time: " << fixed << setprecision(9) << pNewestKF->mTimeStamp - mdStartTime << ", s_star: " <<
+             s_star << ", s: " << s_ << defaultfloat << endl);
         //<<" bgest: "<<bgest.transpose()<<", gw*(gwafter)="<<gwafter.t()<<", |gw*|="<<cv::norm(gwafter)<<",
         // norm(gwbefore,gwstar)"<<cv::norm(gwbefore.t())<<" "<<cv::norm(gwstar.t())<<endl;
         if (mTmpfilepath.length() > 0) {//Debug the Rwistar2
@@ -556,8 +556,8 @@ void IMUInitialization::Run(){
         // Todo: Add some logic or strategy to confirm init status, VIORBSLAM paper just uses 15 seconds to confirm
         bool bVIOInited = false;
         if (mdStartTime < 0) mdStartTime = pNewestKF->mTimeStamp;
-        cout << yellowSTR"condnum=" << cond_num2 << ";max=" << w2(0) << ";min=" <<
-             w2(w2.size() - 1) << whiteSTR << endl;
+        PRINT_INFO_MUTEX( yellowSTR"condnum=" << cond_num2 << ";max=" << w2(0) << ";min=" <<
+             w2(w2.size() - 1) << whiteSTR << endl);
         int min_cond_num = 500;//try 700
         if (cond_num2 < min_cond_num and pNewestKF->mTimeStamp - mdStartTime >= mdFinalTime) {//15s in the paper V-A
             bVIOInited = true;
@@ -633,7 +633,7 @@ void IMUInitialization::Run(){
                         KeyFrame *pKFnext = pKF->GetNextKeyFrame();
                         assert(pKFnext && "pKFnext is NULL");
                         if (pKFnext->GetIMUPreInt().mdeltatij == 0) {
-                            cout << "time 0" << endl;
+                            PRINT_INFO_MUTEX( "time 0" << endl);
                             continue;
                         }
                         pKF->SetNavStateOnly(ns);//we must update the pKF->mbg&mba before pKFnext->PreIntegration()
@@ -654,7 +654,7 @@ void IMUInitialization::Run(){
                     } else {
                         // If this is the last KeyFrame, no 'next' KeyFrame exists, use (3) in VOIRBSLAM paper with ba_bar=0,bg_bar=bgest=>dba=ba,dbg=0
                         if (pKF->GetIMUPreInt().mdeltatij == 0) {
-                            cout << "time 0" << endl;
+                            PRINT_INFO_MUTEX( "time 0" << endl);
                             continue;
                         }
                         KeyFrame *pKFprev = pKF->GetPrevKeyFrame();
@@ -676,16 +676,16 @@ void IMUInitialization::Run(){
                 mpMap->InformNewChange();//used to notice Tracking thread bMapUpdated
 
                 mpLocalMapper->Release();//recover LocalMapping thread, same as CorrectLoop()
-                std::cout << std::endl << "... Map scale & NavState updated ..." << std::endl << std::endl;
+                PRINT_INFO_MUTEX( std::endl << "... Map scale & NavState updated ..." << std::endl << std::endl);
                 // Run global BA/full BA after inited, we use LoopClosing thread to do this job for safety!
 //                Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,GetGravityVec(),15,NULL,0,false,true/false);SetInitGBAOver(true);
                 SetInitGBA(true);
             }
         }
 
-        cout << yellowSTR"Used time in IMU Initialization="
+      PRINT_INFO_MUTEX( yellowSTR"Used time in IMU Initialization="
              << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count() << whiteSTR
-             << endl;
+             << endl);
 
         deleteKFs_ret(vKFsInit);
         return bVIOInited;

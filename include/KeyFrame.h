@@ -21,13 +21,16 @@
 #ifndef KEYFRAME_H
 #define KEYFRAME_H
 
+#include "FrameBase.h"
+#include "MultiThreadBase.h"
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
 #include "ORBextractor.h"
-#include "Frame.h"
 #include "KeyFrameDatabase.h"
+#include "NavState.h"
+#include "OdomPreIntegrator.h"
 
 #include <mutex>
 
@@ -37,10 +40,10 @@ namespace VIEO_SLAM
 
 class Map;
 class MapPoint;
-class Frame;
 class KeyFrameDatabase;
+class GeometricCamera;
 
-class KeyFrame
+class KeyFrame : public FrameBase, public MutexUsed
 {
   char mState;
 //   std::mutex mMutexState;
@@ -205,6 +208,8 @@ public:
     void SetPose(const cv::Mat &Tcw);
     cv::Mat GetPose();//Tcw
     cv::Mat GetPoseInverse();
+    const Sophus::SE3d GetTwc() override;
+    const Sophus::SE3d GetTcw() override;
     cv::Mat GetCameraCenter();
     cv::Mat GetStereoCenter();
     cv::Mat GetRotation();
@@ -237,17 +242,18 @@ public:
     std::set<KeyFrame*> GetLoopEdges();//mspLoopEdges
 
     // MapPoint observation functions
-    void AddMapPoint(MapPoint* pMP, const size_t &idx);//mvpMapPoints[idx]=pMP
-    void EraseMapPointMatch(const size_t &idx);//mvpMapPoints[idx]=nullptr
+    void AddMapPoint(MapPoint* pMP, const size_t &idx) override;//mvpMapPoints[idx]=pMP
+    void EraseMapPointMatch(const size_t &idx) override;//mvpMapPoints[idx]=nullptr
     void EraseMapPointMatch(MapPoint* pMP);//mvpMapPoints[idx corresp. pMP]=nullptr
-    void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
-    std::set<MapPoint*> GetMapPoints();//make set from good mvpMapPoints
-    std::vector<MapPoint*> GetMapPointMatches();//mvpMapPoints
+    std::set<MapPoint*> GetMapPoints() override;//make set from good mvpMapPoints
+    std::set<std::pair<MapPoint*, size_t>> GetMapPointsCami() override;
+    const std::vector<MapPoint*> &GetMapPointMatches() override;//mvpMapPoints
     int TrackedMapPoints(const int &minObs);//return the number of good mvpMapPoints whose nObs>=minObs
     MapPoint* GetMapPoint(const size_t &idx);//mvpMapPoints[idx]
+    void FuseMP(size_t idx, MapPoint* pMP);
 
     // KeyPoint functions
-    std::vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r) const;//return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
+    std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float  &y, const float  &r) const;//return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
     cv::Mat UnprojectStereo(int i);
 
     // Image
@@ -316,9 +322,11 @@ public:
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
+  std::vector<cv::Mat> vdescriptors_;
 
     //BoW
     DBoW2::BowVector mBowVec;
@@ -342,25 +350,20 @@ public:
     const int mnMaxY;
     const cv::Mat mK;
 
-
     // The following variables need to be accessed trough a mutex to be thread safe.
 protected:
 
     // SE3 Pose and camera center
-    cv::Mat Tcw;
     cv::Mat Twc;
     cv::Mat Ow;
     cv::Mat Cw; // Stereo middel point. Only for visualization
-
-    // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;
 
     // BoW
     KeyFrameDatabase* mpKeyFrameDB;
     ORBVocabulary* mpORBvocabulary;
 
     // Grid over the image to speed up feature matching
-    std::vector< std::vector <std::vector<size_t> > > mGrid;
+    std::vector<std::vector< std::vector <std::vector<size_t>>>> vgrids_;
 
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;//covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints 
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;//ordered covisibility graph/connected KFs need KFs >=15 covisible MPs or the KF with Max covisible MapPoints
@@ -384,6 +387,8 @@ protected:
     std::mutex mMutexPose;
     std::mutex mMutexConnections;
     std::mutex mMutexFeatures;//the mutex of mvpMapPoints(landmarks' states/vertices)
+
+    inline const Sophus::SE3d GetTcwCst() const { CV_Assert(0 && "Need Lock Mutex, cannot use ()const!"); }
 };
 
 //created by zzh

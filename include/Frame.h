@@ -26,11 +26,11 @@
 
 #include<vector>
 
+#include "FrameBase.h"
 #include "MapPoint.h"
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
-#include "KeyFrame.h"
 #include "ORBextractor.h"
 
 #include <opencv2/opencv.hpp>
@@ -40,10 +40,11 @@ namespace VIEO_SLAM
 #define FRAME_GRID_ROWS 48
 #define FRAME_GRID_COLS 64
 
-class MapPoint;
 class KeyFrame;
+class MapPoint;
+class GeometricCamera;
 
-class Frame
+class Frame : public FrameBase
 { 
 public:
   //const Tbc,Tce, so it can be used in multi threads
@@ -95,7 +96,7 @@ public:
     Frame(const Frame &frame);
 
     // Constructor for stereo cameras.
-    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor*> extractors, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, const vector<GeometricCamera*> *pCamInsts = nullptr, bool usedistort = true);
 
     // Constructor for RGB-D cameras.
     Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
@@ -103,8 +104,10 @@ public:
     // Constructor for Monocular cameras.
     Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
 
+    std::vector<MapPoint*> &GetMapPointsRef() { return mvpMapPoints; }
+
     // Extract ORB on the image. 0 for left image and 1 for right image.
-    void ExtractORB(int flag, const cv::Mat &im);
+    void ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea = nullptr);
 
     // Compute Bag of Words representation.
     void ComputeBoW();//compute mBowVec && mFeatVec
@@ -132,11 +135,13 @@ public:
     // Compute the cell of a keypoint (return false if outside the grid)
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
-    vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
+    vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
 
     // Search a match for each keypoint in the left image to a keypoint in the right image.
     // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
     void ComputeStereoMatches();
+
+    void ComputeStereoFishEyeMatches();
 
     // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
     void ComputeStereoFromRGBD(const cv::Mat &imDepth);
@@ -149,7 +154,7 @@ public:
     ORBVocabulary* mpORBvocabulary;
 
     // Feature extractor. The right is used only in the stereo case.
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+    vector<ORBextractor*> mpORBextractors;
 
     // Frame timestamp.
     double mTimeStamp;
@@ -176,27 +181,41 @@ public:
 
     // Number of KeyPoints.
     int N;
+    //Number of Non Lapping Keypoints
+    vector<size_t> num_mono = vector<size_t>(1);
+    //For stereo matching
+  vector<vector<size_t>> mvidxsMatches;
+  vector<bool> goodmatches_; // keep same size with mvidxsMatches
+  map<pair<size_t, size_t>, size_t> mapcamidx2idxs_; // final size_t max < mvidxsMatches.size()
+  size_t GetMapn2idxs(size_t i);
+  vector<size_t> mapidxs2n_;
+    //For stereo fisheye matching
+    static cv::BFMatcher BFmatcher;
+    //Triangulated stereo observations using as reference the left camera. These are
+    //computed during ComputeStereoFishEyeMatches
+    aligned_vector<Vector3d> mv3Dpoints; // keep same size with mvidxsMatches
 
-    // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
-    // In the stereo case, mvKeysUn is redundant as images must be rectified.
-    // In the RGB-D case, RGB images can be distorted.
-    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
-    std::vector<cv::KeyPoint> mvKeysUn;
+  // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
+  // In the stereo case, mvKeysUn is redundant as images must be rectified.
+  // In the RGB-D case, RGB images can be distorted.
+  std::vector<cv::KeyPoint> mvKeys;
+  std::vector<cv::KeyPoint> mvKeysUn;
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
+  std::vector<std::vector<size_t>> mapin2n_; // mapcamidx2n_ for addobs func.
 
-    // Corresponding stereo coordinate and depth for each keypoint.
-    // "Monocular" keypoints have a negative value.
-    std::vector<float> mvuRight;
-    std::vector<float> mvDepth;
+  // Corresponding stereo coordinate and depth for each keypoint.
+  // "Monocular" keypoints have a negative value.
+  std::vector<float> mvuRight;
+  std::vector<float> mvDepth;
 
-    // Bag of Words Vector structures.
+  // Bag of Words Vector structures.
     DBoW2::BowVector mBowVec;
     DBoW2::FeatureVector mFeatVec;
 
     // ORB descriptor, each row associated to a keypoint.
-    cv::Mat mDescriptors, mDescriptorsRight;
-
-    // MapPoints associated to keypoints, NULL pointer if no association.
-    std::vector<MapPoint*> mvpMapPoints;
+    cv::Mat mDescriptors;
+    std::vector<cv::Mat> vdescriptors_ = std::vector<cv::Mat>(1);
 
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
@@ -204,10 +223,7 @@ public:
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
     static float mfGridElementWidthInv;
     static float mfGridElementHeightInv;
-    std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
-
-    // Camera pose.
-    cv::Mat mTcw;
+    std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
@@ -233,6 +249,11 @@ public:
 
     static bool mbInitialComputations;
 
+  static bool usedistort_;
+
+  cv::Mat &GetTcwRef() { return Tcw_; }
+  inline const Sophus::SE3d GetTcwCst() const {return FrameBase::GetTcwCst();}
+  const cv::Mat &GetcvTcwCst() const;
 
 private:
 

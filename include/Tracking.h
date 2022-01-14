@@ -55,6 +55,7 @@ class Map;
 class LocalMapping;
 class LoopClosing;
 class System;
+class GeometricCamera;
 
 class Tracking
 {  
@@ -130,10 +131,15 @@ public:
   
 public:
     Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer, MapDrawer* pMapDrawer, Map* pMap,
-             KeyFrameDatabase* pKFDB, const string &strSettingPath, const int sensor); 
+             KeyFrameDatabase* pKFDB, const string &strSettingPath, const int sensor);
+    ~Tracking() {
+      for (auto& pcam : mpCameras) {
+        delete pcam;
+      }
+    }
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    cv::Mat GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp);
+    cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
     cv::Mat GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp);
     cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
 
@@ -145,7 +151,6 @@ public:
     // Load new settings
     // The focal lenght should be similar or scale prediction will fail when projecting points
     // TODO: Modify MapPoint::PredictScale to take into account focal lenght
-    void ChangeCalibration(const string &strSettingPath);//unused here
 
     // Use this function if you have deactivated local mapping and you only want to localize the camera.
     void InformOnlyTracking(const bool &flag);
@@ -171,7 +176,7 @@ public:
 
     // Current Frame
     Frame mCurrentFrame;
-    cv::Mat mImGray;//used by FrameDrawer
+    vector<cv::Mat> mImGrays = vector<cv::Mat>(1);//used by FrameDrawer
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
@@ -183,6 +188,7 @@ public:
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
     list<cv::Mat> mlRelativeFramePoses;
+    list<Vector3d> relative_frame_bvwbs_;
     list<KeyFrame*> mlpReferences;
     list<double> mlFrameTimes;
     list<bool> mlbLost;//true for lost!
@@ -238,7 +244,7 @@ protected:
     IMUInitialization* mpIMUInitiator;//zzh
 
     //ORB
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+    vector<ORBextractor*> mpORBextractors = vector<ORBextractor*>(1, nullptr);
     ORBextractor* mpIniORBextractor;
 
     //BoW
@@ -268,6 +274,7 @@ protected:
     cv::Mat mK;
     cv::Mat mDistCoef;
     float mbf;
+    vector<GeometricCamera*> mpCameras;
 
     //New KeyFrame rules (according to fps)
     int mMinFrames;

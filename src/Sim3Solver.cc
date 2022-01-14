@@ -29,6 +29,8 @@
 #include "ORBmatcher.h"
 
 #include "Thirdparty/DBoW2/DUtils/Random.h"
+#include "CameraModels/Pinhole.h"
+#include "Converter.h"
 
 namespace VIEO_SLAM
 {
@@ -37,78 +39,101 @@ namespace VIEO_SLAM
 Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> &vpMatched12, const bool bFixScale):
     mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale)//pKF1 is mpCurrentKF, pKF2 is loop candidate KFs, vpMatched12[i] matched to pKF1->mvpMapPoints[i], bFixScale=true for RGBD
 {
-    mpKF1 = pKF1;
-    mpKF2 = pKF2;
+  mpKF1 = pKF1;
+  mpKF2 = pKF2;
 
-    vector<MapPoint*> vpKeyFrameMP1 = pKF1->GetMapPointMatches();//maybe can use vec<MP*>&
+  vector<MapPoint *> vpKeyFrameMP1 = pKF1->GetMapPointMatches();  // maybe can use vec<MP*>&
 
-    mN1 = vpMatched12.size();
+  mN1 = vpMatched12.size();
 
-    mvpMapPoints1.reserve(mN1);
-    mvpMapPoints2.reserve(mN1);
-    mvpMatches12 = vpMatched12;
-    mvnIndices1.reserve(mN1);
-    mvX3Dc1.reserve(mN1);
-    mvX3Dc2.reserve(mN1);
+  mvpMapPoints1.reserve(mN1);
+  mvpMapPoints2.reserve(mN1);
+  mvpMatches12 = vpMatched12;
+  mvnIndices1.reserve(mN1);
+  mvX3Dc1.reserve(mN1);
+  mvX3Dc2.reserve(mN1);
 
-    cv::Mat Rcw1 = pKF1->GetRotation();
-    cv::Mat tcw1 = pKF1->GetTranslation();//cv::Mat(3,1,float)
-    cv::Mat Rcw2 = pKF2->GetRotation();
-    cv::Mat tcw2 = pKF2->GetTranslation();
+  cv::Mat Rcw1 = pKF1->GetRotation();
+  cv::Mat tcw1 = pKF1->GetTranslation();  // cv::Mat(3,1,float)
+  cv::Mat Rcw2 = pKF2->GetRotation();
+  cv::Mat tcw2 = pKF2->GetTranslation();
 
-    mvAllIndices.reserve(mN1);
+  mvAllIndices.reserve(mN1);
 
-    size_t idx=0;
-    for(int i1=0; i1<mN1; i1++)
-    {
-        if(vpMatched12[i1])
-        {
-            MapPoint* pMP1 = vpKeyFrameMP1[i1];
-            MapPoint* pMP2 = vpMatched12[i1];//matched MP from pMP1
+  size_t idx = 0;
+  usedistort_[0] = Frame::usedistort_ && pKF1->mpCameras.size();
+  usedistort_[1] = Frame::usedistort_ && pKF2->mpCameras.size();
+  if (usedistort_[0])
+    pcams_[0] = pKF1->mpCameras;
+  else {
+    camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
+    auto &CamInst = camsinst_.back();
+    CamInst->setParameter(pKF1->fx, 0);
+    CamInst->setParameter(pKF1->fy, 1);
+    CamInst->setParameter(pKF1->cx, 2);
+    CamInst->setParameter(pKF1->cy, 3);
+    pcams_[0].push_back(CamInst.get());
+  }
+  if (usedistort_[1])
+    pcams_[1] = pKF2->mpCameras;
+  else {
+    camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
+    auto &CamInst = camsinst_.back();
+    CamInst->setParameter(pKF2->fx, 0);
+    CamInst->setParameter(pKF2->fy, 1);
+    CamInst->setParameter(pKF2->cx, 2);
+    CamInst->setParameter(pKF2->cy, 3);
+    pcams_[1].push_back(CamInst.get());
+  }
+  for (int i1 = 0; i1 < mN1; i1++) {
+    if (vpMatched12[i1]) {
+      MapPoint *pMP1 = vpKeyFrameMP1[i1];
+      MapPoint *pMP2 = vpMatched12[i1];  // matched MP from pMP1
 
-            if(!pMP1)//here pMP1=nullptr means pMP2=nullptr too before last SBP() in ComputeSIm3()
-                continue;
+      if (!pMP1)  // here pMP1=nullptr means pMP2=nullptr too before last SBP() in ComputeSIm3()
+        continue;
+      CV_Assert(pMP2);
 
-            if(pMP1->isBad() || pMP2->isBad())
-                continue;
+      if (pMP1->isBad() || pMP2->isBad()) continue;
 
-            int indexKF1 = pMP1->GetIndexInKeyFrame(pKF1);
-            int indexKF2 = pMP2->GetIndexInKeyFrame(pKF2);
+      int indexKF1 = i1;
+      auto indicesKF2 = pMP2->GetIndexInKeyFrame(pKF2);
+      for (auto indexKF2 : indicesKF2) {
+        if (indexKF2 < 0)  // it's for safe
+          continue;
 
-            if(indexKF1<0 || indexKF2<0)//it's for safe
-                continue;
+        const cv::KeyPoint &kp1 = !usedistort_[0] ? pKF1->mvKeysUn[indexKF1] : pKF1->mvKeys[indexKF1];
+        const cv::KeyPoint &kp2 = !usedistort_[1] ? pKF2->mvKeysUn[indexKF2] : pKF2->mvKeys[indexKF2];
 
-            const cv::KeyPoint &kp1 = pKF1->mvKeysUn[indexKF1];
-            const cv::KeyPoint &kp2 = pKF2->mvKeysUn[indexKF2];
+        const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
+        const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
 
-            const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
-            const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
+        mvnMaxError1.push_back(9.210 * sigmaSquare1);  // to use chi2 distribution for e^2 with sigma^2, we need expand its standard table like chi2(0.01,2)*sigma2
+        mvnMaxError2.push_back(9.210 * sigmaSquare2);  // chi2(0.01,2)=9.21
 
-            mvnMaxError1.push_back(9.210*sigmaSquare1);//to use chi2 distribution for e^2 with sigma^2, we need expand its standard table like chi2(0.01,2)*sigma2
-            mvnMaxError2.push_back(9.210*sigmaSquare2);//chi2(0.01,2)=9.21
+        mvpMapPoints1.push_back(pMP1);
+        mvpMapPoints2.push_back(pMP2);
+        mvnIndices1.push_back(i1);
 
-            mvpMapPoints1.push_back(pMP1);
-            mvpMapPoints2.push_back(pMP2);
-            mvnIndices1.push_back(i1);
+        cv::Mat X3D1w = pMP1->GetWorldPos();     // cv::Mat(3,1,float)
+        mvX3Dc1.push_back(Rcw1 * X3D1w + tcw1);  // Xc1=(Tc1w*[Xw|1])(0:2)
 
-            cv::Mat X3D1w = pMP1->GetWorldPos();//cv::Mat(3,1,float)
-            mvX3Dc1.push_back(Rcw1*X3D1w+tcw1);//Xc1=(Tc1w*[Xw|1])(0:2)
+        cv::Mat X3D2w = pMP2->GetWorldPos();
+        mvX3Dc2.push_back(Rcw2 * X3D2w + tcw2);  // Xc2
 
-            cv::Mat X3D2w = pMP2->GetWorldPos();
-            mvX3Dc2.push_back(Rcw2*X3D2w+tcw2);//Xc2
-
-            mvAllIndices.push_back(idx);
-            idx++;
-        }
+        mvAllIndices.push_back(idx);
+        mapidx2cami_[0].push_back(usedistort_[0] ? get<0>(pKF1->mapn2in_[indexKF1]) : 0);
+        mapidx2cami_[1].push_back(usedistort_[1] ? get<0>(pKF2->mapn2in_[indexKF2]) : 0);
+        idx++;
+      }
     }
+  }
 
-    mK1 = pKF1->mK;
-    mK2 = pKF2->mK;
+  // maybe not using real 2d obs means camera obs won't be more accurate than projecting for BE loop closing(after lots of opt.)
+  Project(mvX3Dc1, mvP1im1, pcams_[0], mapidx2cami_[0]);
+  Project(mvX3Dc2, mvP2im2, pcams_[1], mapidx2cami_[1]);
 
-    FromCameraToImage(mvX3Dc1,mvP1im1,mK1);
-    FromCameraToImage(mvX3Dc2,mvP2im2,mK2);
-
-    SetRansacParameters();//use default settings for safe
+  SetRansacParameters();  // use default settings for safe
 }
 
 void Sim3Solver::SetRansacParameters(double probability, int minInliers, int maxIterations)
@@ -164,20 +189,20 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
         vAvailableIndices = mvAllIndices;
 
         // Get min set of points
-        for(short i = 0; i < 3; ++i)
-        {
-            int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size()-1);
+        for(short i = 0; i < 3; ++i) {
+          int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size() - 1);
 
-            int idx = vAvailableIndices[randi];
+          int idx = vAvailableIndices[randi];
 
-            mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
-            mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
+          mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
+          mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
 
-            vAvailableIndices[randi] = vAvailableIndices.back();
-            vAvailableIndices.pop_back();
+          // don't pick the same point, so log(1-p)/log(1-w^n) is just the upper limit")" of the max iter.
+          vAvailableIndices[randi] = vAvailableIndices.back();
+          vAvailableIndices.pop_back();
         }
 
-        ComputeSim3(P3Dc1i,P3Dc2i);
+        ComputeSim3(P3Dc1i,P3Dc2i); // TODO: check the implementation
 
         CheckInliers();
 
@@ -338,32 +363,27 @@ void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
 }
 
 
-void Sim3Solver::CheckInliers()
-{
-    vector<cv::Mat> vP1im2, vP2im1;
-    Project(mvX3Dc2,vP2im1,mT12i,mK1);
-    Project(mvX3Dc1,vP1im2,mT21i,mK2);
+void Sim3Solver::CheckInliers() {
+  vector<cv::Mat> vP1im2, vP2im1;
+  Project(mvX3Dc2, vP2im1, pcams_[0], mapidx2cami_[0], &mT12i);
+  Project(mvX3Dc1, vP1im2, pcams_[1], mapidx2cami_[1], &mT21i);
 
-    mnInliersi=0;
+  mnInliersi = 0;
 
-    for(size_t i=0; i<mvP1im1.size(); i++)
-    {
-        cv::Mat dist1 = mvP1im1[i]-vP2im1[i];
-        cv::Mat dist2 = vP1im2[i]-mvP2im2[i];
+  for (size_t i = 0; i < mvP1im1.size(); i++) {
+    cv::Mat dist1 = mvP1im1[i] - vP2im1[i];
+    cv::Mat dist2 = vP1im2[i] - mvP2im2[i];
 
-        const float err1 = dist1.dot(dist1);
-        const float err2 = dist2.dot(dist2);
+    const float err1 = dist1.dot(dist1);
+    const float err2 = dist2.dot(dist2);
 
-        if(err1<mvnMaxError1[i] && err2<mvnMaxError2[i])
-        {
-            mvbInliersi[i]=true;
-            mnInliersi++;
-        }
-        else
-            mvbInliersi[i]=false;
-    }
+    if (err1 < mvnMaxError1[i] && err2 < mvnMaxError2[i]) {
+      mvbInliersi[i] = true;
+      mnInliersi++;
+    } else
+      mvbInliersi[i] = false;
+  }
 }
-
 
 cv::Mat Sim3Solver::GetEstimatedRotation()
 {
@@ -380,47 +400,24 @@ float Sim3Solver::GetEstimatedScale()
     return mBestScale;
 }
 
-void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, cv::Mat Tcw, cv::Mat K)
-{
-    cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
-    cv::Mat tcw = Tcw.rowRange(0,3).col(3);
-    const float &fx = K.at<float>(0,0);
-    const float &fy = K.at<float>(1,1);
-    const float &cx = K.at<float>(0,2);
-    const float &cy = K.at<float>(1,2);
+void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, vector<GeometricCamera*> &pcams, vector<size_t> &mapidx2cami, cv::Mat *pTcrw) {
+  cv::Mat Rcw, tcw;
+  if (pTcrw) {
+    Rcw= pTcrw->rowRange(0, 3).colRange(0, 3);
+    tcw = pTcrw->rowRange(0, 3).col(3);
+  }
 
-    vP2D.clear();
-    vP2D.reserve(vP3Dw.size());
+  vP2D.clear();
+  vP2D.reserve(vP3Dw.size());
 
-    for(size_t i=0, iend=vP3Dw.size(); i<iend; i++)
-    {
-        cv::Mat P3Dc = Rcw*vP3Dw[i]+tcw;
-        const float invz = 1/(P3Dc.at<float>(2));
-        const float x = P3Dc.at<float>(0)*invz;
-        const float y = P3Dc.at<float>(1)*invz;
+  for (size_t i = 0, iend = vP3Dw.size(); i < iend; i++) {
+    Eigen::Vector3d crP3D = Converter::toVector3d(pTcrw ? Rcw * vP3Dw[i] + tcw : vP3Dw[i]);
+    auto pcam = pcams[mapidx2cami[i]];
+    Eigen::Vector3d cP3d = pcam->GetTcr() * crP3D;
 
-        vP2D.push_back((cv::Mat_<float>(2,1) << fx*x+cx, fy*y+cy));
-    }
-}
-
-void Sim3Solver::FromCameraToImage(const vector<cv::Mat> &vP3Dc, vector<cv::Mat> &vP2D, cv::Mat K)
-{
-    const float &fx = K.at<float>(0,0);
-    const float &fy = K.at<float>(1,1);
-    const float &cx = K.at<float>(0,2);
-    const float &cy = K.at<float>(1,2);
-
-    vP2D.clear();
-    vP2D.reserve(vP3Dc.size());//the same size
-
-    for(size_t i=0, iend=vP3Dc.size(); i<iend; i++)
-    {
-        const float invz = 1/(vP3Dc[i].at<float>(2));
-        const float x = vP3Dc[i].at<float>(0)*invz;//x'
-        const float y = vP3Dc[i].at<float>(1)*invz;//y'
-
-        vP2D.push_back((cv::Mat_<float>(2,1) << fx*x+cx, fy*y+cy));//<<u, v
-    }
+    Eigen::Vector2d p2dnorm = pcam->project(cP3d);
+    vP2D.push_back(cv::Mat_<float>(2, 1) << (p2dnorm[0], p2dnorm[1]));
+  }
 }
 
 } //namespace ORB_SLAM

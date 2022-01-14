@@ -21,12 +21,12 @@
 #ifndef MAPPOINT_H
 #define MAPPOINT_H
 
-#include"KeyFrame.h"
-#include"Frame.h"
-#include"Map.h"
+#include "Map.h"
 
-#include<opencv2/core/core.hpp>
-#include<mutex>
+#include <opencv2/core/core.hpp>
+#include <mutex>
+#include <set>
+#include <map>
 
 namespace VIEO_SLAM
 {
@@ -42,9 +42,9 @@ public:
   void UpdateScale(const float &scale);
   
   //for Load/SaveMap()
-  MapPoint(KeyFrame *pRefKF,Map *pMap,istream &is);
-  bool read(istream &is);
-  bool write(ostream &os);
+  MapPoint(KeyFrame *pRefKF,Map *pMap, std::istream &is);
+  bool read(std::istream &is);
+  bool write(std::ostream &os);
   
 //added by zzh
   
@@ -59,14 +59,14 @@ public:
     KeyFrame* GetReferenceKeyFrame();//mpRefKF, mpRefKF->mvpMapPoints should has this MP
 
     //if map is large, for single search time cost stability, please use map instead of unordered_map
-    std::map<KeyFrame*,size_t> GetObservations();//mObservations
+    std::map<KeyFrame*, std::set<size_t>> GetObservations();//mObservations
     int Observations();//nObs
 
     void AddObservation(KeyFrame* pKF,size_t idx);//mObservations[pKF]=idx;nObs+=2/1;
     void EraseObservation(KeyFrame* pKF);//mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
 
-    int GetIndexInKeyFrame(KeyFrame* pKF);//mObservations[pKF](-1 unfound)
-    bool IsInKeyFrame(KeyFrame* pKF);//mObservations.count(pKF)
+    std::set<size_t> GetIndexInKeyFrame(KeyFrame* pKF);//mObservations[pKF](empty() unfound)
+    bool IsInKeyFrame(KeyFrame* pKF, size_t idx = -1, size_t cami = -1);//mObservations.count(pKF)
 
     void SetBadFlag();//mbBad=true && delete this MP/matches in this->mObservations.first(KFs) && mObservations.clear() && delete this MP in mpMap
     bool isBad();//mbBad
@@ -92,7 +92,7 @@ public:
     int PredictScale(const float &currentDist, KeyFrame*pKF);
     int PredictScale(const float &currentDist, Frame* pF);
 
-public:
+   public:
     long unsigned int mnId;
     static long unsigned int nNextId;
     long int mnFirstKFid;
@@ -100,12 +100,12 @@ public:
     int nObs;
 
     // Variables used by the tracking
-    float mTrackProjX;
-    float mTrackProjY;
-    float mTrackProjXR;
+    std::vector<float> vtrack_proj[3]; //X/Y/XR
     bool mbTrackInView;
-    int mnTrackScaleLevel;
-    float mTrackViewCos;
+    std::vector<size_t> vtrack_cami;
+    std::vector<bool> vbtrack_inview;
+    std::vector<int> vtrack_scalelevel;
+    std::vector<float> vtrack_viewcos;
     long unsigned int mnTrackReferenceForFrame;
     long unsigned int mnLastFrameSeen;
 
@@ -128,8 +128,8 @@ protected:
      // Position in absolute coordinates
      cv::Mat mWorldPos;
 
-     // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,size_t> mObservations;
+     // Keyframes observing the point and associated index in keyframe, set instead of vector here for simple coding
+     std::map<KeyFrame*, std::set<size_t>> mObservations;
 
      // Mean viewing direction (not definitely normalized)
      cv::Mat mNormalVector;

@@ -32,10 +32,11 @@ namespace VIEO_SLAM
 FrameDrawer::FrameDrawer(Map* pMap):mpMap(pMap)
 {
     mState=Tracking::SYSTEM_NOT_READY;
-    mIm = cv::Mat(480,640,CV_8UC3, cv::Scalar(0,0,0));
+    mIms.resize(1);
+    mIms[0] = cv::Mat(480,640,CV_8UC3, cv::Scalar(0,0,0));
 }
 
-cv::Mat FrameDrawer::DrawFrame()
+cv::Mat FrameDrawer::DrawFrame(int cami)
 {
     cv::Mat im;
     vector<cv::KeyPoint> vIniKeys; // Initialization: KeyPoints in reference frame
@@ -51,7 +52,7 @@ cv::Mat FrameDrawer::DrawFrame()
         if(mState==Tracking::SYSTEM_NOT_READY)
             mState=Tracking::NO_IMAGES_YET;
 
-        mIm.copyTo(im);
+        mIms[cami].copyTo(im);
 
         if(mState==Tracking::NOT_INITIALIZED)
         {
@@ -88,35 +89,32 @@ cv::Mat FrameDrawer::DrawFrame()
     }
     else if(state==Tracking::OK) //TRACKING
     {
-        mnTracked=0;
-        mnTrackedVO=0;
-        const float r = 5;
-        const int n = vCurrentKeys.size();
-        for(int i=0;i<n;i++)
-        {
-            if(vbVO[i] || vbMap[i])
-            {
-                cv::Point2f pt1,pt2;
-                pt1.x=vCurrentKeys[i].pt.x-r;
-                pt1.y=vCurrentKeys[i].pt.y-r;
-                pt2.x=vCurrentKeys[i].pt.x+r;
-                pt2.y=vCurrentKeys[i].pt.y+r;
+      mnTracked = 0;
+      mnTrackedVO = 0;
+      const float r = 5;
+      const int n = vCurrentKeys.size();
+      for (int i = 0; i < n; i++) {
+        if (mapn2in_.size() && cami != get<0>(mapn2in_[i])) continue;
+        if (vbVO[i] || vbMap[i]) {
+          cv::Point2f pt1, pt2;
+          pt1.x = vCurrentKeys[i].pt.x - r;
+          pt1.y = vCurrentKeys[i].pt.y - r;
+          pt2.x = vCurrentKeys[i].pt.x + r;
+          pt2.y = vCurrentKeys[i].pt.y + r;
 
-                // This is a match to a MapPoint in the map
-                if(vbMap[i])
-                {
-                    cv::rectangle(im,pt1,pt2,cv::Scalar(0,255,0));
-                    cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(0,255,0),-1);
-                    mnTracked++;
-                }
-                else // This is match to a "visual odometry" MapPoint created in the last frame
-                {
-                    cv::rectangle(im,pt1,pt2,cv::Scalar(255,0,0));
-                    cv::circle(im,vCurrentKeys[i].pt,2,cv::Scalar(255,0,0),-1);
-                    mnTrackedVO++;
-                }
-            }
+          // This is a match to a MapPoint in the map
+          if (vbMap[i]) {
+            cv::rectangle(im, pt1, pt2, cv::Scalar(0, 255, 0));
+            cv::circle(im, vCurrentKeys[i].pt, 2, cv::Scalar(0, 255, 0), -1);
+            mnTracked++;
+          } else  // This is match to a "visual odometry" MapPoint created in the last frame
+          {
+            cv::rectangle(im, pt1, pt2, cv::Scalar(255, 0, 0));
+            cv::circle(im, vCurrentKeys[i].pt, 2, cv::Scalar(255, 0, 0), -1);
+            mnTrackedVO++;
+          }
         }
+      }
     }
 
     cv::Mat imWithInfo;
@@ -167,9 +165,14 @@ void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText)
 void FrameDrawer::Update(Tracking *pTracker)
 {
     unique_lock<mutex> lock(mMutex);
-    pTracker->mImGray.copyTo(mIm);
-    mvCurrentKeys=pTracker->mCurrentFrame.mvKeys;
+    n_cams_ = pTracker->mImGrays.size();
+    if (showallimages_) CV_Assert(n_cams_ == pTracker->mCurrentFrame.mpCameras.size());
+    mIms.resize(n_cams_);
+    for (int i = 0; i < n_cams_; ++i)
+      pTracker->mImGrays[i].copyTo(mIms[i]);
+    mvCurrentKeys = pTracker->mCurrentFrame.mvKeys;
     N = mvCurrentKeys.size();
+    mapn2in_ = pTracker->mCurrentFrame.mapn2in_;
     mvbVO = vector<bool>(N,false);
     mvbMap = vector<bool>(N,false);
     mbOnlyTracking = pTracker->mbOnlyTracking;
@@ -182,9 +185,10 @@ void FrameDrawer::Update(Tracking *pTracker)
     }
     else if(pTracker->mLastProcessedState==Tracking::OK)
     {
+      const auto &curfmps = pTracker->mCurrentFrame.GetMapPointMatches();
         for(int i=0;i<N;i++)
         {
-            MapPoint* pMP = pTracker->mCurrentFrame.mvpMapPoints[i];
+            MapPoint* pMP = curfmps[i];
             if(pMP)
             {
                 if(!pTracker->mCurrentFrame.mvbOutlier[i])

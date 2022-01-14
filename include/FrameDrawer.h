@@ -46,15 +46,19 @@ public:
     void Update(Tracking *pTracker);
 
     // Draw last processed frame.
-    cv::Mat DrawFrame();
+    cv::Mat DrawFrame(int cami);
+
+    size_t n_cams_ = 1;
+    bool showallimages_ = false;
 
 protected:
 
     void DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText);
 
     // Info of the frame to be drawn
-    cv::Mat mIm;
+    vector<cv::Mat> mIms;
     int N;
+    std::vector<std::pair<size_t, size_t>> mapn2in_;
     vector<cv::KeyPoint> mvCurrentKeys;
     vector<bool> mvbMap, mvbVO;
     bool mbOnlyTracking;

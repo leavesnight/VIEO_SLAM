@@ -21,7 +21,8 @@
 #include "KeyFrame.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
-#include<mutex>
+#include <mutex>
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {
@@ -53,7 +54,7 @@ void KeyFrame::UpdateNavStatePVRFromTcw()
   cv::Mat Twb;
   {
     unique_lock<mutex> lock(mMutexPose);//important for using Tcw for this func. is multi threads!
-    Twb=Converter::toCvMatInverse(Frame::mTbc*Tcw);
+    Twb=Converter::toCvMatInverse(Frame::mTbc*Tcw_);
   }
   Eigen::Matrix3d Rwb=Converter::toMatrix3d(Twb.rowRange(0,3).colRange(0,3));
   Eigen::Vector3d Pwb=Converter::toVector3d(Twb.rowRange(0,3).col(3));
@@ -93,8 +94,9 @@ std::set<KeyFrame *> KeyFrame::GetConnectedKeyFramesByWeight(int w){
 }
 
 //for LoadMap()
-KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,istream &is):
-  mnFrameId(F.mnId), mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
+KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,istream &is)
+    : FrameBase(F),
+      mnFrameId(F.mnId), mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
   mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
   mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
   mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
@@ -104,26 +106,25 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
   mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
   mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
-  mnMaxY(F.mnMaxY), mK(F.mK), mvpMapPoints(F.mvpMapPoints), mpKeyFrameDB(pKFDB),//for mK won't be changed, it cannot be used as clone()
+  mnMaxY(F.mnMaxY), mK(F.mK), mpKeyFrameDB(pKFDB),//for mK won't be changed, it cannot be used as clone()
   mpORBvocabulary(F.mpORBvocabulary), mbFirstConnection(false), mpParent(NULL), mbNotErase(false),//important false when LoadMap()!
   mbToBeErased(false), mbBad(false), mHalfBaseline(F.mb/2), mpMap(pMap),
   mbPrior(false)//,mbPNChanging(false)//zzh
 {
-  if(pPrevKF)
-    pPrevKF->SetNextKeyFrame(this);
-  mpPrevKeyFrame=pPrevKF;mpNextKeyFrame=NULL;//zzh, constructor doesn't need to lock mutex
-  mNavState=F.mNavState;//we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
-  
-  mnId=nNextId++;
-  mGrid.resize(mnGridCols);
-  for(int i=0; i<mnGridCols;i++){
-    mGrid[i].resize(mnGridRows);
-    for(int j=0; j<mnGridRows; j++)
-      mGrid[i][j] = F.mGrid[i][j];
-  }
-  SetPose(F.mTcw);//we have already used UpdatePoseFromNS() in Frame
-  
-  read(is);//set odom list & mState
+  if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
+  mpPrevKeyFrame = pPrevKF;
+  mpNextKeyFrame = NULL;    // zzh, constructor doesn't need to lock mutex
+  mNavState = F.mNavState;  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
+
+  vvkeys_ = F.vvkeys_;
+  vdescriptors_.resize(F.vdescriptors_.size());
+  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
+
+  mnId = nNextId++;
+  vgrids_ = F.vgrids_;
+  SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
+
+  read(is);  // set odom list & mState
 }
 bool KeyFrame::read(istream &is){
   //we've done ComputeBoW() in Frame!
@@ -204,8 +205,9 @@ bool KeyFrame::write(ostream &os){
 
 long unsigned int KeyFrame::nNextId=0;
 
-KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,const char state):
-    mnFrameId(F.mnId),  mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
+KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,const char state)
+    : FrameBase(F),
+      mnFrameId(F.mnId),  mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
     mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
     mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
@@ -215,31 +217,36 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
     mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
-    mnMaxY(F.mnMaxY), mK(F.mK), mvpMapPoints(F.mvpMapPoints), mpKeyFrameDB(pKFDB),//for mK won't be changed, it cannot be used as clone()
+    mnMaxY(F.mnMaxY), mK(F.mK), mpKeyFrameDB(pKFDB),//for mK won't be changed, it cannot be used as clone()
     mpORBvocabulary(F.mpORBvocabulary), mbFirstConnection(true), mpParent(NULL), mbNotErase(false),
     mbToBeErased(false), mbBad(false), mHalfBaseline(F.mb/2), mpMap(pMap),
     mState(state),mbPrior(false)//,mbPNChanging(false)//zzh
 {
-    if(pPrevKF)
-      pPrevKF->SetNextKeyFrame(this);
-    mpPrevKeyFrame=pPrevKF;mpNextKeyFrame=NULL;//zzh, constructor doesn't need to lock mutex
-    mNavState=F.mNavState;
-    // Set bias as bias+delta_bias, and reset the delta_bias term
-    mNavState.mbg+=mNavState.mdbg;mNavState.mba+=mNavState.mdba;
-    mNavState.mdbg=mNavState.mdba=Eigen::Vector3d::Zero();//update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
-//created by zzh over
-  
-    mnId=nNextId++;
+  if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
+  mpPrevKeyFrame = pPrevKF;
+  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mNavState = F.mNavState;
+  // Set bias as bias+delta_bias, and reset the delta_bias term
+  mNavState.mbg += mNavState.mdbg;
+  mNavState.mba += mNavState.mdba;
+  mNavState.mdbg = mNavState.mdba =
+      Eigen::Vector3d::Zero();  // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
 
-    mGrid.resize(mnGridCols);
-    for(int i=0; i<mnGridCols;i++)
-    {
-        mGrid[i].resize(mnGridRows);
-        for(int j=0; j<mnGridRows; j++)
-            mGrid[i][j] = F.mGrid[i][j];
-    }
+  vvkeys_ = F.vvkeys_;
+  vdescriptors_.resize(F.vdescriptors_.size());
+  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
+  // created by zzh over
 
-    SetPose(F.mTcw);    
+  mnId = nNextId++;
+  vgrids_ = F.vgrids_;
+
+  SetPose(F.GetTcwRef());
+  PRINT_DEBUG_INFO_MUTEX("checkkf"<<mnId<<" ", imu_tightly_debug_path, "debug.txt");
+  size_t i =0;
+  for(auto iter:mvpMapPoints) {
+    if (iter) PRINT_DEBUG_INFO_MUTEX(i << ":" << iter->mnId << ",", imu_tightly_debug_path, "debug.txt");
+    ++i;
+  }
 }
 
 void KeyFrame::ComputeBoW()
@@ -253,16 +260,16 @@ void KeyFrame::ComputeBoW()
     }
 }
 
-void KeyFrame::SetPose(const cv::Mat &Tcw_)
+void KeyFrame::SetPose(const cv::Mat &Tcw)
 {
     unique_lock<mutex> lock(mMutexPose);
-    Tcw_.copyTo(Tcw);
-    cv::Mat Rcw = Tcw.rowRange(0,3).colRange(0,3);
-    cv::Mat tcw = Tcw.rowRange(0,3).col(3);
+    Tcw.copyTo(Tcw_);
+    cv::Mat Rcw = Tcw_.rowRange(0,3).colRange(0,3);
+    cv::Mat tcw = Tcw_.rowRange(0,3).col(3);
     cv::Mat Rwc = Rcw.t();
     Ow = -Rwc*tcw;
 
-    Twc = cv::Mat::eye(4,4,Tcw.type());
+    Twc = cv::Mat::eye(4,4,Tcw_.type());
     Rwc.copyTo(Twc.rowRange(0,3).colRange(0,3));
     Ow.copyTo(Twc.rowRange(0,3).col(3));
     cv::Mat center = (cv::Mat_<float>(4,1) << mHalfBaseline, 0 , 0, 1);
@@ -272,13 +279,22 @@ void KeyFrame::SetPose(const cv::Mat &Tcw_)
 cv::Mat KeyFrame::GetPose()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.clone();
+    return Tcw_.clone();
 }
 
 cv::Mat KeyFrame::GetPoseInverse()
 {
     unique_lock<mutex> lock(mMutexPose);
     return Twc.clone();
+}
+const Sophus::SE3d KeyFrame::GetTwc() {
+  //  unique_lock<mutex> lock(mMutexPose);
+  //  return FrameBase::GetTwc();
+  return GetTcw().inverse();
+}
+const Sophus::SE3d KeyFrame::GetTcw() {
+  unique_lock<mutex> lock(mMutexPose);
+  return FrameBase::GetTcw();
 }
 
 cv::Mat KeyFrame::GetCameraCenter()
@@ -297,13 +313,13 @@ cv::Mat KeyFrame::GetStereoCenter()
 cv::Mat KeyFrame::GetRotation()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.rowRange(0,3).colRange(0,3).clone();
+    return Tcw_.rowRange(0,3).colRange(0,3).clone();
 }
 
 cv::Mat KeyFrame::GetTranslation()
 {
     unique_lock<mutex> lock(mMutexPose);
-    return Tcw.rowRange(0,3).col(3).clone();
+    return Tcw_.rowRange(0,3).col(3).clone();
 }
 
 void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
@@ -351,6 +367,7 @@ set<KeyFrame*> KeyFrame::GetConnectedKeyFrames()
     return s;
 }
 
+// notice now may get bad kfs
 vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFrames()
 {
     unique_lock<mutex> lock(mMutexConnections);
@@ -393,44 +410,34 @@ int KeyFrame::GetWeight(KeyFrame *pKF)
         return 0;
 }
 
-void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    mvpMapPoints[idx]=pMP;
+void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  FrameBase::AddMapPoint(pMP, idx);
 }
 
-void KeyFrame::EraseMapPointMatch(const size_t &idx)
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    mvpMapPoints[idx]=static_cast<MapPoint*>(NULL);
+void KeyFrame::EraseMapPointMatch(const size_t &idx) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  FrameBase::EraseMapPointMatch(idx);
 }
 
-void KeyFrame::EraseMapPointMatch(MapPoint* pMP)
-{
-    int idx = pMP->GetIndexInKeyFrame(this);
-    if(idx>=0)
-        mvpMapPoints[idx]=static_cast<MapPoint*>(NULL);
-}
-
-
-void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP)
-{
-    mvpMapPoints[idx]=pMP;
+void KeyFrame::EraseMapPointMatch(MapPoint* pMP) {
+  set<size_t> idxs = pMP->GetIndexInKeyFrame(this);
+  for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+    auto idx = *iter;
+    mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
+  }
 }
 
 set<MapPoint*> KeyFrame::GetMapPoints()
 {
     unique_lock<mutex> lock(mMutexFeatures);
-    set<MapPoint*> s;
-    for(size_t i=0, iend=mvpMapPoints.size(); i<iend; i++)
-    {
-        if(!mvpMapPoints[i])
-            continue;
-        MapPoint* pMP = mvpMapPoints[i];
-        if(!pMP->isBad())
-            s.insert(pMP);
-    }
-    return s;
+    return FrameBase::GetMapPoints();
+}
+
+std::set<std::pair<MapPoint*, size_t>> KeyFrame::GetMapPointsCami()
+{
+  unique_lock<mutex> lock(mMutexFeatures);
+  return FrameBase::GetMapPointsCami();
 }
 
 int KeyFrame::TrackedMapPoints(const int &minObs)
@@ -460,16 +467,35 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
     return nPoints;
 }
 
-vector<MapPoint*> KeyFrame::GetMapPointMatches()
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    return mvpMapPoints;
+const vector<MapPoint*> &KeyFrame::GetMapPointMatches() {
+  unique_lock<mutex> lock(mMutexFeatures);
+  return FrameBase::GetMapPointMatches();
 }
 
 MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
     return mvpMapPoints[idx];
+}
+
+void KeyFrame::FuseMP(size_t idx, MapPoint* pMP) {
+  PRINT_DEBUG_INFO_MUTEX(mnId<<"fusemp", imu_tightly_debug_path, "debug.txt");
+  // If there is already a MapPoint replace otherwise add new measurement
+  MapPoint *pMPinKF = GetMapPoint(idx);
+  if (pMPinKF) {
+    if (!pMPinKF->isBad()) {
+      // if pMP in pKF is better then discard pMP and use pMPinKF instead
+      if (pMPinKF->Observations() > pMP->Observations())
+        pMP->Replace(pMPinKF);
+      else  // else replace pMPinKF with pMP
+        pMPinKF->Replace(pMP);
+    }     // TODO: maybe when it's bad, can fuse it as well, just add?
+  } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
+  {
+    pMP->AddObservation(this, idx);
+    PRINT_DEBUG_INFO_MUTEX("addmp3" << endl, imu_tightly_debug_path, "debug.txt");
+    AddMapPoint(pMP, idx);
+  }
 }
 
 void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
@@ -485,24 +511,18 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
 
     //For all map points in keyframe check in which other keyframes are they seen
     //Increase counter for those keyframes
-    for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++)
-    {
-        MapPoint* pMP = *vit;
+    for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++) {
+      MapPoint *pMP = *vit;
 
-        if(!pMP)
-            continue;
+      if (!pMP) continue;
 
-        if(pMP->isBad())
-            continue;
+      if (pMP->isBad()) continue;
 
-        map<KeyFrame*,size_t> observations = pMP->GetObservations();
-
-        for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-        {
-            if(mit->first->mnId==mnId)
-                continue;
-            KFcounter[mit->first]++;
-        }
+      map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
+      for (auto mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+        if (mit->first->mnId == mnId) continue;
+        KFcounter[mit->first]++;
+      }
     }
 
     // This should not happen
@@ -510,7 +530,7 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
         cout<<"Failed to update spanning tree! "<<mnId<<" "<<mnFrameId<<endl;
 	if (pLastKF==NULL){
 	  if (mpParent==NULL)
-	    assert(mnId==0);//"Error in parameter in UpdateConnections()"
+	    CV_Assert(mnId==0);//"Error in parameter in UpdateConnections()"
 	  else
 	    cout<<"but has 1 parent and "<<mConnectedKeyFrameWeights.size()<<" covisibility KFs"<<endl;
 	}else{
@@ -543,7 +563,8 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
 
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(KFcounter.size());
-    for(map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend;++mit)//finally we keep the unidirectional edge strategy for we don't want to change the pure RGBD part!
+    //finally we keep the unidirectional edge strategy for we don't want to change the pure RGBD part!
+    for(map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend;++mit)
     {
         if(mit->second>nmax)
         {
@@ -553,7 +574,8 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
         if(mit->second>=th)
         {
             vPairs.push_back(make_pair(mit->second,mit->first));
-            (mit->first)->AddConnection(this,mit->second);//notice here when <th but vPairs is not empty, it's only one directed edge in the covisibility graph!!! is this right? I think it's wrong, so I added a revision
+          //notice here when <th but vPairs is not empty, it's only one directed edge in the covisibility graph!!! is this right? I think it's wrong, so I added a revision
+            (mit->first)->AddConnection(this,mit->second);
 // 	    ++mit;
         }/*else if (mit->first!=pKFmax){//we avoid one directional edge!
 	  mit=KFcounter.erase(mit);//revised by zzh, one original bug of ORBSLAM2!
@@ -590,7 +612,6 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
             mpParent->AddChild(this);
             mbFirstConnection = false;
         }
-
     }
 }
 
@@ -667,19 +688,24 @@ void KeyFrame::SetErase()
 }
 
 void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for bad KFs may be used by some Frames' trajectory retrieve
-{   
-    assert(!mbBad);//check    
+{
+  assert(!mbBad);  // check
+  {
+    unique_lock<mutex> lock(mMutexConnections);
+    // cannot erase the initial/fixed KF
+    if (mnId == 0)
+      return;
+    else if (mbNotErase)  // mbNotErase may be set true by LoopClosing
     {
-        unique_lock<mutex> lock(mMutexConnections);
-        if(mnId==0)//cannot erase the initial/fixed KF
-            return;
-        else if(mbNotErase)//mbNotErase may be set true by LoopClosing
-        {
-            mbToBeErased = true;//wait to be erased in SetErase() by LoopClosing
-            return;
-        }
+      mbToBeErased = true;  // wait to be erased in SetErase() by LoopClosing
+      return;
     }
-    assert(mnId!=0);
+    // must be final set bad and before all data to be changed,
+    // then we could 0:just isBad() after accessing all data may be changed when setbadflag or
+    // 1: use some extra judgements
+    mbBad = true;
+  }
+  CV_Assert(mnId!=0);
 
     //erase the relation with this(&KF)
     for(map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
@@ -715,8 +741,8 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
             for(set<KeyFrame*>::iterator sit=mspChildrens.begin(), send=mspChildrens.end(); sit!=send; sit++)
             {
                 KeyFrame* pKF = *sit;
-                if(pKF->isBad())
-                    continue;
+                // here no need to consider multithread problem for SetBadFlag() is not for multithread, which uses SetErase tech.
+                if(pKF->isBad()) continue;
 
                 // Check if a parent candidate is connected to the keyframe (children of this)
                 vector<KeyFrame*> vpConnected = pKF->GetVectorCovisibleKeyFrames();
@@ -758,9 +784,8 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
 	}
 // 	if (mpParent!=NULL){
         mpParent->EraseChild(this);//notice here mspChildrens may not be empty, and it doesn't take part in the propagation in LoopClosing thread
-        if (!bKeepTree) mTcp = Tcw*mpParent->GetPoseInverse();//the inter spot/link of Frames with its refKF in spanning tree
+        if (!bKeepTree) mTcp = Tcw_*mpParent->GetPoseInverse();//the inter spot/link of Frames with its refKF in spanning tree
 // 	}
-        mbBad = true;
     }
 
     // Update Prev/Next KeyFrame in prev/next, mbBad is not absolutely related to its existence
@@ -837,45 +862,36 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
         UpdateBestCovisibles();
 }
 
-vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const float &r) const
-{
-    vector<size_t> vIndices;
-    vIndices.reserve(N);
+vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
+  vector<size_t> vIndices;
+  vIndices.reserve(N);
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
-    if(nMinCellX>=mnGridCols)
-        return vIndices;
+  const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
+  if (nMinCellX >= mnGridCols) return vIndices;
 
-    const int nMaxCellX = min((int)mnGridCols-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
-    if(nMaxCellX<0)
-        return vIndices;
+  const int nMaxCellX = min((int)mnGridCols - 1, (int)ceil((x - mnMinX + r) * mfGridElementWidthInv));
+  if (nMaxCellX < 0) return vIndices;
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));
-    if(nMinCellY>=mnGridRows)
-        return vIndices;
+  const int nMinCellY = max(0, (int)floor((y - mnMinY - r) * mfGridElementHeightInv));
+  if (nMinCellY >= mnGridRows) return vIndices;
 
-    const int nMaxCellY = min((int)mnGridRows-1,(int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
-    if(nMaxCellY<0)
-        return vIndices;
+  const int nMaxCellY = min((int)mnGridRows - 1, (int)ceil((y - mnMinY + r) * mfGridElementHeightInv));
+  if (nMaxCellY < 0) return vIndices;
 
-    for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
-    {
-        for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
-        {
-            const vector<size_t> vCell = mGrid[ix][iy];
-            for(size_t j=0, jend=vCell.size(); j<jend; j++)
-            {
-                const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
-                const float distx = kpUn.pt.x-x;
-                const float disty = kpUn.pt.y-y;
+  for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
+    for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
+      const vector<size_t> vCell = vgrids_[cami][ix][iy];
+      for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
+        const cv::KeyPoint &kpUn = (!mpCameras.size() || !Frame::usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
+        const float distx = kpUn.pt.x - x;
+        const float disty = kpUn.pt.y - y;
 
-                if(fabs(distx)<r && fabs(disty)<r)
-                    vIndices.push_back(vCell[j]);
-            }
-        }
+        if (fabs(distx) < r && fabs(disty) < r) vIndices.push_back(vCell[j]);
+      }
     }
+  }
 
-    return vIndices;
+  return vIndices;
 }
 
 bool KeyFrame::IsInImage(const float &x, const float &y) const
@@ -885,6 +901,7 @@ bool KeyFrame::IsInImage(const float &x, const float &y) const
 
 cv::Mat KeyFrame::UnprojectStereo(int i)
 {
+  //TODO: if right u used for fisheye, change implementation here
     const float z = mvDepth[i];
     if(z>0)
     {
@@ -904,24 +921,24 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
 float KeyFrame::ComputeSceneMedianDepth(const int q)
 {
     vector<MapPoint*> vpMapPoints;
-    cv::Mat Tcw_;
+    cv::Mat Tcw;
     {
         unique_lock<mutex> lock(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPose);
         vpMapPoints = mvpMapPoints;
-        Tcw_ = Tcw.clone();
+        Tcw = Tcw_.clone();
     }
 
     vector<float> vDepths;
     vDepths.reserve(N);
-    cv::Mat Rcw2 = Tcw_.row(2).colRange(0,3);
+    cv::Mat Rcw2 = Tcw.row(2).colRange(0,3);
     Rcw2 = Rcw2.t();
-    float zcw = Tcw_.at<float>(2,3);
+    float zcw = Tcw.at<float>(2,3);
     for(int i=0; i<N; i++)
     {
-        if(mvpMapPoints[i])
+        if(vpMapPoints[i])
         {
-            MapPoint* pMP = mvpMapPoints[i];
+            MapPoint* pMP = vpMapPoints[i];
             cv::Mat x3Dw = pMP->GetWorldPos();
             float z = Rcw2.dot(x3Dw)+zcw;
             vDepths.push_back(z);
