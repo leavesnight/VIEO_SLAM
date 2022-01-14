@@ -238,9 +238,9 @@ int main(int argc, char **argv) {
 
     // Pass the images to the SLAM system
     if (!imLeftRect.empty())
-      SLAM.TrackStereo(imLeftRect, imRightRect, tframe);
+      SLAM.TrackStereo(vector<cv::Mat>({imLeftRect, imRightRect}), tframe);
     else
-      SLAM.TrackStereo(imLeft, imRight, tframe, false);
+      SLAM.TrackStereo(vector<cv::Mat>({imLeft, imRight}), tframe, false);
 
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

@@ -994,8 +994,6 @@ void Frame::ComputeStereoMatches() {
 }
 
 void Frame::ComputeStereoFishEyeMatches() {
-  // TODO: test 4 cams
-  CV_Assert(mpCameras.size() == 2);
   // Speed it up by matching keypoints in the lapping area
   size_t n_cams = vvkeys_.size();
 
@@ -1117,7 +1115,7 @@ void Frame::ComputeStereoFishEyeMatches() {
       }
       mvuRight.push_back(-1);
       mvKeys.push_back(vvkeys_[i][k]);
-      mapn2in_.push_back(make_pair(i, k));
+      mapn2in_.push_back(camidx);
       ++num_pt_added;
     }
   }

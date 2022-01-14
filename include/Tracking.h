@@ -139,7 +139,7 @@ public:
     }
 
     // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    cv::Mat GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp, const bool inputRect = true);
+    cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
     cv::Mat GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp);
     cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
 
@@ -244,7 +244,7 @@ protected:
     IMUInitialization* mpIMUInitiator;//zzh
 
     //ORB
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
+    vector<ORBextractor*> mpORBextractors = vector<ORBextractor*>(1, nullptr);
     ORBextractor* mpIniORBextractor;
 
     //BoW

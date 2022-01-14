@@ -689,10 +689,14 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
   int fIniThFAST = fSettings["ORBextractor.iniThFAST"];
   int fMinThFAST = fSettings["ORBextractor.minThFAST"];
 
-  mpORBextractorLeft = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+  mpORBextractors[0] = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
-  if (sensor == System::STEREO)
-    mpORBextractorRight = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+  if (sensor == System::STEREO) {
+    int n_cams = mpCameras.size() < 2 ? 2 : mpCameras.size();
+    mpORBextractors.resize(n_cams);
+    for (int i = 1; i < n_cams; ++i)
+      mpORBextractors[i] = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+  }
 
   if (sensor == System::MONOCULAR)
     mpIniORBextractor = new ORBextractor(2 * nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
@@ -732,47 +736,33 @@ void Tracking::SetViewer(Viewer *pViewer)
 }
 
 
-cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRectRight, const double &timestamp, const bool inputRect)
-{
-    mtmGrabDelay=chrono::steady_clock::now();//zzh
-    mImGrays.resize(2);
-    mImGrays[0] = imRectLeft;
-    mImGrays[1] = imRectRight;
-
-    if(mImGrays[0].channels()==3)
-    {
-        if(mbRGB)
-        {
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGB2GRAY);
-            cvtColor(mImGrays[1],mImGrays[1],CV_RGB2GRAY);
-        }
-        else
-        {
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGR2GRAY);
-            cvtColor(mImGrays[1],mImGrays[1],CV_BGR2GRAY);
-        }
+cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect) {
+  mtmGrabDelay = chrono::steady_clock::now();  // zzh
+  int n_cams = ims.size();
+  mImGrays.resize(n_cams);
+  for (int i = 0; i < n_cams; ++i) {
+    mImGrays[i] = ims[i];
+    if (mImGrays[i].channels() == 3) {
+      if (mbRGB) {
+        cvtColor(mImGrays[i], mImGrays[i], CV_RGB2GRAY);
+      } else {
+        cvtColor(mImGrays[i], mImGrays[i], CV_BGR2GRAY);
+      }
+    } else if (mImGrays[i].channels() == 4) {
+      if (mbRGB) {
+        cvtColor(mImGrays[i], mImGrays[i], CV_RGBA2GRAY);
+      } else {
+        cvtColor(mImGrays[i], mImGrays[i], CV_BGRA2GRAY);
+      }
     }
-    else if(mImGrays[0].channels()==4)
-    {
-        if(mbRGB)
-        {
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGBA2GRAY);
-            cvtColor(mImGrays[1],mImGrays[1],CV_RGBA2GRAY);
-        }
-        else
-        {
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGRA2GRAY);
-            cvtColor(mImGrays[1],mImGrays[1],CV_BGRA2GRAY);
-        }
-    }
+  }
 
-    vector<cv::Mat> imgs = {mImGrays[0], mImGrays[1]};
-    vector<ORBextractor*> extractors = {mpORBextractorLeft, mpORBextractorRight};
-    mCurrentFrame = Frame(imgs,timestamp,extractors,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth, inputRect ? nullptr : &mpCameras, System::usedistort_);
+  mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
+                        inputRect ? nullptr : &mpCameras, System::usedistort_);
 
-    Track();
+  Track();
 
-    return mCurrentFrame.GetTcwRef().clone();
+  return mCurrentFrame.GetTcwRef().clone();
 }
 
 cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp)
@@ -801,7 +791,7 @@ cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const d
     if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
         imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
 
-    mCurrentFrame = Frame(mImGrays[0],imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);//here extracting the ORB features of ImGray
+    mCurrentFrame = Frame(mImGrays[0],imDepth,timestamp,mpORBextractors[0],mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);//here extracting the ORB features of ImGray
 
     cv::Mat img[2]={imRGB.clone(),imD.clone()};
     Track(img);
@@ -833,7 +823,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
     if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
         mCurrentFrame = Frame(mImGrays[0],timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
     else
-        mCurrentFrame = Frame(mImGrays[0],timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
+        mCurrentFrame = Frame(mImGrays[0],timestamp,mpORBextractors[0],mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
 
     Track();
 
@@ -1862,8 +1852,9 @@ bool Tracking::NeedNewKeyFrame()
         for (int k = 0; k < mCurrentFrame.mv3Dpoints.size(); ++k) {
           if (mCurrentFrame.goodmatches_[k]) {
             size_t i = mCurrentFrame.mapidxs2n_[k];
+            CV_Assert(-1 != i);
             float z = mCurrentFrame.mvDepth[i];
-            CV_Assert(-1 != i && z > 0);
+            CV_Assert(z > 0);
             if (z < mThDepth) {
               // it's a inlier map point or tracked one
               if (curfmps[i] && !mCurrentFrame.mvbOutlier[i])

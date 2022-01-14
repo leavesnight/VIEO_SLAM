@@ -653,7 +653,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mpIMUInitiator->SetLocalMapper(mpLocalMapper);  // for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
 }
 
-cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp, const bool inputRect)
+cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect)
 {
     if(mSensor!=STEREO)
     {
@@ -695,7 +695,7 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     }
     }
 
-    cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp, inputRect);
+    cv::Mat Tcw = mpTracker->GrabImageStereo(ims,timestamp, inputRect);
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
