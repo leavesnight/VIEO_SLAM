@@ -135,7 +135,7 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
   }
   vector<float> czs(n_cams);
   CV_Assert(!purbf || n_cams == purbf->size());
-  for (size_t i = 0, iother; i < n_cams; iother = i++) {
+  for (size_t i = 0; i < n_cams; ++i) {
     // Check positive depth
     const auto &Riw = Tcws[i].block<3, 3>(0, 0);
     const auto &tiw = Tcws[i].col(3);
@@ -229,7 +229,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
   uint8_t contradict = 0;
   if (iteri != mapcamidx2idxs_.end()) {
     ididxs = iteri->second;
-    contradict = (iterj != mapcamidx2idxs_.end() && iterj->second != ididxs) ? 1 : 0;
+    contradict = (iterj != mapcamidx2idxs_.end() && iterj->second != ididxs) ? 2 : 0;
     auto idxs = mvidxsMatches[ididxs];
 #ifdef USE_STRATEGY_MIN_DIST
     if (contradict && plastdists) {
@@ -250,12 +250,13 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
       if (dists_sum[1] * count_num[0] < dists_sum[0] * count_num[1]) {
         idxs = idxsj;
         ididxs = iterj->second;
-        contradict = 2;
+        contradict = 1;
       }
     }
 #endif
     if (-1 == idxs[cami]
 #ifdef USE_STRATEGY_MIN_DIST
+        // idxi!= for 1<->2,1<->3, 2<->3 will be skipped
         || plastdists && idxi != idxs[cami] && (*plastdists)[ididxs][cami] > dist
 #endif
     ) {
@@ -275,6 +276,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
 #ifdef USE_STRATEGY_ABANDON
     else if (idxj != idxs[camj])
       goodmatches[ididxs] = false;
+    if (contradict) goodmatches[ididxs] = false;
 #endif
   } else {
     checkdepth[0] = 1;
@@ -283,7 +285,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
   if (pcount_descmatch) ++*pcount_descmatch;
   if (checkdepth[0] || checkdepth[1]) {
 #ifndef USE_STRATEGY_MIN_DIST
-    CV_Assert(!contradict);
+    if (contradict) return false;
 #endif
     cv::Mat p3D;
     bool bdepth_ok = !psigmas || !pkpts;
@@ -321,20 +323,17 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
 #ifdef USE_STRATEGY_MIN_DIST
       else if (2 == checkdepth[0] || 2 == checkdepth[1]) {
         if (contradict) {
-          auto ididxs_contradict = 1 == contradict ? iterj->second : iteri->second;
+          auto ididxs_contradict = 1 == contradict ? iteri->second : iterj->second;
           auto &idxs = mvidxsMatches[ididxs_contradict];
-          size_t count_num = 0;
-          for (size_t itmp = 0; itmp < n_cams_tot; ++itmp) {
-            if (idxi == idxs[itmp]) {
-              mapcamidx2idxs_.erase(camidxi);
-              if (plastdists) (*plastdists)[ididxs_contradict][itmp] = INFINITY;
-              idxs[itmp] = -1;
-            } else if (idxj == idxs[itmp]) {
-              mapcamidx2idxs_.erase(camidxj);
-              if (plastdists) (*plastdists)[ididxs_contradict][itmp] = INFINITY;
-              idxs[itmp] = -1;
-            } else if (-1 != idxs[itmp])
-              ++count_num;
+          if (idxi == idxs[cami]) {
+            mapcamidx2idxs_.erase(camidxi);
+            if (plastdists) (*plastdists)[ididxs_contradict][cami] = INFINITY;
+            idxs[cami] = -1;
+          }
+          if (idxj == idxs[camj]) {
+            mapcamidx2idxs_.erase(camidxj);
+            if (plastdists) (*plastdists)[ididxs_contradict][camj] = INFINITY;
+            idxs[camj] = -1;
           }
         }
         auto &idxs = mvidxsMatches[ididxs];
