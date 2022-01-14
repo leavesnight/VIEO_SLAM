@@ -123,6 +123,23 @@ int main(int argc, char **argv) {
 
   cv::FileStorage fSettings(argv[2], cv::FileStorage::READ);  // already checked in System() creator
   cv::FileNode fnDelay = fSettings["Camera.delayForPolling"];
+  cv::FileNode fnimumode = fSettings["IMU.mode"];
+  int mode_imu = fnimumode.empty() ? 0 : (int)fnimumode;
+  if (1 == (int)mode_imu) {  // 1 menas -gy,gxgz/-ay,axaz
+    for (int seq = 0; seq < num_seq; ++seq) {
+      auto &vacc = vAcc[seq], &vgyr = vGyro[seq];
+      for (int i = 0; i < vacc.size(); ++i)
+        for (int j = 0; j < vacc[i].size(); ++j) {
+          swap(vacc[i][j].x, vacc[i][j].y);
+          vacc[i][j].y = -vacc[i][j].y;
+        }
+      for (int i = 0; i < vgyr.size(); ++i)
+        for (int j = 0; j < vgyr[i].size(); ++j) {
+          swap(vgyr[i][j].x, vgyr[i][j].y);
+          vgyr[i][j].y = -vgyr[i][j].y;
+        }
+    }
+  }
   if (fnDelay.empty()) {
     gDelayCache = 0;
   } else {

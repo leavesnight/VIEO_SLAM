@@ -19,6 +19,9 @@ Encoder.scale: 1.649336143e-4
 Encoder.sigma:
  [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
 
+# mode 0 is normal right order gxgygz/axayaz, 1 means -gy,gxgz/-ay,axaz
+IMU.mode: 1
+
 # Sigma etawi of IMU
 IMU.SigmaI:
  [0.1, 0, 0,
