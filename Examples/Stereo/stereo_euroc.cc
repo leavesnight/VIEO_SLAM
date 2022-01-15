@@ -299,6 +299,7 @@ int main(int argc, char **argv) {
   }
   PRINT_INFO_MUTEX( "-------" << endl << endl);
   PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImages << endl);
+  PRINT_INFO_MUTEX( "max tracking time: " << vTimesTrack.back() << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");

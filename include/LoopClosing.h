@@ -177,8 +177,9 @@ protected:
     // Fix scale in the stereo/RGB-D case
     bool mbFixScale;//true in RGBD
 
-
     char mnFullBAIdx;//char/int may be better
+
+    int thresh_matches_[2], thresh_inliers_[2];
 };
 
 } //namespace ORB_SLAM

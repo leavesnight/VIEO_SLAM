@@ -787,6 +787,7 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
           int dist = DescriptorDistance(d1, d2);
 
           size_t img_id = 0;
+          // TODO: check if needed
 #undef MATCH_KNN_IN_EACH_IMG
 #ifdef MATCH_KNN_IN_EACH_IMG
           if (pKF2->mapn2in_.size() > idx2) {

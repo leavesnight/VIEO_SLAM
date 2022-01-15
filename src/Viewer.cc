@@ -49,6 +49,8 @@ Viewer::Viewer(System* pSystem, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer
     mViewpointY = fSettings["Viewer.ViewpointY"];
     mViewpointZ = fSettings["Viewer.ViewpointZ"];
     mViewpointF = fSettings["Viewer.ViewpointF"];
+    cv::FileNode ncams_max = fSettings["Viewer.MaxCamsNum"];
+    if (!ncams_max.empty()) max_cams_num = (int)ncams_max;
 }
 
 void Viewer::Run()
@@ -134,41 +136,44 @@ void Viewer::Run()
 
         pangolin::FinishFrame();
 
-      cv::Mat toShow;
-      cv::Mat im = mpFrameDrawer->DrawFrame(0);
-      if(mpFrameDrawer->showallimages_) {
-        if (1 <= mpFrameDrawer->n_cams_) {
+      if (max_cams_num) {
+        cv::Mat toShow;
+        cv::Mat im = mpFrameDrawer->DrawFrame(0);
+        if (mpFrameDrawer->showallimages_) {
           int n_cams = mpFrameDrawer->n_cams_;
-          int n_cols = 2;
-          int n_rows = n_cams / n_cols;
-          vector<cv::Mat> ims(n_rows);
-          ims[0] = im;
-          int i = 1;
-          for (; i < n_cams; ++i) {
-            int row = i / n_cols;
-            cv::Mat im_other = mpFrameDrawer->DrawFrame(i);
-            if (i % n_cols)
-              cv::hconcat(ims[row], im_other, ims[row]);
-            else {
-              ims[row] = im_other;
-              if (i != n_cols)
-                cv::vconcat(toShow, ims[row - 1], toShow);
-              else
-                toShow = ims[0];
+          if (-1 != max_cams_num && max_cams_num < mpFrameDrawer->n_cams_) n_cams = max_cams_num;
+          if (1 <= n_cams) {
+            int n_cols = 2;
+            if (n_cams < n_cols) n_cols = n_cams;
+            int n_rows = n_cams / n_cols;
+            vector<cv::Mat> ims(n_rows);
+            ims[0] = im;
+            int i = 1;
+            for (; i < n_cams; ++i) {
+              int row = i / n_cols;
+              cv::Mat im_other = mpFrameDrawer->DrawFrame(i);
+              if (i % n_cols)
+                cv::hconcat(ims[row], im_other, ims[row]);
+              else {
+                ims[row] = im_other;
+                if (i != n_cols)
+                  cv::vconcat(toShow, ims[row - 1], toShow);
+                else
+                  toShow = ims[0];
+              }
             }
+            if (i == n_cols)
+              toShow = ims[0];
+            else
+              cv::vconcat(toShow, ims[1], toShow);
           }
-          if (i == n_cols)
-            toShow = ims[0];
-          else
-            cv::vconcat(toShow, ims[1], toShow);
+        } else {
+          toShow = im;
         }
-      }
-      else{
-        toShow = im;
-      }
 
-      cv::imshow("VIEO_SLAM: Current Frame",toShow);
+        cv::imshow("VIEO_SLAM: Current Frame", toShow);
         cv::waitKey(mT);
+      }
 
         if(menuReset)
         {
