@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  const int nImages = vstrimg[0].size();
+  int nImages = vstrimg[0].size(), nImagesUsed = 0;
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
 
   // Vector for tracking time statistics
   vector<float> vTimesTrack;
-  vTimesTrack.resize(nImages);
+  vTimesTrack.resize(nImages, 0);
 
   PRINT_INFO_MUTEX( endl << "-------" << endl);
   PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
@@ -200,9 +200,24 @@ int main(int argc, char **argv) {
 
   // Main loop
   vector<cv::Mat> ims(2);
-  for (int ni = 0; ni < nImages; ni++) {
+  cv::FileNode fnfps = fSettings["Camera.fps"];
+  int fpsrat = 1;
+  if (!fnfps.empty() && nImages > 1) {
+    double fps = (double)fnfps;
+    double fpsreal = vtmcam[0].size() / (vtmcam[0].back() - vtmcam[0].front());
+    fpsrat = (int)(fpsreal / fps + 0.5);
+    if (fpsrat < 1) fpsrat = 1;
+    PRINT_INFO_MUTEX("fps ratio: " << fpsrat << endl);
+  }
+  {
+    auto &vtmimu = vTimestampsImu[seq];
+    while (vtmcam[0][nImages - 1] > vtmimu[0].back()) {
+      --nImages;
+    }
+  }
+  for (int ni = 0; ni < nImages; ni+=fpsrat) {
     // Read left and right images from file
-    ims[0] = cv::imread(vstrimg[0][ni],cv::IMREAD_GRAYSCALE);
+    ims[0] = cv::imread(vstrimg[0][ni], cv::IMREAD_GRAYSCALE);
     if (!dataset_type) {
       ims[1] = ims[0].colRange(ims[0].cols / 2, ims[0].cols);
       ims[0] = ims[0].colRange(0, ims[0].cols / 2);
@@ -255,8 +270,10 @@ int main(int argc, char **argv) {
       T = vtmcam[0][ni + 1] - tframe;
     else if (ni > 0)
       T = tframe - vtmcam[0][ni - 1];
+    T *= fpsrat;
 
     if (ttrack < T) usleep((T - ttrack) * 1e6);
+    ++nImagesUsed;
   }
 
   // zzh
@@ -295,7 +312,8 @@ int main(int argc, char **argv) {
     totaltime += vTimesTrack[ni];
   }
   PRINT_INFO_MUTEX( "-------" << endl << endl);
-  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImages << endl);
+  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImagesUsed << endl);
+  PRINT_INFO_MUTEX( "max tracking time: " << vTimesTrack.back() << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");

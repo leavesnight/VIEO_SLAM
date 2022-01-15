@@ -66,6 +66,8 @@ IMU.SleepTime: 1.0
 GBA.iterations: 10
 GBA.initIterations: 15
 GBA.finalIterations: 0
+GBA.threshMatches : 10
+GBA.threshInliers : 10
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
@@ -114,7 +116,7 @@ Camera.width: 640
 Camera.height: 480
 
 # Camera frames per second 
-Camera.fps: 60.0
+Camera.fps: 30.0
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
@@ -129,13 +131,13 @@ ThDepth: 35.0 # 35
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 1000
+ORBextractor.nFeatures: 375
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
-ORBextractor.scaleFactor: 1.2
+ORBextractor.scaleFactor: 2.
 
 # ORB Extractor: Number of levels in the scale pyramid	
-ORBextractor.nLevels: 8
+ORBextractor.nLevels: 4
 
 # ORB Extractor: Fast threshold
 # Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.

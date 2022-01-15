@@ -70,6 +70,7 @@ private:
     float mImageWidth, mImageHeight;
 
     float mViewpointX, mViewpointY, mViewpointZ, mViewpointF;
+    int max_cams_num = -1;
 
     bool CheckFinish();
     void SetFinish();
