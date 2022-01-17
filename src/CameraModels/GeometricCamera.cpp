@@ -176,7 +176,7 @@ bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::Key
 
   // Epipolar line in second image l = x1'F12 = [a b c], or l2=e2 cross x2=F21*x1=[a;b;c](easy to prove F21'=F12), here
   // l2 means n vector(perpendicular to x2&&e2), e2 means epipolar point in 2nd image
-  auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
+  auto pt1 = unproject(kp1.pt), pt2 = pCamera2->unproject(kp2.pt);
   const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);  // p1'*F12
   const float b = pt1.x * F12(0, 1) + pt1.y * F12(1, 1) + F12(2, 1);
   const float c = pt1.x * F12(0, 2) + pt1.y * F12(1, 2) + F12(2, 2);
