@@ -322,11 +322,9 @@ public:
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
-  std::vector<std::vector<cv::KeyPoint>> vvkeys_;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
-  std::vector<cv::Mat> vdescriptors_;
 
     //BoW
     DBoW2::BowVector mBowVec;

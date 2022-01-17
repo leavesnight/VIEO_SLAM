@@ -116,10 +116,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mpNextKeyFrame = NULL;    // zzh, constructor doesn't need to lock mutex
   mNavState = F.mNavState;  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
 
-  vvkeys_ = F.vvkeys_;
-  vdescriptors_.resize(F.vdescriptors_.size());
-  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
-
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
@@ -231,10 +227,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mNavState.mba += mNavState.mdba;
   mNavState.mdbg = mNavState.mdba =
       Eigen::Vector3d::Zero();  // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
-
-  vvkeys_ = F.vvkeys_;
-  vdescriptors_.resize(F.vdescriptors_.size());
-  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
   // created by zzh over
 
   mnId = nNextId++;

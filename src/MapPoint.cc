@@ -92,6 +92,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
 {
     Pos.copyTo(mWorldPos);
     //similar to part in the StereoInitialization(): Update Normal&Depth Compute Descriptor
+    // TODO(zzh): check dist&level from multicams instead of current ref cam 0
     cv::Mat Ow = pFrame->GetCameraCenter();
     mNormalVector = mWorldPos - Ow;
     mNormalVector = mNormalVector/cv::norm(mNormalVector);//normalized normal vector
@@ -444,6 +445,7 @@ void MapPoint::UpdateNormalAndDepth() {
     }
   }
 
+  // TODO(zzh): check dist&level from multicams instead of current ref cam 0
   cv::Mat PC = Pos - pRefKF->GetCameraCenter();
   const float dist =
       cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
