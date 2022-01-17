@@ -57,19 +57,37 @@ LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, 
     mbStopGBA(false), mpThreadGBA(NULL), mbFixScale(bFixScale), mnFullBAIdx(0),
     mpIMUInitiator(NULL),mnLastOdomKFId(0),mbLoopDetected(false)//zzh
 {
-    cv::FileStorage fSettings(strSettingPath,cv::FileStorage::READ);
-    cv::FileNode fnIter[2]={fSettings["GBA.iterations"],fSettings["GBA.initIterations"]};
-    if (fnIter[0].empty()||fnIter[1].empty()){
-      mnInitIterations=15;//15 as the VIORBSLAM paper
-      mnIterations=10;//default 10 for real-time nice responce
-      cout<<redSTR"No iterations,use default 15(normal),15(init)"<<whiteSTR<<endl;
-    }else{
-      mnIterations=fnIter[0];
-      mnInitIterations=fnIter[1];
-    }
-//created by zzh
-  
-    mnCovisibilityConsistencyTh = 3;
+  cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
+  cv::FileNode fnIter[] = {fSettings["GBA.iterations"],    fSettings["GBA.initIterations"],
+                           fSettings["GBA.threshMatches"], fSettings["GBA.threshMatches2"],
+                           fSettings["GBA.threshInliers"], fSettings["GBA.threshInliers2"]};
+  if (fnIter[0].empty() || fnIter[1].empty()) {
+    mnInitIterations = 15;  // 15 as the VIORBSLAM paper
+    mnIterations = 10;      // default 10 for real-time nice responce
+    cout << redSTR "No iterations,use default 15(normal),15(init)" << whiteSTR << endl;
+  } else {
+    mnIterations = fnIter[0];
+    mnInitIterations = fnIter[1];
+  }
+  if (fnIter[2].empty())
+    thresh_matches_[0] = 20;
+  else
+    thresh_matches_[0] = (int)fnIter[2];
+  if (fnIter[3].empty())
+    thresh_matches_[1] = 15;
+  else
+    thresh_matches_[1] = (int)fnIter[3];
+  if (fnIter[4].empty())
+    thresh_inliers_[0] = 20;
+  else
+    thresh_inliers_[0] = (int)fnIter[4];
+  if (fnIter[5].empty())
+    thresh_inliers_[1] = 10;
+  else
+    thresh_inliers_[1] = (int)fnIter[5];
+  // created by zzh
+
+  mnCovisibilityConsistencyTh = 3;
 }
 
 void LoopClosing::SetTracker(Tracking *pTracker)
@@ -309,18 +327,18 @@ bool LoopClosing::ComputeSim3()
         corresponding to pKF1/mpCurrentKF in LoopClosing
 
         cout<<redSTR<<i<<": "<<nmatches<<endl;
-        int thresholdMatches=mnLastOdomKFId==0?20:15;
+        int thresholdMatches=mnLastOdomKFId==0?thresh_matches_[0]:thresh_matches_[1];
         if(nmatches<thresholdMatches)//20)//same threshold in TrackWithMotionModel(), new 10
         {
             vbDiscarded[i] = true;
             continue;
         }
-        else
-        {
-            Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF,pKF,vvpMapPointMatches[i],mbFixScale);//how?
-            int minInliers=mnLastOdomKFId==0?20:10;//20 is stricter than Relocalization()s, old 20 new 10
-            pSolver->SetRansacParameters(0.99,minInliers,300);
-            vpSim3Solvers[i] = pSolver;
+        else {
+          Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);  // how?
+          // 20 is stricter than Relocalization()s, old 20 new 10
+          int minInliers = mnLastOdomKFId == 0 ? thresh_inliers_[0] : thresh_inliers_[1];
+          pSolver->SetRansacParameters(0.99, minInliers, 300);
+          vpSim3Solvers[i] = pSolver;
         }
 
         nCandidates++;//>=20 matches
