@@ -201,7 +201,6 @@ public:
   std::vector<cv::KeyPoint> mvKeys;
   std::vector<cv::KeyPoint> mvKeysUn;
   std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
-  std::vector<std::vector<cv::KeyPoint>> vvkeys_un_;
   std::vector<std::vector<size_t>> mapin2n_; // mapcamidx2n_ for addobs func.
 
   // Corresponding stereo coordinate and depth for each keypoint.

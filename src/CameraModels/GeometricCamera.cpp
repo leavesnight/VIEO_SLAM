@@ -91,7 +91,6 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
   aligned_vector<Eigen::Vector3d> normedcPs(n_cams);
   vector<Eigen::Matrix3d> Rwi(n_cams);  // if no pTwr, w means r here
   vector<Eigen::Vector3d> twi(n_cams);
-  GeometricCamera *pcam = this;
   CV_Assert(!pTwr || n_cams == pTwr->size());
   for (size_t i = 0; i < n_cams; ++i) {
     auto &pcam = (*ppcams)[i];

@@ -312,7 +312,6 @@ Frame::Frame(const Frame &frame)
       mvKeys(frame.mvKeys),
       mvKeysUn(frame.mvKeysUn),
       vvkeys_(frame.vvkeys_),
-      vvkeys_un_(frame.vvkeys_un_),
       mapin2n_(frame.mapin2n_),
       mvuRight(frame.mvuRight),
       mvDepth(frame.mvDepth),
@@ -757,7 +756,6 @@ void Frame::ComputeBoW() {
 void Frame::UndistortKeyPoints() {
   if (mDistCoef.at<float>(0) == 0.0 && !mpCameras.size()) {
     mvKeysUn = mvKeys;
-    vvkeys_un_ = vvkeys_;
     return;
   }
 
