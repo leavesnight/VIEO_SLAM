@@ -118,6 +118,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
 
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
+  Tcw_.release();
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
@@ -232,6 +233,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
 
+  Tcw_.release();
   SetPose(F.GetTcwRef());
   PRINT_DEBUG_INFO_MUTEX("checkkf"<<mnId<<" ", imu_tightly_debug_path, "debug.txt");
   size_t i =0;
