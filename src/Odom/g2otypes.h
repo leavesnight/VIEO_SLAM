@@ -770,7 +770,7 @@ void EdgeNavStateI<NV>::linearizeOplus() {
   JPRVi.block<3, 3>(idR, idV) = O3x3;  // J_rRij_dvi
   // right is Exp(rdeltaRij).t(), same as Sophus::SO3exd::exp(rPhiij).inverse().matrix()
   //  J_rRij_ddbgi, notice Jr_b=Jr(Jg_deltaR*dbgi)
-  JBiasi.block<3, 3>(idR, 0) = -Jrinv * IMUPreintegrator::Expmap(-eR) *
+  JBiasi.block<3, 3>(idR, 0) = -Jrinv * Sophus::SO3exd::Expmap(-eR) *
                                Sophus::SO3exd::JacobianR(_measurement.mJgRij * dbgi) * _measurement.mJgRij;
   JBiasi.block<3, 3>(idR, 3) = O3x3;  // J_rRij_ddbai
   // J_rRij_dxj
@@ -858,7 +858,7 @@ class EdgeGyrBias : public BaseUnaryEdge<3, Vector3d, VertexGyrBias> {
   void computeError() {  // part of EdgeNavStateI
     const VertexGyrBias* v = static_cast<const VertexGyrBias*>(_vertices[0]);
     Vector3d bg = v->estimate();                           // bgi, here we think bg_=0, dbgi=bgi, see VIORBSLAM IV-A
-    Matrix3d dRbg = IMUPreintegrator::Expmap(JgRij * bg);  // right dR caused by dbgi
+    Matrix3d dRbg = Sophus::SO3exd::Expmap(JgRij * bg);  // right dR caused by dbgi
     Sophus::SO3exd errR((deltaRij * dRbg).transpose() * Rwbi.transpose() * Rwbj);  // deltaRij^T * Riw * Rwj
     _error = errR.log();  // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj), _error.segment<3>(0) is _error itself
   }
@@ -869,7 +869,7 @@ class EdgeGyrBias : public BaseUnaryEdge<3, Vector3d, VertexGyrBias> {
     Matrix3d Jrinv = Sophus::SO3exd::JacobianRInv(_error);  // JrInv_rPhi/Jrinv_rdeltaRij/Jrinv_eR
     _jacobianOplusXi =
         -Jrinv *
-        IMUPreintegrator::Expmap(
+        Sophus::SO3exd::Expmap(
             -_error) *  // right is Exp(rdeltaRij).t(), same as Sophus::SO3exd::exp(rPhiij).inverse().matrix()
         Sophus::SO3exd::JacobianR(JgRij * bg) *
         JgRij;  // J_rRij_ddbgi(3*3), notice Jr_b=Jr(Jg_deltaR*dbgi), here dbgi=bgi or bg

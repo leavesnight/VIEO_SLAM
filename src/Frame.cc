@@ -77,28 +77,28 @@ void Frame::UpdateNavStatePVRFromTcw() {
 //  }
 template <>
 void Frame::PreIntegration<IMUData>(Frame *pLastF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterjBack) {
+                                    listeig(IMUData)::const_iterator iterj) {
   Eigen::Vector3d bgi_bar = pLastF->mNavState.mbg,
                   bai_bar = pLastF->mNavState.mba;  // we can directly use mNavState here
 #ifndef TRACK_WITH_IMU
-  mOdomPreIntIMU.PreIntegration(pLastF->mTimeStamp, mTimeStamp, iteri, ++iterjBack);
+  mOdomPreIntIMU.PreIntegration(pLastF->mTimeStamp, mTimeStamp, iteri, iterj);
 #else
-  mOdomPreIntIMU.PreIntegration(pLastF->mTimeStamp, mTimeStamp, bgi_bar, bai_bar, iteri, ++iterjBack);
+  mOdomPreIntIMU.PreIntegration(pLastF->mTimeStamp, mTimeStamp, bgi_bar, bai_bar, iteri, iterj);
 #endif
 }
 template <>
 void Frame::PreIntegration<EncData>(KeyFrame *pLastKF, const listeig(EncData)::const_iterator &iteri,
-                                    listeig(EncData)::const_iterator iterjBack) {
-  mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, iteri, ++iterjBack);
+                                    listeig(EncData)::const_iterator iterj) {
+  mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, iteri, iterj);
 }
 template <>
 void Frame::PreIntegration<IMUData>(KeyFrame *pLastKF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterjBack) {
+                                    listeig(IMUData)::const_iterator iterj) {
   Eigen::Vector3d bgi_bar = pLastKF->GetNavState().mbg, bai_bar = pLastKF->GetNavState().mba;
 #ifndef TRACK_WITH_IMU
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, iteri, ++iterjBack);
+  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, iteri, iterj);
 #else
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, bgi_bar, bai_bar, iteri, ++iterjBack);
+  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp, bgi_bar, bai_bar, iteri, iterj);
 #endif
 }
 
@@ -293,10 +293,9 @@ Frame::Frame() {}
 
 // Copy Constructor
 Frame::Frame(const Frame &frame)
-    : FrameBase(frame),
+    : FrameBase(frame),// mOdomPreIntIMU/Enc list uncopied
       mpORBvocabulary(frame.mpORBvocabulary),
       mpORBextractors(frame.mpORBextractors),
-      mTimeStamp(frame.mTimeStamp),
       mK(frame.mK.clone()),
       mDistCoef(frame.mDistCoef.clone()),
       mbf(frame.mbf),
@@ -335,9 +334,6 @@ Frame::Frame(const Frame &frame)
   if (!frame.Tcw_.empty()) SetPose(frame.Tcw_);
 
   // created by zzh
-  mOdomPreIntIMU = frame.mOdomPreIntIMU;
-  mOdomPreIntEnc = frame.mOdomPreIntEnc;  // list uncopied
-  mNavState = frame.mNavState;
   mMargCovInv = frame.mMargCovInv;
   mNavStatePrior = frame.mNavStatePrior;
   mbPrior = frame.mbPrior;
@@ -346,8 +342,8 @@ Frame::Frame(const Frame &frame)
 Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
              cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
              const vector<GeometricCamera *> *pCamInsts, bool usedistort)
-    : mpORBvocabulary(voc),
-      mTimeStamp(timeStamp),
+    : FrameBase(timeStamp),
+      mpORBvocabulary(voc),
       mK(K.clone()),
       mDistCoef(distCoef.clone()),
       mbf(bf),
@@ -442,8 +438,8 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
 
 Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor *extractor,
              ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
-    : mpORBvocabulary(voc),
-      mTimeStamp(timeStamp),
+    : FrameBase(timeStamp),
+      mpORBvocabulary(voc),
       mK(K.clone()),
       mDistCoef(distCoef.clone()),
       mbf(bf),
@@ -506,8 +502,8 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 
 Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor *extractor, ORBVocabulary *voc, cv::Mat &K,
              cv::Mat &distCoef, const float &bf, const float &thDepth)
-    : mpORBvocabulary(voc),
-      mTimeStamp(timeStamp),
+    : FrameBase(timeStamp),
+      mpORBvocabulary(voc),
       mK(K.clone()),
       mDistCoef(distCoef.clone()),
       mbf(bf),

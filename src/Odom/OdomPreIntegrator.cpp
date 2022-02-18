@@ -12,12 +12,16 @@ namespace VIEO_SLAM{
 
 using namespace Eigen;
 
-void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &timeStampj,
-				      const listeig(EncData)::const_iterator &iterBegin,const listeig(EncData)::const_iterator &iterEnd){
-  if (iterBegin!=iterEnd&&timeStampi<timeStampj){//timeStampi may >=timeStampj for Map Reuse
-    Vector2d eigdeltaPijM(0,0);//deltaPii=0
-    double deltaThetaijMz=0;//deltaTheta~iiz=0
-    mSigmaEij.setZero();//SigmaEii=0
+void EncPreIntegrator::reset() {
+  eigdeltaPijM = Vector2d(0,0);//deltaPii=0
+  deltaThetaijMz = 0;//deltaTheta~iiz=0
+  mSigmaEij.setZero();//SigmaEii=0
+}
+
+int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &timeStampj,
+				      const listeig(EncData)::const_iterator &iterBegin,const listeig(EncData)::const_iterator &iterEnd, bool breset){
+  if (iterBegin!=iterEnd){//timeStampi may >=timeStampj for Map Reuse
+    if (breset) reset();
     const double EPS = 1E-5;
     
 //     listeig(EncData)::const_iterator it=iterEnd;
@@ -43,7 +47,7 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
       deltat=tj-tj_1;
       if (deltat==0) continue;
 //       assert(deltat>=0);
-      if (deltat>1.5){ mdeltatij=0;cout<<redSTR"Check Odometry!"<<whiteSTR<<endl;return;}//this filter is for the problem of my dataset which only contains encoder data
+      if (deltat>1.5){ mdeltatij=0;cout<<redSTR"Check Odometry!"<<whiteSTR<<endl;return -1;}//this filter is for the problem of my dataset which only contains encoder data
       
       //selete/design measurement_j-1
       double vl,vr;//vlj-1,vrj-1
@@ -122,6 +126,7 @@ void EncPreIntegrator::PreIntegration(const double &timeStampi,const double &tim
     mdelxEij[0]=mdelxEij[1]=mdelxEij[5]=0;mdelxEij[2]=deltaThetaijMz;mdelxEij.segment<2>(3)=eigdeltaPijM;
     mdeltatij=timeStampj-timeStampi;
   }
+  return 0;
 }
 void IMUPreIntegratorDerived::PreIntegration(const double &timeStampi,const double &timeStampj){
   if (!this->mlOdom.empty()){
