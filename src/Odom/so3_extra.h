@@ -176,7 +176,7 @@ class SO3ex : public SO3<Scalar, Options> {
       // w=0 should never happen here!
       assert(fabs(w) > SMALL_EPS);
 
-      two_atan_nbyw_by_n = 2. / w - 2. / 3 * (n * n) / (w * squared_w);  // TODO: try right Taylor 2./3
+      two_atan_nbyw_by_n = 2. / w - 2. / 3 * (n * n) / (w * squared_w);  // right Taylor 2./3
     } else {
       if (fabs(w) < SMALL_EPS) {  // notice atan(x) = pi/2 - atan(1/x)
         if (w > 0) {              // notice for range[-pi,pi), atan(x) = pi/2 - atan(1/x) for x>0
@@ -203,6 +203,27 @@ class SO3ex : public SO3<Scalar, Options> {
   SOPHUS_FUNC static Transformation JacobianL(const Tangent& w) { return JacobianR(-w); }
   // Jl^(-1)
   SOPHUS_FUNC static Transformation JacobianLInv(const Tangent& w) { return JacobianRInv(-w); }
+
+  // exponential map from vec3 to mat3x3 (Rodrigues formula)
+  // here is inline, but defined in .cpp is ok for efficiency due to copy elision(default gcc -O2 uses it) when
+  // return a temporary variable(NRVO/URVO)
+  SOPHUS_FUNC static Transformation Expmap(const Tangent& v) {
+    return exp(v).matrix();  // here is URVO
+  }
+
+  // normalize to avoid numerical error accumulation
+  SOPHUS_FUNC static inline QuaternionMember normalizeRotationQ(const QuaternionMember& r) {
+    QuaternionMember _r(r);
+    if (_r.w() < 0)  // is this necessary?
+    {
+      _r.coeffs() *= -1;
+    }
+    return _r.normalized();
+  }
+  SOPHUS_FUNC static inline Transformation normalizeRotationM(const Transformation& R) {
+    QuaternionMember qr(R);
+    return normalizeRotationQ(qr).toRotationMatrix();
+  }
 };
 
 template <class Scalar, int Options>

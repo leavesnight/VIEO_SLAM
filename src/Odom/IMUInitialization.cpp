@@ -12,7 +12,7 @@ IMUKeyFrameInit::IMUKeyFrameInit(KeyFrame& kf):mTimeStamp(kf.mTimeStamp),mTwc(kf
 mOdomPreIntIMU(kf.GetIMUPreInt()){//this func. for IMU Initialization cache of KFs, so need deep copy
   mbg_=mba_=Vector3d::Zero();//as stated in IV-A in VIORBSLAM paper 
   const listeig(IMUData) limu=kf.GetListIMUData();
-  mOdomPreIntIMU.SetPreIntegrationList(limu.begin(),--limu.end());
+  mOdomPreIntIMU.SetPreIntegrationList(limu.begin(),limu.end());
 }
 
 cv::Mat IMUInitialization::GetGravityVec(void){
@@ -850,7 +850,7 @@ bool IMUInitialization::TryInitVIO(void){//now it's the version cannot allow the
     double normgInxgwn=cv::norm(gInxgwn);
     cv::Mat vhat=gInxgwn/normgInxgwn;//RwI=Exp(theta*^v), or we can call it vn=(gI x gw)/||gI x gw||
     double theta=std::atan2(normgInxgwn,gIn.dot(gwn));//notice theta*^v belongs to [-Pi,Pi]*|^v| though theta belongs to [0,Pi]
-    Matrix3d RWIeig=IMUPreintegrator::Expmap(Converter::toVector3d(vhat)*theta);Rwi=Converter::toCvMat(RWIeig);//RwI
+    Matrix3d RWIeig=Sophus::SO3exd::Expmap(Converter::toVector3d(vhat)*theta);Rwi=Converter::toCvMat(RWIeig);//RwI
     
     // Solve C*x=D for x=[s,dthetaxy,ba] (1+2+3)x1 vector
     cv::Mat C=cv::Mat::zeros(3*(N-2),6,CV_32F);
@@ -901,7 +901,7 @@ bool IMUInitialization::TryInitVIO(void){//now it's the version cannot allow the
     cv::Mat y=vt2.t()*w2inv*u2.t()*D;// Then y/x = vt'*winv*u'*D
     s_=y.at<float>(0);//s*_C, C means IV-C in the paper
     Eigen::Vector3d dthetaeig(y.at<float>(1),y.at<float>(2),0);//small deltatheta/dtheta=[dthetaxy.t() 0].t()
-    Rwieig_=RWIeig*IMUPreintegrator::Expmap(dthetaeig);//RwI*_C=RwI*_B*Exp(dtheta)
+    Rwieig_=RWIeig*Sophus::SO3exd::Expmap(dthetaeig);//RwI*_C=RwI*_B*Exp(dtheta)
     Rwi_=Converter::toCvMat(Rwieig_);
 //     if (k==0)
     bastareig=Converter::toVector3d(y.rowRange(3,6));//here bai_bar=0, so dba=ba

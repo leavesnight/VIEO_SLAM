@@ -236,7 +236,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
   // Set Frame & fixed KeyFrame's vertices, see VIORBSLAM paper (4)~(8)
   const int FramePVRId = 0, FrameBiasId = 1, LastKFPVRId = 2, LastKFBiasId = 3;
-  NavState &nsj = pFrame->mNavState;
+  NavState &nsj = pFrame->GetNavStateRef();
   // Set Frame vertex PVR/Bias
   g2o::VertexNavStatePVR *vNSFPVR = new g2o::VertexNavStatePVR();
   vNSFPVR->setEstimate(nsj);
@@ -261,7 +261,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   optimizer.addVertex(vNSKFBias);
 
   // Set IMU_I/PVR(B) edge(ternary/multi edge) between LastKF-Frame
-  const IMUPreintegrator &imupreint = pFrame->mOdomPreIntIMU;
+  const IMUPreintegrator &imupreint = pFrame->GetIMUPreInt();
   g2o::EdgeNavStatePVR *eNSPVR = new g2o::EdgeNavStatePVR();
   eNSPVR->setVertex(
       0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // PVRi, i is keyframe's id
@@ -306,9 +306,9 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   }
   // Set Enc edge(binary) between LastKF-Frame
   g2o::EdgeEncNavStatePVR *eEnc = nullptr;
-  if (pFrame->mOdomPreIntEnc.mdeltatij > 0) {
+  if (pFrame->GetEncPreInt().mdeltatij > 0) {
     // Set Enc edge(binary edge) between LastF-Frame
-    const EncPreIntegrator &encpreint = pFrame->mOdomPreIntEnc;
+    const EncPreIntegrator &encpreint = pFrame->GetEncPreInt();
     eEnc = new g2o::EdgeEncNavStatePVR();
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // lastF,i
     eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(FramePVRId)));   // curF,j
@@ -733,7 +733,7 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
   for (int i = 0; i < N; i++) {
     if (i == 0) continue;  // Ignore the first KF
     const IMUPreintegrator &imupreint =
-        vpKFInit[i]->mOdomPreIntIMU;  // notice this should be computed before calling this function
+        vpKFInit[i]->GetIMUPreInt();  // notice this should be computed before calling this function
     if (imupreint.mdeltatij == 0) continue;
     ++num_equations;
     assert(imupreint.mdeltatij > 0);

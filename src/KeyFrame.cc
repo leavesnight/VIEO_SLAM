@@ -69,9 +69,16 @@ void KeyFrame::UpdateNavStatePVRFromTcw()
 }
 
 template <>//specialized
-void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &pback){
+void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &end){
   unique_lock<mutex> lock(mMutexOdomData);
-  mOdomPreIntIMU.SetPreIntegrationList(begin,pback);
+  mOdomPreIntIMU.SetPreIntegrationList(begin,end);
+}
+template <>  // splice operation (like move) for fast append
+void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
+                                   const typename aligned_list<IMUData>::const_iterator &begin,
+                                   const typename aligned_list<IMUData>::const_iterator &end) {
+  unique_lock<mutex> lock(mMutexOdomData);
+  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, end);
 }
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF){
@@ -80,8 +87,18 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF){
 #ifndef TRACK_WITH_IMU
   mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
 #else
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  //mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  FrameBase::PreIntegration<IMUData>(pLastKF, mOdomPreIntIMU.getlOdom().begin(), mOdomPreIntIMU.getlOdom().end());
 #endif
+}
+template <>
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+                              const typename aligned_list<IMUData>::const_iterator &iteri,
+                              const typename aligned_list<IMUData>::const_iterator &iterj,
+                              bool breset, int8_t verbose) {
+  NavState ns = plastkf->GetNavState();
+  unique_lock<mutex> lock(mMutexOdomData);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 std::set<KeyFrame *> KeyFrame::GetConnectedKeyFramesByWeight(int w){
@@ -95,8 +112,8 @@ std::set<KeyFrame *> KeyFrame::GetConnectedKeyFramesByWeight(int w){
 
 //for LoadMap()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,istream &is)
-    : FrameBase(F),
-      mnFrameId(F.mnId), mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
+    : FrameBase(F),// we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
+      mnFrameId(F.mnId), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
   mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
   mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
   mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
@@ -114,14 +131,10 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
   mpNextKeyFrame = NULL;    // zzh, constructor doesn't need to lock mutex
-  mNavState = F.mNavState;  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
-
-  vvkeys_ = F.vvkeys_;
-  vdescriptors_.resize(F.vdescriptors_.size());
-  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
 
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
+  Tcw_.release();
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
@@ -134,12 +147,12 @@ bool KeyFrame::read(istream &is){
     is.read((char*)&NOdom,sizeof(NOdom));
     lenc.resize(NOdom);
     readListOdom<EncData>(is,lenc);
-    SetPreIntegrationList<EncData>(lenc.begin(),--lenc.end());
+    SetPreIntegrationList<EncData>(lenc.begin(),lenc.end());
     listeig(IMUData) limu;
     is.read((char*)&NOdom,sizeof(NOdom));
     limu.resize(NOdom);
     readListOdom<IMUData>(is,limu);
-    SetPreIntegrationList<IMUData>(limu.begin(),--limu.end());
+    SetPreIntegrationList<IMUData>(limu.begin(),limu.end());
   }
   if (mpPrevKeyFrame!=NULL){//Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
     PreIntegration<EncData>(mpPrevKeyFrame);
@@ -207,7 +220,7 @@ long unsigned int KeyFrame::nNextId=0;
 
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,const char state)
     : FrameBase(F),
-      mnFrameId(F.mnId),  mTimeStamp(F.mTimeStamp), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
+      mnFrameId(F.mnId), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
     mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
     mnTrackReferenceForFrame(0), mnFuseTargetForKF(0), mnBALocalForKF(0), mnBAFixedForKF(0),
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
@@ -225,21 +238,21 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
   mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
-  mNavState = F.mNavState;
   // Set bias as bias+delta_bias, and reset the delta_bias term
   mNavState.mbg += mNavState.mdbg;
   mNavState.mba += mNavState.mdba;
   mNavState.mdbg = mNavState.mdba =
       Eigen::Vector3d::Zero();  // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
 
-  vvkeys_ = F.vvkeys_;
-  vdescriptors_.resize(F.vdescriptors_.size());
-  for (size_t i = 0; i < F.vdescriptors_.size(); ++i) vdescriptors_[i] = F.vdescriptors_[i].clone();
+  // move preint_odom_
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntEnc);
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
   // created by zzh over
 
   mnId = nNextId++;
   vgrids_ = F.vgrids_;
 
+  Tcw_.release();
   SetPose(F.GetTcwRef());
   PRINT_DEBUG_INFO_MUTEX("checkkf"<<mnId<<" ", imu_tightly_debug_path, "debug.txt");
   size_t i =0;
@@ -811,18 +824,16 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
 	  mpPrevKeyFrame->SetNextKeyFrame(mpNextKeyFrame);//mpNextKeyFrame here cannot be NULL for mpCurrentKF cannot be erased in KFCulling()
 	  mpNextKeyFrame->SetPrevKeyFrame(mpPrevKeyFrame);//0th KF cannot be erased so mpPrevKeyFrame cannot be NULL
 	  //AppendIMUDataToFront, qIMU can speed up!
-	  listeig(IMUData) limunew=mpNextKeyFrame->GetListIMUData();//notice GetIMUPreInt() doesn't copy list!
 	  {
 	    unique_lock<mutex> lock(mMutexOdomData);
-	    limunew.insert(limunew.begin(),mOdomPreIntIMU.getlOdom().begin(),mOdomPreIntIMU.getlOdom().end());
-	    mpNextKeyFrame->SetPreIntegrationList<IMUData>(limunew.begin(),--limunew.end());
+            auto &lodom = mOdomPreIntIMU.GetRawDataRef();
+            mpNextKeyFrame->AppendFrontPreIntegrationList<IMUData>(lodom, lodom.begin(), lodom.end());
 	  }
 	  //AppendEncDataToFront
-	  listeig(EncData) lencnew=mpNextKeyFrame->GetListEncData();//notice GetEncPreInt() doesn't copy list!
-	  {
+          {
 	    unique_lock<mutex> lock(mMutexOdomData);
-	    lencnew.insert(lencnew.begin(),mOdomPreIntEnc.getlOdom().begin(),mOdomPreIntEnc.getlOdom().end());
-	    mpNextKeyFrame->SetPreIntegrationList<EncData>(lencnew.begin(),--lencnew.end());
+            auto &lodom = mOdomPreIntEnc.GetRawDataRef();
+            mpNextKeyFrame->AppendFrontPreIntegrationList<EncData>(lodom, lodom.begin(), lodom.end());
 	  }
 	  //ComputePreInt
 	  mpNextKeyFrame->PreIntegration<IMUData>(mpPrevKeyFrame);

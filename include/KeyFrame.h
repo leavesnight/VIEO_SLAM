@@ -29,8 +29,6 @@
 #include "ORBVocabulary.h"
 #include "ORBextractor.h"
 #include "KeyFrameDatabase.h"
-#include "NavState.h"
-#include "OdomPreIntegrator.h"
 
 #include <mutex>
 
@@ -47,14 +45,9 @@ class KeyFrame : public FrameBase, public MutexUsed
 {
   char mState;
 //   std::mutex mMutexState;
-  
-  // state xi={Ri,pi,vi,bi}, this xi doesn't include landmarks' state li/mi but include the camera's state xci(for Tbc is a constant)
-  NavState mNavState;
+
   std::mutex mMutexNavState;//the mutex of mNavState(state/vertex), similar to mMutexPose
-  
-  // Odom measurements/PreIntegration, j means this keyframe, i means last KF, if no measurements=>mdeltatij==0
-  EncPreIntegrator mOdomPreIntEnc;
-  IMUPreintegrator mOdomPreIntIMU;
+
   std::mutex mMutexOdomData;//the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to the unchanged IMU measurement, KFCulling() does change Odom measurement
   
   // Odom connections for localBA
@@ -72,11 +65,11 @@ public:
   //PCL used image
   cv::Mat Img[2];//0 is color,1 is depth
   
-  NavState GetNavState(void){//cannot use const &(make mutex useless)
+  NavState GetNavState(void) override{//cannot use const &(make mutex useless)
     unique_lock<mutex> lock(mMutexNavState);
     return mNavState;//call copy constructor
   }
-  void SetNavState(const NavState& ns){
+  void SetNavState(const NavState& ns) override{
     unique_lock<mutex> lock(mMutexNavState);
     mNavState=ns;
     UpdatePoseFromNS();
@@ -85,11 +78,11 @@ public:
     unique_lock<mutex> lock(mMutexNavState);
     mNavState=ns;
   }//if u use this func., please SetPose() by yourself
-  EncPreIntegrator GetEncPreInt(void){
+  EncPreIntegrator GetEncPreInt(void) override{
     unique_lock<mutex> lock(mMutexOdomData);
     return mOdomPreIntEnc;//call copy constructor
   }
-  IMUPreintegrator GetIMUPreInt(void){
+  IMUPreintegrator GetIMUPreInt(void) override{
     unique_lock<mutex> lock(mMutexOdomData);
     return mOdomPreIntIMU;//call copy constructor
   }
@@ -117,24 +110,39 @@ public:
     unique_lock<mutex> lock(mMutexPNConnections);
     mpNextKeyFrame = pKF;
   }
-//   bool GetPNChanging(void){
-//     unique_lock<mutex> lock(mMutexPNChanging);
-//     return mbPNChanging;
-//   }
   void UpdateNavStatePVRFromTcw();//mainly for Posegraph optimization, but I think when Tcw is finally optimized, please call this func. to update NavState
   
   // Odom PreIntegration
   template <class _OdomData>
   void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,
-			     const typename listeig(_OdomData)::const_iterator &pback){//notice template definition should be written in the same file! & typename should be added before nested type!
+			     const typename listeig(_OdomData)::const_iterator &end){//notice template definition should be written in the same file! & typename should be added before nested type!
     unique_lock<mutex> lock(mMutexOdomData);
-    mOdomPreIntEnc.SetPreIntegrationList(begin,pback);
+    mOdomPreIntEnc.SetPreIntegrationList(begin,end);
   }
-  template <class _OdomData>
+  template <class OdomData>  // splice operation (like move) for fast append
+  void AppendFrontPreIntegrationList(aligned_list<OdomData> &x,
+                                     const typename aligned_list<OdomData>::const_iterator &begin,
+                                     const typename aligned_list<OdomData>::const_iterator &end) {
+    unique_lock<mutex> lock(mMutexOdomData);
+    mOdomPreIntEnc.AppendFrontPreIntegrationList(x, begin, end);
+  }
+  template <class OdomData>
   void PreIntegration(KeyFrame* pLastKF){
     unique_lock<mutex> lock(mMutexOdomData);
-    mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    //mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    FrameBase::PreIntegration<OdomData>(pLastKF, mOdomPreIntEnc.getlOdom().begin(), mOdomPreIntEnc.getlOdom().end());
   }//0th frame don't use this function, pLastKF shouldn't be bad
+  //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
+  // connect 2KFs preintegration by only preintegrating the final KF2KF period
+  template <class OdomData>
+  void PreIntegrationFromLastKF(FrameBase *plastkf,
+                                const typename aligned_list<OdomData>::const_iterator &iteri,
+                                const typename aligned_list<OdomData>::const_iterator &iterj,
+                                bool breset = false, int8_t verbose = 0) {
+    NavState ns = plastkf->GetNavState();
+    unique_lock<mutex> lock(mMutexOdomData);
+    FrameBase::PreIntegration<OdomData, EncPreIntegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  }
   
   std::set<KeyFrame *> GetConnectedKeyFramesByWeight(int w);//set made from mConnectedKeyFrameWeights[i].first restricted by weight
   
@@ -284,8 +292,6 @@ public:
     long unsigned int mnId;
     const long unsigned int mnFrameId;
 
-    const double mTimeStamp;
-
     // Grid (to speed up feature matching)
     const int mnGridCols;
     const int mnGridRows;
@@ -322,11 +328,9 @@ public:
     // KeyPoints, stereo coordinate and descriptors (all associated by an index)
     const std::vector<cv::KeyPoint> mvKeys;
     const std::vector<cv::KeyPoint> mvKeysUn;
-  std::vector<std::vector<cv::KeyPoint>> vvkeys_;
     const std::vector<float> mvuRight; // negative value for monocular points
     const std::vector<float> mvDepth; // negative value for monocular points
     const cv::Mat mDescriptors;
-  std::vector<cv::Mat> vdescriptors_;
 
     //BoW
     DBoW2::BowVector mBowVec;
@@ -393,9 +397,17 @@ protected:
 
 //created by zzh
 template <>//specialized
-void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &pback);
+void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &end);
+template <>  // splice operation (like move) for fast append
+void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
+                                             const typename aligned_list<IMUData>::const_iterator &begin,
+                                             const typename aligned_list<IMUData>::const_iterator &end);
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF);
+template <>
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(
+    FrameBase *plastkf, const typename aligned_list<IMUData>::const_iterator &iteri,
+    const typename aligned_list<IMUData>::const_iterator &iterj, bool breset, int8_t verbose);
 
 } //namespace ORB_SLAM
 

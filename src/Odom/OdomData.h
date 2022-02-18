@@ -31,6 +31,7 @@ class IMUDataBase
 { 
   static double mdMultiplyG;//IMU.dMultiplyG for getting right scaled accelerate
 public:
+ typedef double TTtime;
   static double mdRefG;//referenced G for IV-C in VIORBSLAM paper
   static Matrix3d mSigmag,mSigmaa,mSigmabg,mSigmaba;//b means bias/Brownian motion(Random walk), g means gyroscope, a means accelerator, d means discrete but here may continuous one, Sigma means Covariance Matrix
   static double mInvSigmabg2,mInvSigmaba2;//when mSigmabi is always diagonal matrix, use this to speed up infomation matrix calculation
@@ -129,6 +130,7 @@ typedef Eigen::Matrix<double, 6, 6> Matrix6d;
 
 class EncData{
 public:
+ typedef double TTtime;
   static double mvscale;//encoder coefficient to m/s
   static double mrc;//rc: 2 differential driving wheels' distance
   static Matrix2d mSigma;// mSigma Sigma eta of Enc, when mdt_cov_noise_fixed*mFreqRef!=0 it means discrete one
