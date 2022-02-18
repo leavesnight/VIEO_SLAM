@@ -29,8 +29,6 @@
 #include "ORBVocabulary.h"
 #include "ORBextractor.h"
 #include "KeyFrameDatabase.h"
-#include "NavState.h"
-#include "OdomPreIntegrator.h"
 
 #include <mutex>
 
@@ -47,14 +45,9 @@ class KeyFrame : public FrameBase, public MutexUsed
 {
   char mState;
 //   std::mutex mMutexState;
-  
-  // state xi={Ri,pi,vi,bi}, this xi doesn't include landmarks' state li/mi but include the camera's state xci(for Tbc is a constant)
-  NavState mNavState;
+
   std::mutex mMutexNavState;//the mutex of mNavState(state/vertex), similar to mMutexPose
-  
-  // Odom measurements/PreIntegration, j means this keyframe, i means last KF, if no measurements=>mdeltatij==0
-  EncPreIntegrator mOdomPreIntEnc;
-  IMUPreintegrator mOdomPreIntIMU;
+
   std::mutex mMutexOdomData;//the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to the unchanged IMU measurement, KFCulling() does change Odom measurement
   
   // Odom connections for localBA
@@ -72,11 +65,11 @@ public:
   //PCL used image
   cv::Mat Img[2];//0 is color,1 is depth
   
-  NavState GetNavState(void){//cannot use const &(make mutex useless)
+  NavState GetNavState(void) override{//cannot use const &(make mutex useless)
     unique_lock<mutex> lock(mMutexNavState);
     return mNavState;//call copy constructor
   }
-  void SetNavState(const NavState& ns){
+  void SetNavState(const NavState& ns) override{
     unique_lock<mutex> lock(mMutexNavState);
     mNavState=ns;
     UpdatePoseFromNS();
@@ -85,11 +78,11 @@ public:
     unique_lock<mutex> lock(mMutexNavState);
     mNavState=ns;
   }//if u use this func., please SetPose() by yourself
-  EncPreIntegrator GetEncPreInt(void){
+  EncPreIntegrator GetEncPreInt(void) override{
     unique_lock<mutex> lock(mMutexOdomData);
     return mOdomPreIntEnc;//call copy constructor
   }
-  IMUPreintegrator GetIMUPreInt(void){
+  IMUPreintegrator GetIMUPreInt(void) override{
     unique_lock<mutex> lock(mMutexOdomData);
     return mOdomPreIntIMU;//call copy constructor
   }
@@ -117,18 +110,14 @@ public:
     unique_lock<mutex> lock(mMutexPNConnections);
     mpNextKeyFrame = pKF;
   }
-//   bool GetPNChanging(void){
-//     unique_lock<mutex> lock(mMutexPNChanging);
-//     return mbPNChanging;
-//   }
   void UpdateNavStatePVRFromTcw();//mainly for Posegraph optimization, but I think when Tcw is finally optimized, please call this func. to update NavState
   
   // Odom PreIntegration
   template <class _OdomData>
   void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,
-			     const typename listeig(_OdomData)::const_iterator &pback){//notice template definition should be written in the same file! & typename should be added before nested type!
+			     const typename listeig(_OdomData)::const_iterator &end){//notice template definition should be written in the same file! & typename should be added before nested type!
     unique_lock<mutex> lock(mMutexOdomData);
-    mOdomPreIntEnc.SetPreIntegrationList(begin,pback);
+    mOdomPreIntEnc.SetPreIntegrationList(begin,end);
   }
   template <class _OdomData>
   void PreIntegration(KeyFrame* pLastKF){
@@ -284,8 +273,6 @@ public:
     long unsigned int mnId;
     const long unsigned int mnFrameId;
 
-    const double mTimeStamp;
-
     // Grid (to speed up feature matching)
     const int mnGridCols;
     const int mnGridRows;
@@ -391,7 +378,7 @@ protected:
 
 //created by zzh
 template <>//specialized
-void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &pback);
+void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &end);
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF);
 

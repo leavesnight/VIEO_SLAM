@@ -21,9 +21,6 @@
 #ifndef FRAME_H
 #define FRAME_H
 
-#include "OdomPreIntegrator.h"  //zzh
-#include "NavState.h"
-
 #include <vector>
 
 #include "FrameBase.h"
@@ -50,44 +47,34 @@ class Frame : public FrameBase {
   static Eigen::Matrix3d meigRcb;
   static Eigen::Vector3d meigtcb;
 
-  // Odom PreIntegration, j means this frame, i means last frame(not KF), if no measurements it will be cv::Mat()
-  EncPreIntegrator mOdomPreIntEnc;
-  IMUPreintegrator mOdomPreIntIMU;
-  // state xi={Ri,pi,vi,bi}, not designed for multi threads/just used in Tracking thread
-  NavState mNavState;
   // For pose optimization/motion-only BA, use as prior and prior information(inverse covariance)
   Matrix<double, 15, 15> mMargCovInv;  // Sigmap in VIORBSLAM paper/prior Hessian matrix for next Frame, notice it's
                                        // unintialized(to infinity/fixedlast)
-  NavState mNavStatePrior;  // needed by PoseOptimization twice, notice if no imu data, it's unintialized
-  bool mbPrior;             // meaning if mNavStatePrior&mMargCovInv exist
+  NavState mNavStatePrior;             // needed by PoseOptimization twice, notice if no imu data, it's unintialized
+  bool mbPrior;                        // meaning if mNavStatePrior&mMargCovInv exist
 
-  const NavState &GetNavState(void) {  // cannot use const &(make mutex useless)
-    return mNavState;  // don't call copy constructor, just for template of PoseOptimization() & PreIntegration
-  }
+  const NavState &GetNavState() const { return mNavState; }
+  NavState &GetNavStateRef() { return mNavState; }
+  // rewrite the one in FrameBase for efficiency
+  const EncPreIntegrator &GetEncPreInt(void) const { return mOdomPreIntEnc; }
+  const IMUPreintegrator &GetIMUPreInt(void) const { return mOdomPreIntIMU; }
   void UpdatePoseFromNS();  // replace SetPose(), directly update mNavState for efficiency and then please call this
                             // func. to update Tcw
   void UpdateNavStatePVRFromTcw();  // for imu data empty condition after imu's initialized(including bias recomputed)
 
   // Odom PreIntegration
-  //   template <class _OdomData>
-  //   void SetPreIntegrationList(const typename std::list<_OdomData>::const_iterator &begin,const typename
-  //   std::>::const_iterator &pback){//notice template definition should be written in the same file! & typename should
-  //   be added before nested type!
-  //     mOdomPreIntEnc.SetPreIntegrationList(begin,pback);
-  //   }
   template <class _OdomData>  // here if u use _Frame*, it can be automatically checked while vector<_Frame>::iterator
                               // won't do so! but partial specialized template function doesn't exist!
                               void PreIntegration(Frame *pLastF,
                                                   const typename listeig(_OdomData)::const_iterator &iteri,
                                                   typename listeig(_OdomData)::const_iterator
-                                                      iterjBack) {  // 0th frame don't use this function
-    mOdomPreIntEnc.PreIntegration(pLastF->mTimeStamp, mTimeStamp, iteri, ++iterjBack);  // here need ++!
+                                                      iterj) {
+    mOdomPreIntEnc.PreIntegration(pLastF->mTimeStamp, mTimeStamp, iteri, iterj);
   }
   template <class _OdomData>
   void PreIntegration(KeyFrame *pLastKF, const typename listeig(_OdomData)::const_iterator &iteri,
                       typename listeig(_OdomData)::const_iterator
-                          iterjBack);  // 0th frame don't use this function, just declare and we only use specialized 2
-                                       // versions for KeyFrame cannot be directly used in this head file
+                          iterj);
 
   // for LoadMap() in System.cc
   Frame(istream &is, ORBVocabulary *voc);
@@ -163,9 +150,6 @@ class Frame : public FrameBase {
 
   // Feature extractor. The right is used only in the stereo case.
   vector<ORBextractor *> mpORBextractors;
-
-  // Frame timestamp.
-  double mTimeStamp;
 
   // Calibration matrix and OpenCV distortion parameters.
   cv::Mat mK;
@@ -282,18 +266,15 @@ class Frame : public FrameBase {
 };
 
 // created by zzh
-//  template <>//specialized
-//  void Frame::SetPreIntegrationList<IMUData>(const typename std::list<IMUData>::const_iterator &begin,const typename
-//  std::list<IMUData>::const_iterator &pback);
 template <>
 void Frame::PreIntegration<IMUData>(Frame *pLastF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterjBack);
+                                    listeig(IMUData)::const_iterator iterj);
 template <>
 void Frame::PreIntegration<EncData>(KeyFrame *pLastKF, const listeig(EncData)::const_iterator &iteri,
-                                    listeig(EncData)::const_iterator iterjBack);
+                                    listeig(EncData)::const_iterator iterj);
 template <>
 void Frame::PreIntegration<IMUData>(KeyFrame *pLastKF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterjBack);
+                                    listeig(IMUData)::const_iterator iterj);
 
 }  // namespace VIEO_SLAM
 

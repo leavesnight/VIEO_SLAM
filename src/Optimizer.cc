@@ -1254,7 +1254,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();  // 6*1 vertex
   // here g2o vertex uses Twb(different in default VertexSE3 using EdgeSE3); edge/measurement formula input R&p(<-p+dp)
   pFrame->UpdateNavStatePVRFromTcw();
-  vns->setEstimate(pFrame->mNavState);
+  vns->setEstimate(pFrame->GetNavStateRef());
   vns->setId(0);
   vns->setFixed(false);
   optimizer.addVertex(vns);
@@ -1262,16 +1262,16 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   Matrix3d Rcb = pFrame->meigRcb;
   Vector3d tcb = pFrame->meigtcb;
 
-  if (pLastF != NULL && pFrame->mOdomPreIntEnc.mdeltatij > 0 && !pLastF->GetTcwRef().empty()) {
+  if (pLastF != NULL && pFrame->GetEncPreInt().mdeltatij > 0 && !pLastF->GetTcwRef().empty()) {
     // Set LastFrame vertex
     g2o::VertexNavStatePR* vnslast = new g2o::VertexNavStatePR();
     pLastF->UpdateNavStatePVRFromTcw();
-    vnslast->setEstimate(pLastF->mNavState);
+    vnslast->setEstimate(pLastF->GetNavStateRef());
     vnslast->setId(1);
     vnslast->setFixed(true);
     optimizer.addVertex(vnslast);
     // Set Enc edge(binary edge) between LastF-Frame
-    const EncPreIntegrator& encpreint = pFrame->mOdomPreIntEnc;
+    const EncPreIntegrator& encpreint = pFrame->GetEncPreInt();
     g2o::EdgeEncNavStatePR* eEnc = new g2o::EdgeEncNavStatePR();
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(1)));  // lastF,i
     eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));  // curF,j
@@ -1416,7 +1416,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   int nBad = 0;
   // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
   for (size_t it = 0; it < 4; it++) {
-    vns->setEstimate(pFrame->mNavState);
+    vns->setEstimate(pFrame->GetNavStateRef());
     // default edges' level is 0, so initially use all edges to optimize, after
     // it=0, just use inlier edges(_activeEdges) to optimize only call _activeEdges[k].computeError()
     optimizer.initializeOptimization(0);
@@ -1482,7 +1482,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
 
   // Recover optimized pose and return number of inliers
   g2o::VertexNavStatePR* vns_recov = static_cast<g2o::VertexNavStatePR*>(optimizer.vertex(0));
-  pFrame->mNavState = vns_recov->estimate();  // update posematrices of pFrame, mainly Twb/Tcw
+  pFrame->GetNavStateRef() = vns_recov->estimate();  // update posematrices of pFrame, mainly Twb/Tcw
   pFrame->UpdatePoseFromNS();
 
   return nInitialCorrespondences - nBad;  // number of inliers
