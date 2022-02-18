@@ -41,6 +41,9 @@ class MapPoint;
 class GeometricCamera;
 
 class Frame : public FrameBase {
+  EncPreIntegrator *ppreint_enc_kf_;
+  IMUPreintegrator *ppreint_imu_kf_;
+
  public:
   // const Tbc,Tce, so it can be used in multi threads
   static cv::Mat mTbc, mTce;
@@ -58,23 +61,30 @@ class Frame : public FrameBase {
   // rewrite the one in FrameBase for efficiency
   const EncPreIntegrator &GetEncPreInt(void) const { return mOdomPreIntEnc; }
   const IMUPreintegrator &GetIMUPreInt(void) const { return mOdomPreIntIMU; }
+  template <class OdomPreintegrator>
+  void DeepMovePreintOdomFromLastKF(OdomPreintegrator &preint_odom) {
+    preint_odom = *ppreint_enc_kf_;
+    auto &lodom = ppreint_enc_kf_->GetRawDataRef();
+    preint_odom.AppendFrontPreIntegrationList(lodom, lodom.begin(), lodom.end());
+  }
   void UpdatePoseFromNS();  // replace SetPose(), directly update mNavState for efficiency and then please call this
                             // func. to update Tcw
   void UpdateNavStatePVRFromTcw();  // for imu data empty condition after imu's initialized(including bias recomputed)
 
   // Odom PreIntegration
-  template <class _OdomData>  // here if u use _Frame*, it can be automatically checked while vector<_Frame>::iterator
-                              // won't do so! but partial specialized template function doesn't exist!
-                              void PreIntegration(Frame *pLastF,
-                                                  const typename listeig(_OdomData)::const_iterator &iteri,
-                                                  typename listeig(_OdomData)::const_iterator
-                                                      iterj) {
-    mOdomPreIntEnc.PreIntegration(pLastF->mTimeStamp, mTimeStamp, iteri, iterj);
+  //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
+  // connect 2KFs preintegration by only preintegrating the final KF2KF period
+  template <class OdomData>
+  int PreIntegrationFromLastKF(FrameBase *plastkf, const typename aligned_list<OdomData>::const_iterator &iteri,
+                               const typename aligned_list<OdomData>::const_iterator &iterj, bool breset = false,
+                               int8_t verbose = 0) {
+    CV_Assert(ppreint_enc_kf_);
+    NavState ns = plastkf->GetNavState();
+    auto iterj_1 = iterj;
+    --iterj_1;
+    return FrameBase::PreIntegration<OdomData>(breset ? plastkf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg,
+                                               ns.mba, iteri, iterj, breset, ppreint_enc_kf_, verbose);
   }
-  template <class _OdomData>
-  void PreIntegration(KeyFrame *pLastKF, const typename listeig(_OdomData)::const_iterator &iteri,
-                      typename listeig(_OdomData)::const_iterator
-                          iterj);
 
   // for LoadMap() in System.cc
   Frame(istream &is, ORBVocabulary *voc);
@@ -92,15 +102,18 @@ class Frame : public FrameBase {
   // Constructor for stereo cameras.
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
         cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
+        IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr,
         const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true);
 
   // Constructor for RGB-D cameras.
   Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor *extractor,
-        ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+        ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
+        IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr);
 
   // Constructor for Monocular cameras.
   Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor *extractor, ORBVocabulary *voc, cv::Mat &K,
-        cv::Mat &distCoef, const float &bf, const float &thDepth);
+        cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf = nullptr,
+        EncPreIntegrator *ppreint_enc_kf = nullptr);
 
   std::vector<MapPoint *> &GetMapPointsRef() { return mvpMapPoints; }
 
@@ -267,14 +280,12 @@ class Frame : public FrameBase {
 
 // created by zzh
 template <>
-void Frame::PreIntegration<IMUData>(Frame *pLastF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterj);
+void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom);
 template <>
-void Frame::PreIntegration<EncData>(KeyFrame *pLastKF, const listeig(EncData)::const_iterator &iteri,
-                                    listeig(EncData)::const_iterator iterj);
-template <>
-void Frame::PreIntegration<IMUData>(KeyFrame *pLastKF, const listeig(IMUData)::const_iterator &iteri,
-                                    listeig(IMUData)::const_iterator iterj);
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+                                             const typename aligned_list<IMUData>::const_iterator &iteri,
+                                             const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
+                                             int8_t verbose);
 
 }  // namespace VIEO_SLAM
 
