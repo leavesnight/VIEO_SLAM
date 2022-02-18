@@ -824,22 +824,16 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
 	  mpPrevKeyFrame->SetNextKeyFrame(mpNextKeyFrame);//mpNextKeyFrame here cannot be NULL for mpCurrentKF cannot be erased in KFCulling()
 	  mpNextKeyFrame->SetPrevKeyFrame(mpPrevKeyFrame);//0th KF cannot be erased so mpPrevKeyFrame cannot be NULL
 	  //AppendIMUDataToFront, qIMU can speed up!
-	  listeig(IMUData) limunew=mpNextKeyFrame->GetListIMUData();//notice GetIMUPreInt() doesn't copy list!
 	  {
 	    unique_lock<mutex> lock(mMutexOdomData);
-//            auto &lodom = mOdomPreIntIMU.GetRawDataRef();
-//            mpNextKeyFrame->AppendFrontPreIntegrationList<IMUData>(lodom, lodom.begin(), lodom.end());
-            limunew.insert(limunew.begin(),mOdomPreIntIMU.getlOdom().begin(),mOdomPreIntIMU.getlOdom().end());
-            mpNextKeyFrame->SetPreIntegrationList<IMUData>(limunew.begin(),limunew.end());
+            auto &lodom = mOdomPreIntIMU.GetRawDataRef();
+            mpNextKeyFrame->AppendFrontPreIntegrationList<IMUData>(lodom, lodom.begin(), lodom.end());
 	  }
 	  //AppendEncDataToFront
-	  listeig(EncData) lencnew=mpNextKeyFrame->GetListEncData();//notice GetEncPreInt() doesn't copy list!
           {
 	    unique_lock<mutex> lock(mMutexOdomData);
-	    lencnew.insert(lencnew.begin(),mOdomPreIntEnc.getlOdom().begin(),mOdomPreIntEnc.getlOdom().end());
-            mpNextKeyFrame->SetPreIntegrationList<EncData>(lencnew.begin(),lencnew.end());
-//            auto &lodom = mOdomPreIntEnc.GetRawDataRef();
-//            mpNextKeyFrame->AppendFrontPreIntegrationList<EncData>(lodom, lodom.begin(), lodom.end());
+            auto &lodom = mOdomPreIntEnc.GetRawDataRef();
+            mpNextKeyFrame->AppendFrontPreIntegrationList<EncData>(lodom, lodom.begin(), lodom.end());
 	  }
 	  //ComputePreInt
 	  mpNextKeyFrame->PreIntegration<IMUData>(mpPrevKeyFrame);

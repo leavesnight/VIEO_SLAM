@@ -162,18 +162,18 @@ void Tracking::PreIntegration(const int8_t type){
     else
       plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);//mpLastKeyFrame);
-/*    if (!bpreint)
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame);
+    if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (type == 3)
-      brecompute_kf2kfpreint_[0] = false;*/
+      brecompute_kf2kfpreint_[0] = false;
     //   cout<<"!"<<mlOdomIMU.size()<<endl;
     //   cout<<"encdata over"<<endl;
     bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame);
-/*    if (!bpreint)
+    if (!bpreint)
       brecompute_kf2kfpreint_[1] = true;
     else if (type == 3)
-      brecompute_kf2kfpreint_[1] = false;*/
+      brecompute_kf2kfpreint_[1] = false;
     //   cout<<"over"<<endl;
   } else {
     plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
@@ -201,11 +201,11 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
     FrameBase *plastfb, *pcurfb;
     plastfb = static_cast<FrameBase*>(&mLastFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);//mpLastKeyFrame);
-/*    if (!bpreint)
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame);
+    if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (type == 3)
-      brecompute_kf2kfpreint_[0] = false;*/
+      brecompute_kf2kfpreint_[0] = false;
   }
   if (mCurrentFrame.GetEncPreInt().mdeltatij == 0) {
     return false;  // check PreIntegration() failed when mdeltatij==0, so mCurrentFrame.mTcw==cv::Mat()
