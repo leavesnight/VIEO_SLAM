@@ -73,6 +73,13 @@ void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iter
   unique_lock<mutex> lock(mMutexOdomData);
   mOdomPreIntIMU.SetPreIntegrationList(begin,end);
 }
+template <>  // splice operation (like move) for fast append
+void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
+                                   const typename aligned_list<IMUData>::const_iterator &begin,
+                                   const typename aligned_list<IMUData>::const_iterator &end) {
+  unique_lock<mutex> lock(mMutexOdomData);
+  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, end);
+}
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF){
   Eigen::Vector3d bgi_bar=pLastKF->GetNavState().mbg,bai_bar=pLastKF->GetNavState().mba;
@@ -80,8 +87,18 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF){
 #ifndef TRACK_WITH_IMU
   mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
 #else
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  //mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  FrameBase::PreIntegration<IMUData>(pLastKF, mOdomPreIntIMU.getlOdom().begin(), mOdomPreIntIMU.getlOdom().end());
 #endif
+}
+template <>
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+                              const typename aligned_list<IMUData>::const_iterator &iteri,
+                              const typename aligned_list<IMUData>::const_iterator &iterj,
+                              bool breset, int8_t verbose) {
+  NavState ns = plastkf->GetNavState();
+  unique_lock<mutex> lock(mMutexOdomData);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 std::set<KeyFrame *> KeyFrame::GetConnectedKeyFramesByWeight(int w){
@@ -226,6 +243,10 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
   mNavState.mba += mNavState.mdba;
   mNavState.mdbg = mNavState.mdba =
       Eigen::Vector3d::Zero();  // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
+
+  // move preint_odom_
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntEnc);
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
   // created by zzh over
 
   mnId = nNextId++;

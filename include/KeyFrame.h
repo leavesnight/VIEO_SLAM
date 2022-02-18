@@ -119,11 +119,30 @@ public:
     unique_lock<mutex> lock(mMutexOdomData);
     mOdomPreIntEnc.SetPreIntegrationList(begin,end);
   }
-  template <class _OdomData>
+  template <class OdomData>  // splice operation (like move) for fast append
+  void AppendFrontPreIntegrationList(aligned_list<OdomData> &x,
+                                     const typename aligned_list<OdomData>::const_iterator &begin,
+                                     const typename aligned_list<OdomData>::const_iterator &end) {
+    unique_lock<mutex> lock(mMutexOdomData);
+    mOdomPreIntEnc.AppendFrontPreIntegrationList(x, begin, end);
+  }
+  template <class OdomData>
   void PreIntegration(KeyFrame* pLastKF){
     unique_lock<mutex> lock(mMutexOdomData);
-    mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    //mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    FrameBase::PreIntegration<OdomData>(pLastKF, mOdomPreIntEnc.getlOdom().begin(), mOdomPreIntEnc.getlOdom().end());
   }//0th frame don't use this function, pLastKF shouldn't be bad
+  //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
+  // connect 2KFs preintegration by only preintegrating the final KF2KF period
+  template <class OdomData>
+  void PreIntegrationFromLastKF(FrameBase *plastkf,
+                                const typename aligned_list<OdomData>::const_iterator &iteri,
+                                const typename aligned_list<OdomData>::const_iterator &iterj,
+                                bool breset = false, int8_t verbose = 0) {
+    NavState ns = plastkf->GetNavState();
+    unique_lock<mutex> lock(mMutexOdomData);
+    FrameBase::PreIntegration<OdomData, EncPreIntegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  }
   
   std::set<KeyFrame *> GetConnectedKeyFramesByWeight(int w);//set made from mConnectedKeyFrameWeights[i].first restricted by weight
   
@@ -379,8 +398,16 @@ protected:
 //created by zzh
 template <>//specialized
 void KeyFrame::SetPreIntegrationList<IMUData>(const listeig(IMUData)::const_iterator &begin,const listeig(IMUData)::const_iterator &end);
+template <>  // splice operation (like move) for fast append
+void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
+                                             const typename aligned_list<IMUData>::const_iterator &begin,
+                                             const typename aligned_list<IMUData>::const_iterator &end);
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame* pLastKF);
+template <>
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(
+    FrameBase *plastkf, const typename aligned_list<IMUData>::const_iterator &iteri,
+    const typename aligned_list<IMUData>::const_iterator &iterj, bool breset, int8_t verbose);
 
 } //namespace ORB_SLAM
 

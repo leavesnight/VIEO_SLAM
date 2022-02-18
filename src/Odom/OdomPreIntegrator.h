@@ -139,7 +139,7 @@ template<class IMUDataBase>
 int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
 						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset){
   //TODO: refer to the code by JingWang
-  if (iterBegin!=iterEnd&&timeStampi<timeStampj){//default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
+  if (iterBegin!=iterEnd){//default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
     // Reset pre-integrator first
     if (breset) reset();
     // remember to consider the gap between the last KF and the first IMU

@@ -152,35 +152,60 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated){
 }
 
 
-void Tracking::PreIntegration(const char type){
+void Tracking::PreIntegration(const int8_t type){
   unique_lock<mutex> lock(mMutexOdom);
   PRINT_DEBUG_INFO_MUTEX("type="<<(int)type<<"...", imu_tightly_debug_path, "debug.txt");
-  PreIntegration<EncData>(type,mlOdomEnc,miterLastEnc);
-//   cout<<"!"<<mlOdomIMU.size()<<endl;
-//   cout<<"encdata over"<<endl;
-  PreIntegration<IMUData>(type,mlOdomIMU,miterLastIMU);
-//   cout<<"over"<<endl;
-  /*
-  if (!mpIMUInitiator->GetVINSInited()) return;
-  if (type==1||type==3) ++gnCheck;
-  static unsigned int lastRelocId=mnLastRelocFrameId;
-  static bool firstEnter=true;*/
+  FrameBase* plastfb, *pcurfb;
+  if (type == 1 || type == 3) {
+    if (type == 1)
+      plastfb = static_cast<FrameBase*>(&mLastFrame);
+    else
+      plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
+    pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);//mpLastKeyFrame);
+/*    if (!bpreint)
+      brecompute_kf2kfpreint_[0] = true;
+    else if (type == 3)
+      brecompute_kf2kfpreint_[0] = false;*/
+    //   cout<<"!"<<mlOdomIMU.size()<<endl;
+    //   cout<<"encdata over"<<endl;
+    bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame);
+/*    if (!bpreint)
+      brecompute_kf2kfpreint_[1] = true;
+    else if (type == 3)
+      brecompute_kf2kfpreint_[1] = false;*/
+    //   cout<<"over"<<endl;
+  } else {
+    plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
+    pcurfb = type == 2 ? static_cast<FrameBase*>(mpReferenceKF) : static_cast<FrameBase*>(&mCurrentFrame);
+    KeyFrame* plastkf = brecompute_kf2kfpreint_[0] ? nullptr : mpLastKeyFrame;
+    PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, plastkf);
+    plastkf = brecompute_kf2kfpreint_[1] ? nullptr : mpLastKeyFrame;
+    PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf);
+    // won't care initial value of this and how flow strategy it's (like pure vision then visualimu/mixed one)
+    for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
+  }
   if (type==2){
     size_t N=mpReferenceKF->GetListIMUData().size(),N2=mpReferenceKF->GetListEncData().size();
     PRINT_DEBUG_INFO_MUTEX("List size: "<<N<<" "<<N2<<endl, imu_tightly_debug_path, "debug.txt");
   }
 }
-bool Tracking::GetVelocityByEnc(bool bMapUpdated){
-  char type=1;
-//   if(bMapUpdated){// Map updated, optimize with last KeyFrame
-//     type=3;//preintegrate from LastKF to curF
-//   }
-//   else{// Map not updated, optimize with last Frame
-//     type=1;//preintegrate from LastF to curF
-//   }
+bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
+  // though from kf2f won't be different when lastf is lastkf in state like bg/ba in imu,
+  // it affects reset op. in enc preint_kf
+  char type = 1;
+  // Map updated, optimize with last frame but force_reset(type==3 but plastfb!=plastkf) the one from last kf
+  if (bMapUpdated) type = 3;
   {
     unique_lock<mutex> lock(mMutexOdom);
-    PreIntegration<EncData>(type,mlOdomEnc,miterLastEnc);
+    FrameBase *plastfb, *pcurfb;
+    plastfb = static_cast<FrameBase*>(&mLastFrame);
+    pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);//mpLastKeyFrame);
+/*    if (!bpreint)
+      brecompute_kf2kfpreint_[0] = true;
+    else if (type == 3)
+      brecompute_kf2kfpreint_[0] = false;*/
   }
   if (mCurrentFrame.GetEncPreInt().mdeltatij == 0) {
     return false;  // check PreIntegration() failed when mdeltatij==0, so mCurrentFrame.mTcw==cv::Mat()
@@ -406,7 +431,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
   for(size_t i=0; i<N-1; ++i){
     unique_lock<mutex> lock(mMutexOdom);
     //so vKFInit[i].mOdomPreIntIMU is based on bg_bar=0,ba_bar=0; dbg=0 but dba/ba waits to be optimized
-    PreIntegration<IMUData>(1,mlOdomIMU,miterLastIMU,mv20pFramesReloc[i],mv20pFramesReloc[i+1]);//actually we don't need to copy the data list!
+    PreIntegration<IMUData>(1,mlOdomIMU,miterLastIMU,mv20pFramesReloc[i],mv20pFramesReloc[i+1],nullptr);//actually we don't need to copy the data list!
   }
   Vector3d bgest;
   Optimizer::OptimizeInitialGyroBias<Frame>(mv20pFramesReloc, bgest);//though JingWang uses Identity() as Info
@@ -421,7 +446,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
   for(size_t i=0; i<N-1; ++i){
     unique_lock<mutex> lock(mMutexOdom);
     //so vKFInit[i].mOdomPreIntIMU is based on bg_bar=bgest,ba_bar=0; dbg=0 but dba/ba waits to be optimized
-    PreIntegration<IMUData>(1,mlOdomIMU,miterLastIMU,mv20pFramesReloc[i],mv20pFramesReloc[i+1]);//actually we don't need to copy the data list!
+    PreIntegration<IMUData>(1,mlOdomIMU,miterLastIMU,mv20pFramesReloc[i],mv20pFramesReloc[i+1],nullptr);//actually we don't need to copy the data list!
   }
   if (!mlOdomEnc.empty()){//we update miterLastEnc to current Frame for the next Frame's Preintegration(1/3)!
     unique_lock<mutex> lock(mMutexOdom);
@@ -431,7 +456,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(){//see VIORBSLAM paper IV-E
       miterLastEnc=iter;//update miterLastEnc pointing to the nearest(now,not next time) one of this frame / begin for next frame
     else
       miterLastEnc=--iter;
-    PreIntegration<EncData>(1,mlOdomEnc,miterLastEnc,mv20pFramesReloc[N-2],mv20pFramesReloc[N-1]);
+    PreIntegration<EncData>(1,mlOdomEnc,miterLastEnc,mv20pFramesReloc[N-2],mv20pFramesReloc[N-1],nullptr);
   }
 
   // Step 3. / See VIORBSLAM paper IV-C&E: Solve C*x=D for x=[ba] (3)x1 vector
@@ -724,76 +749,70 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat> &ims, const double &time
   }
 
   mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
-                        inputRect ? nullptr : &mpCameras, System::usedistort_);
+                        &preint_imu_kf_, &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_);
 
   Track();
 
   return mCurrentFrame.GetTcwRef().clone();
 }
 
-cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp)
-{
-    mtmGrabDelay=chrono::steady_clock::now();//zzh
-    mImGrays[0] = imRGB;
-    cv::Mat imDepth = imD;
+cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp) {
+  mtmGrabDelay = chrono::steady_clock::now();  // zzh
+  mImGrays[0] = imRGB;
+  cv::Mat imDepth = imD;
 
-    //may be improved here!!!
-    if(mImGrays[0].channels()==3)
-    {
-        if(mbRGB)
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGB2GRAY);
-        else{
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGR2GRAY);
-	}
+  // may be improved here!!!
+  if (mImGrays[0].channels() == 3) {
+    if (mbRGB)
+      cvtColor(mImGrays[0], mImGrays[0], CV_RGB2GRAY);
+    else {
+      cvtColor(mImGrays[0], mImGrays[0], CV_BGR2GRAY);
     }
-    else if(mImGrays[0].channels()==4)
-    {
-        if(mbRGB)
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGBA2GRAY);
-	else
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGRA2GRAY);
-    }
+  } else if (mImGrays[0].channels() == 4) {
+    if (mbRGB)
+      cvtColor(mImGrays[0], mImGrays[0], CV_RGBA2GRAY);
+    else
+      cvtColor(mImGrays[0], mImGrays[0], CV_BGRA2GRAY);
+  }
 
-    if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
-        imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
+  if ((fabs(mDepthMapFactor - 1.0f) > 1e-5) || imDepth.type() != CV_32F)
+    imDepth.convertTo(imDepth, CV_32F, mDepthMapFactor);
 
-    mCurrentFrame = Frame(mImGrays[0],imDepth,timestamp,mpORBextractors[0],mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);//here extracting the ORB features of ImGray
+  mCurrentFrame = Frame(mImGrays[0], imDepth, timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf,
+                        mThDepth, &preint_imu_kf_, &preint_enc_kf_);  // here extracting the ORB features of ImGray
 
-    cv::Mat img[2]={imRGB.clone(),imD.clone()};
-    Track(img);
+  cv::Mat img[2] = {imRGB.clone(), imD.clone()};
+  Track(img);
 
-    return mCurrentFrame.GetTcwRef().clone();
+  return mCurrentFrame.GetTcwRef().clone();
 }
 
+cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp) {
+  mtmGrabDelay = chrono::steady_clock::now();  // zzh
+  mImGrays[0] = im;
 
-cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
-{
-    mtmGrabDelay=chrono::steady_clock::now();//zzh
-    mImGrays[0] = im;
-
-    if(mImGrays[0].channels()==3)
-    {
-        if(mbRGB)
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGB2GRAY);
-        else
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGR2GRAY);
-    }
-    else if(mImGrays[0].channels()==4)
-    {
-        if(mbRGB)
-            cvtColor(mImGrays[0],mImGrays[0],CV_RGBA2GRAY);
-        else
-            cvtColor(mImGrays[0],mImGrays[0],CV_BGRA2GRAY);
-    }
-
-    if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
-        mCurrentFrame = Frame(mImGrays[0],timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
+  if (mImGrays[0].channels() == 3) {
+    if (mbRGB)
+      cvtColor(mImGrays[0], mImGrays[0], CV_RGB2GRAY);
     else
-        mCurrentFrame = Frame(mImGrays[0],timestamp,mpORBextractors[0],mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
+      cvtColor(mImGrays[0], mImGrays[0], CV_BGR2GRAY);
+  } else if (mImGrays[0].channels() == 4) {
+    if (mbRGB)
+      cvtColor(mImGrays[0], mImGrays[0], CV_RGBA2GRAY);
+    else
+      cvtColor(mImGrays[0], mImGrays[0], CV_BGRA2GRAY);
+  }
 
-    Track();
+  if (mState == NOT_INITIALIZED || mState == NO_IMAGES_YET)
+    mCurrentFrame = Frame(mImGrays[0], timestamp, mpIniORBextractor, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
+                          &preint_imu_kf_, &preint_enc_kf_);
+  else
+    mCurrentFrame = Frame(mImGrays[0], timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
+                          &preint_imu_kf_, &preint_enc_kf_);
 
-    return mCurrentFrame.GetTcwRef().clone();
+  Track();
+
+  return mCurrentFrame.GetTcwRef().clone();
 }
 
 void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
@@ -885,7 +904,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
                         }
                     }
                 }else{
-                    if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc();//try to utilize the Encoder's data
+                    if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc(bMapUpdated);//try to utilize the Encoder's data
                     else cout<<redSTR<<"LastFrame has no Tcw!"<<whiteSTR<<endl;
                     if(mVelocity.empty()){// || mCurrentFrame.mnId<mnLastRelocFrameId+2){//if last frame relocalized, there's no motion could be calculated, so I think 2nd condition is useless
 //                        if (!mVelocity.empty()) cerr<<redSTR"Error in Velocity.empty()!!!"<<endl;//check if right
@@ -925,7 +944,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
                 cout<<redSTR<<"Entering Wrong Tracking Mode With VIO/VIEO, Please Check!"<<endl;
                 assert(0);
             }else{
-                if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc();//try to utilize the Encoder's data
+                if (!mLastFrame.GetTcwRef().empty()) GetVelocityByEnc(bMapUpdated);//try to utilize the Encoder's data
                 else cout<<redSTR<<"LastFrame has no Tcw!"<<whiteSTR<<endl;
                 if(!mbVO)
                 {
@@ -1041,6 +1060,9 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
             if (mCurrentFrame.GetEncPreInt().mdeltatij>0){//though it may introduce error, it ensure the completeness of the Map
                 TrackWithOnlyOdom(bMapUpdated);
             }else{
+              // for when enc ok, always OK/ODOMOK, no mbRelocBiasPrepare entered for no relocalization is called or
+              // always Preintegration(1/3) before, but when enc failed we need to preint kf2kf next relocalization time
+              for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
                 // Clear Frame vectors for reloc bias computation
                 if(mv20pFramesReloc.size()>0){
                     for (int i=0;i<mv20pFramesReloc.size();++i) delete mv20pFramesReloc[i];
