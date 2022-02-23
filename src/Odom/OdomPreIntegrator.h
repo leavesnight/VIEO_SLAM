@@ -21,6 +21,10 @@ class OdomPreIntegratorBase{//base class
 protected:
   listeig(_OdomData) mlOdom;//for IMUPreIntegrator: IMU list
 
+  virtual void reset() {
+    mdeltatij = 0;  // very important!
+  }
+
 public:
  template <class T>
  using aligned_list = Eigen::aligned_list<T>;
@@ -55,7 +59,7 @@ typedef Eigen::Matrix<double, 6, 1> Vector6d;
 //next derived classes don't use operator=!
 class EncPreIntegrator:public OdomPreIntegratorBase<EncData>{
   //mlOdom: mlOdomEnc list for vl,vr& its own timestamp
-  void reset();
+  void reset() override;
   Eigen::Vector2d eigdeltaPijM;//deltaPii=0
   double deltaThetaijMz;
 public:
@@ -63,10 +67,17 @@ public:
   Matrix6d mSigmaEij;// by Enc, 6*6*float
 
   EncPreIntegrator():mdelxEij(Vector6d::Zero()),mSigmaEij(Matrix6d::Zero()){}
-  EncPreIntegrator(const EncPreIntegrator &pre):mdelxEij(pre.mdelxEij),mSigmaEij(pre.mSigmaEij){mdeltatij=pre.mdeltatij;}//don't copy list!
-  EncPreIntegrator& operator=(const EncPreIntegrator &pre){
-    mdeltatij=pre.mdeltatij;//don't copy list!
-    mdelxEij=pre.mdelxEij;mSigmaEij=pre.mSigmaEij;
+  EncPreIntegrator(const EncPreIntegrator &pre)
+      : eigdeltaPijM(pre.eigdeltaPijM),deltaThetaijMz(pre.deltaThetaijMz),
+        mdelxEij(pre.mdelxEij),mSigmaEij(pre.mSigmaEij) {
+    mdeltatij = pre.mdeltatij;
+  }//don't copy list!
+  EncPreIntegrator& operator=(const EncPreIntegrator &pre) {
+    eigdeltaPijM = pre.eigdeltaPijM;
+    deltaThetaijMz = pre.deltaThetaijMz;
+    mdelxEij = pre.mdelxEij;
+    mSigmaEij = pre.mSigmaEij;
+    mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
   int PreIntegration(const double &timeStampi,const double &timeStampj,
@@ -103,14 +114,16 @@ public:
   IMUPreIntegratorBase():mRij(Matrix3d::Identity()),mvij(0,0,0),mpij(0,0,0),mSigmaijPRV(Matrix9d::Zero()),mSigmaij(Matrix9d::Zero()){
     mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
   }
-  IMUPreIntegratorBase(const IMUPreIntegratorBase &pre):mRij(pre.mRij),mvij(pre.mvij),mpij(pre.mpij),mSigmaijPRV(pre.mSigmaijPRV),mSigmaij(pre.mSigmaij),
-  mJgpij(pre.mJgpij),mJapij(pre.mJapij),mJgvij(pre.mJgvij),mJavij(pre.mJavij),mJgRij(pre.mJgRij){
-    this->mdeltatij=pre.mdeltatij;//2-phase name lookup used in Derived template class
+  IMUPreIntegratorBase(const IMUPreIntegratorBase &pre)
+      :mRij(pre.mRij),mvij(pre.mvij),mpij(pre.mpij),mSigmaijPRV(pre.mSigmaijPRV),mSigmaij(pre.mSigmaij),
+        mJgpij(pre.mJgpij),mJapij(pre.mJapij),mJgvij(pre.mJgvij),mJavij(pre.mJavij),mJgRij(pre.mJgRij) {
+    this->mdeltatij = pre.mdeltatij;  // 2-phase name lookup used in Derived template class
   }//don't copy list!
-  IMUPreIntegratorBase& operator=(const IMUPreIntegratorBase &pre){
-    this->mdeltatij=pre.mdeltatij;//don't copy list!
-    this->mRij=pre.mRij,this->mvij=pre.mvij,this->mpij=pre.mpij,this->mSigmaijPRV=pre.mSigmaijPRV,this->mSigmaij=pre.mSigmaij,
-    this->mJgpij=pre.mJgpij,this->mJapij=pre.mJapij,this->mJgvij=pre.mJgvij,this->mJavij=pre.mJavij,this->mJgRij=pre.mJgRij;
+  IMUPreIntegratorBase& operator=(const IMUPreIntegratorBase &pre) {
+    this->mRij = pre.mRij, this->mvij = pre.mvij, this->mpij = pre.mpij, this->mSigmaijPRV = pre.mSigmaijPRV,
+    this->mSigmaij = pre.mSigmaij, this->mJgpij = pre.mJgpij, this->mJapij = pre.mJapij, this->mJgvij = pre.mJgvij,
+    this->mJavij = pre.mJavij, this->mJgRij = pre.mJgRij;
+    this->mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
   virtual ~IMUPreIntegratorBase(){}
@@ -125,10 +138,10 @@ public:
   void update_highfreq(const Vector3d& omega, const Vector3d& acc, const double& dt);//don't allow dt<0!
 
   // reset to initial state
-  void reset(){
+  void reset() override {
+    OdomPreIntegratorBase<IMUDataBase>::reset();
     mRij.setIdentity();mvij.setZero();mpij.setZero();mSigmaijPRV.setZero();mSigmaij.setZero();
     mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
-    this->mdeltatij=0;//very important!
       mRij_hf.setIdentity();mvij_hf.setZero();mpij_hf.setZero();
       mdt_hf = 0;
       mdt_hf_ref = 1. / 105;//60;//
