@@ -13,6 +13,7 @@ namespace VIEO_SLAM{
 using namespace Eigen;
 
 void EncPreIntegrator::reset() {
+  OdomPreIntegratorBase<EncData>::reset();
   eigdeltaPijM = Vector2d(0,0);//deltaPii=0
   deltaThetaijMz = 0;//deltaTheta~iiz=0
   mSigmaEij.setZero();//SigmaEii=0
@@ -37,19 +38,23 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
       
       double deltat,tj,tj_1;//deltatj-1j
       if (iterjm1==iterBegin) tj_1=timeStampi; else tj_1=iterjm1->mtm;
-      if (iterj==iterEnd){
-	if (timeStampj-tj_1>0) tj=timeStampj;else break;
-// 	tj=timeStampj;
-      }else{
-	tj=iterj->mtm;
-	if (tj>timeStampj) tj=timeStampj;
+      if (iterj==iterEnd) {
+        //        if (timeStampj - tj_1 > 0)
+        //          tj = timeStampj;
+        //        else
+        //          break;
+        tj = timeStampj;
+      }else {
+        tj = iterj->mtm;
+        // assert(tj-tj_1>=0);
+        //        if (tj > timeStampj) tj = timeStampj;
       }
       deltat=tj-tj_1;
       if (deltat==0) continue;
 //       assert(deltat>=0);
       if (deltat>1.5){ mdeltatij=0;cout<<redSTR"Check Odometry!"<<whiteSTR<<endl;return -1;}//this filter is for the problem of my dataset which only contains encoder data
       
-      //selete/design measurement_j-1
+      //select/design measurement_j-1
       double vl,vr;//vlj-1,vrj-1
       vl=iterjm1->mv[0];vr=iterjm1->mv[1];//this way seems to be more precise than the following one (arithmatical average) for Corridor004
       /*
@@ -121,10 +126,11 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
       }
       //update deltaThetaijM
       deltaThetaijMz=thetaij;//deltaThetaij-1M + weiej-1 * deltatj-1j, notice we may use o in the code instead of e in the paper
+      // mdeltatij += deltat;
     }
     
     mdelxEij[0]=mdelxEij[1]=mdelxEij[5]=0;mdelxEij[2]=deltaThetaijMz;mdelxEij.segment<2>(3)=eigdeltaPijM;
-    mdeltatij=timeStampj-timeStampi;
+    mdeltatij += timeStampj - timeStampi;
   }
   return 0;
 }
