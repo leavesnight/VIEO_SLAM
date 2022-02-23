@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(DBoW2)
 
 set(USE_G2O_NEWEST 0)
-set(USE_OPENCV_NEWEST 0)
+set(USE_OPENCV_NEWEST 1)
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
