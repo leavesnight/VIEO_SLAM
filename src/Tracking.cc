@@ -162,18 +162,21 @@ void Tracking::PreIntegration(const int8_t type){
     else
       plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame);
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                           blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
-    else if (type == 3)
+    else if (blast_kf2kfpreint_)
       brecompute_kf2kfpreint_[0] = false;
     //   cout<<"!"<<mlOdomIMU.size()<<endl;
     //   cout<<"encdata over"<<endl;
-    bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame);
+    bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                      blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[1] = true;
-    else if (type == 3)
+    else if (blast_kf2kfpreint_)
       brecompute_kf2kfpreint_[1] = false;
+    blast_kf2kfpreint_ = false;
     //   cout<<"over"<<endl;
   } else {
     plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
@@ -184,6 +187,7 @@ void Tracking::PreIntegration(const int8_t type){
     PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf);
     // won't care initial value of this and how flow strategy it's (like pure vision then visualimu/mixed one)
     for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
+    blast_kf2kfpreint_ = true;
   }
   if (type==2){
     size_t N=mpReferenceKF->GetListIMUData().size(),N2=mpReferenceKF->GetListEncData().size();
@@ -191,21 +195,19 @@ void Tracking::PreIntegration(const int8_t type){
   }
 }
 bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
-  // though from kf2f won't be different when lastf is lastkf in state like bg/ba in imu,
-  // it affects reset op. in enc preint_kf
-  char type = 1;
-  // Map updated, optimize with last frame but force_reset(type==3 but plastfb!=plastkf) the one from last kf
-  if (bMapUpdated) type = 3;
+  char type = 1; // if Map updated, still optimize with last frame
   {
     unique_lock<mutex> lock(mMutexOdom);
     FrameBase *plastfb, *pcurfb;
     plastfb = static_cast<FrameBase*>(&mLastFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame);
+    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                           blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
-    else if (type == 3)
+    else if (blast_kf2kfpreint_)
       brecompute_kf2kfpreint_[0] = false;
+    blast_kf2kfpreint_ = false;
   }
   if (mCurrentFrame.GetEncPreInt().mdeltatij == 0) {
     return false;  // check PreIntegration() failed when mdeltatij==0, so mCurrentFrame.mTcw==cv::Mat()

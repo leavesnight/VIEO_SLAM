@@ -76,15 +76,15 @@ void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom) {
   preint_odom.AppendFrontPreIntegrationList(lodom, lodom.begin(), lodom.end());
 }
 template <>
-int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, const typename aligned_list<IMUData>::const_iterator &iteri,
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf, const typename aligned_list<IMUData>::const_iterator &iteri,
                               const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                               int8_t verbose) {
   CV_Assert(ppreint_imu_kf_);
   NavState ns = plastkf->GetNavState();
   auto iterj_1 = iterj;
   --iterj_1;
-  return FrameBase::PreIntegration<IMUData>(breset ? plastkf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg, ns.mba,
-                                            iteri, iterj, breset, ppreint_imu_kf_, verbose);
+  return FrameBase::PreIntegration<IMUData>(breset ? plastfb_kf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg,
+                                            ns.mba, iteri, iterj, breset, ppreint_imu_kf_, verbose);
 }
 //zzh
 
