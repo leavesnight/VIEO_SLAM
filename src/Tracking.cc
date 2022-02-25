@@ -162,16 +162,23 @@ void Tracking::PreIntegration(const int8_t type){
     else
       plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                           blast_kf2kfpreint_);
+    bool bpreint;
+    if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
+    else
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                        blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (blast_kf2kfpreint_)
       brecompute_kf2kfpreint_[0] = false;
     //   cout<<"!"<<mlOdomIMU.size()<<endl;
     //   cout<<"encdata over"<<endl;
-    bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                      blast_kf2kfpreint_);
+    if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[1])
+      bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, nullptr);
+    else
+      bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                        blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[1] = true;
     else if (blast_kf2kfpreint_)
@@ -200,8 +207,12 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
     FrameBase *plastfb, *pcurfb;
     plastfb = static_cast<FrameBase*>(&mLastFrame);
     pcurfb = static_cast<FrameBase*>(&mCurrentFrame);
-    bool bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                           blast_kf2kfpreint_);
+    bool bpreint;
+    if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
+    else
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
+                                        blast_kf2kfpreint_);
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (blast_kf2kfpreint_)
