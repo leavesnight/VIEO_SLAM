@@ -223,7 +223,8 @@ int main(int argc, char **argv) {
       ims[0] = ims[0].colRange(0, ims[0].cols / 2);
     } else {
       cv::FileNode fncam3 = fSettings["Camera4.fx"];
-      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
+      if (vtmcam[3][ni] != vtmcam[0][ni]) break;
+//      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
       if (fncam3.empty()) {
         ims[1] = cv::imread(vstrimg[3][ni], cv::IMREAD_GRAYSCALE);
       } else {
