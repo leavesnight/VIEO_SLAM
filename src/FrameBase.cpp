@@ -28,16 +28,6 @@ void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx) {
   mvpMapPoints[idx] = pMP;
 }
 
-set<MapPoint *> FrameBase::GetMapPoints() {
-  set<MapPoint *> s;
-  for (size_t i = 0, iend = mvpMapPoints.size(); i < iend; i++) {
-    if (!mvpMapPoints[i]) continue;
-    MapPoint *pMP = mvpMapPoints[i];
-    if (!pMP->isBad()) s.insert(pMP);
-  }
-  return s;
-}
-
 std::set<std::pair<MapPoint *, size_t>> FrameBase::GetMapPointsCami() {
   set<pair<MapPoint *, size_t>> s;
   for (size_t i = 0, iend = mvpMapPoints.size(); i < iend; i++) {
