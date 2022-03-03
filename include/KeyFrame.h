@@ -210,7 +210,7 @@ public:
 //created by zzh over.
 
 public:
-    KeyFrame(Frame &F, Map* pMap, KeyFrameDatabase* pKFDB,KeyFrame* pPrevKF=NULL,const char state=2);//2 is OK
+    explicit KeyFrame(Frame &F, Map* pMap, KeyFrameDatabase* pKFDB, bool copy_shallow = false,KeyFrame* pPrevKF=NULL, const char state=2);//2 is OK
 
     // Pose functions
     void SetPose(const cv::Mat &Tcw);

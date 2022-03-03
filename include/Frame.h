@@ -98,8 +98,10 @@ class Frame : public FrameBase {
   // created by zzh over.
   Frame();
 
-  // Copy constructor. use default = func. is the mGrid[A][B] copy OK?
-  Frame(const Frame &frame);
+  // Copy constructor. for Tcw is cv::Mat, we need to deep copy it
+  // =default for the mGrid[A][B] copy is OK for it's expanded in this class as static memory allocate
+  // though descriptors can be deep copied for safety here, but we'll pay attention, so it's shallow copied now
+  explicit Frame(const Frame &frame, bool copy_shallow = false);
 
   // Constructor for stereo cameras.
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
