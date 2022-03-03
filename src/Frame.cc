@@ -76,9 +76,10 @@ void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom) {
   preint_odom.AppendFrontPreIntegrationList(lodom, lodom.begin(), lodom.end());
 }
 template <>
-int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf, const typename aligned_list<IMUData>::const_iterator &iteri,
-                              const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
-                              int8_t verbose) {
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf,
+                                             const typename aligned_list<IMUData>::const_iterator &iteri,
+                                             const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
+                                             int8_t verbose) {
   CV_Assert(ppreint_imu_kf_);
   NavState ns = plastkf->GetNavState();
   auto iterj_1 = iterj;
@@ -86,7 +87,7 @@ int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plas
   return FrameBase::PreIntegration<IMUData>(breset ? plastfb_kf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg,
                                             ns.mba, iteri, iterj, breset, ppreint_imu_kf_, verbose);
 }
-//zzh
+// zzh
 
 Frame::Frame(istream &is, ORBVocabulary *voc)
     : mpORBvocabulary(voc) {  // please don't forget voc!! Or ComputeBoW() will have a segement fault problem
@@ -278,8 +279,8 @@ float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 Frame::Frame() {}
 
 // Copy Constructor
-Frame::Frame(const Frame &frame)
-    : FrameBase(frame),// mOdomPreIntIMU/Enc list uncopied
+Frame::Frame(const Frame &frame, bool copy_shallow)
+    : FrameBase(frame),  // mOdomPreIntIMU/Enc list uncopied
       ppreint_enc_kf_(frame.ppreint_enc_kf_),
       ppreint_imu_kf_(frame.ppreint_imu_kf_),
       mpORBvocabulary(frame.mpORBvocabulary),
@@ -302,7 +303,6 @@ Frame::Frame(const Frame &frame)
       mapin2n_(frame.mapin2n_),
       mvuRight(frame.mvuRight),
       mvDepth(frame.mvDepth),
-      mDescriptors(frame.mDescriptors.clone()),
       mBowVec(frame.mBowVec),
       mFeatVec(frame.mFeatVec),
       mvbOutlier(frame.mvbOutlier),
@@ -315,8 +315,14 @@ Frame::Frame(const Frame &frame)
       mvInvScaleFactors(frame.mvInvScaleFactors),
       mvLevelSigma2(frame.mvLevelSigma2),
       mvInvLevelSigma2(frame.mvInvLevelSigma2) {
-  vdescriptors_.resize(frame.vdescriptors_.size());
-  for (int i = 0; i < vdescriptors_.size(); ++i) vdescriptors_[i] = frame.vdescriptors_[i].clone();
+  if (copy_shallow) {
+    mDescriptors = frame.mDescriptors;
+    vdescriptors_ = frame.vdescriptors_;
+  } else {
+    mDescriptors = frame.mDescriptors.clone();
+    vdescriptors_.resize(frame.vdescriptors_.size());
+    for (int i = 0; i < vdescriptors_.size(); ++i) vdescriptors_[i] = frame.vdescriptors_[i].clone();
+  }
   vgrids_ = frame.vgrids_;
 
   if (!frame.Tcw_.empty()) SetPose(frame.Tcw_);
@@ -328,9 +334,8 @@ Frame::Frame(const Frame &frame)
 }
 
 Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
-             cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
-             IMUPreintegrator *ppreint_imu_kf, EncPreIntegrator *ppreint_enc_kf,
-             const vector<GeometricCamera *> *pCamInsts, bool usedistort)
+             cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf,
+             EncPreIntegrator *ppreint_enc_kf, const vector<GeometricCamera *> *pCamInsts, bool usedistort)
     : FrameBase(timeStamp),
       ppreint_enc_kf_(ppreint_enc_kf),
       ppreint_imu_kf_(ppreint_imu_kf),
@@ -495,8 +500,8 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
 }
 
 Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor *extractor, ORBVocabulary *voc, cv::Mat &K,
-             cv::Mat &distCoef, const float &bf, const float &thDepth,
-             IMUPreintegrator *ppreint_imu_kf, EncPreIntegrator *ppreint_enc_kf)
+             cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf,
+             EncPreIntegrator *ppreint_enc_kf)
     : FrameBase(timeStamp),
       ppreint_enc_kf_(ppreint_enc_kf),
       ppreint_imu_kf_(ppreint_imu_kf),

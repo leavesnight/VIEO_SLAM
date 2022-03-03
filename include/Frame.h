@@ -98,8 +98,10 @@ class Frame : public FrameBase {
   // created by zzh over.
   Frame();
 
-  // Copy constructor. use default = func. is the mGrid[A][B] copy OK?
-  Frame(const Frame &frame);
+  // Copy constructor. for Tcw is cv::Mat, we need to deep copy it
+  // =default for the mGrid[A][B] copy is OK for it's expanded in this class as static memory allocate
+  // though descriptors can be deep copied for safety here, but we'll pay attention, so it's shallow copied now
+  explicit Frame(const Frame &frame, bool copy_shallow = false);
 
   // Constructor for stereo cameras.
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
@@ -190,17 +192,17 @@ class Frame : public FrameBase {
   int N;
   // Number of Non Lapping Keypoints
   vector<size_t> num_mono = vector<size_t>(1);
+
   // For stereo matching
+  static cv::BFMatcher BFmatcher;  // for fisheye matching
+  // Triangulated stereo observations using as reference the left camera. These are
+  // computed during ComputeStereoFishEyeMatches
+  aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
   vector<vector<size_t>> mvidxsMatches;
   vector<bool> goodmatches_;                          // keep same size with mvidxsMatches
   map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
   size_t GetMapn2idxs(size_t i);
   vector<size_t> mapidxs2n_;
-  // For stereo fisheye matching
-  static cv::BFMatcher BFmatcher;
-  // Triangulated stereo observations using as reference the left camera. These are
-  // computed during ComputeStereoFishEyeMatches
-  aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
 
   // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
   // In the stereo case, mvKeysUn is redundant as images must be rectified.

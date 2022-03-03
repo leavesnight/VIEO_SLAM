@@ -1053,7 +1053,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
             //Add Frames to re-compute IMU bias after reloc
             if(mbRelocBiasPrepare){
                 cout<<redSTR<<" Relocalization Recomputation Preparing..."<<whiteSTR<<endl;
-                mv20pFramesReloc.push_back(new Frame(mCurrentFrame));
+                mv20pFramesReloc.push_back(new Frame(mCurrentFrame, true));
 
                 // Before creating new keyframe
                 // Use 20 consecutive frames to re-compute IMU bias, see VIORBSLAM paper IV-E
@@ -1186,7 +1186,7 @@ void Tracking::Track(cv::Mat img[2])//changed a lot by zzh inspired by JingWang
         if(!mCurrentFrame.mpReferenceKF)//when mCurrentFrame is not KF but it cannot see common MPs in local MPs(e.g. it has all new MPs but it's not inserted as new KF & you can get its mTcw through other odometry)
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
 
-        mLastFrame = Frame(mCurrentFrame);//copy constructor for some Mat.clone() and vec<>[][] deep copy, notice mLastFrame is also set in XXXInitialization()!
+        mLastFrame = Frame(mCurrentFrame, true);//copy constructor for some Mat.clone() and vec<>[][] deep copy, notice mLastFrame is also set in XXXInitialization()!
     }
 
     // Store frame pose information to retrieve the complete camera trajectory afterwards.
@@ -1222,7 +1222,7 @@ void Tracking::StereoInitialization(cv::Mat img[2])
         mCurrentFrame.SetPose(cv::Mat::eye(4,4,CV_32F));
 
         // Create KeyFrame
-        KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
+        KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB, true);
 	if (img){ pKFini->Img[0]=img[0];pKFini->Img[1]=img[1];}
 
         // Insert KeyFrame in the map
@@ -1284,7 +1284,7 @@ void Tracking::StereoInitialization(cv::Mat img[2])
         mpLocalMapper->InsertKeyFrame(pKFini);//add it to the local mapper KF list
 
         mCurrentFrame.mpReferenceKF = pKFini;//I think it should be put before mLastFrame=!
-        mLastFrame = Frame(mCurrentFrame);
+        mLastFrame = Frame(mCurrentFrame, true);
         mnLastKeyFrameId=mCurrentFrame.mnId;
         mpLastKeyFrame = pKFini;
 
@@ -1312,8 +1312,8 @@ void Tracking::MonocularInitialization()
         {
 	    PreIntegration();//PreIntegration Intialize, Clear IMUData buffer, zzh
 
-            mInitialFrame = Frame(mCurrentFrame);
-            mLastFrame = Frame(mCurrentFrame);
+            mInitialFrame = Frame(mCurrentFrame, true);
+            mLastFrame = Frame(mCurrentFrame, true);
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -1380,8 +1380,8 @@ void Tracking::MonocularInitialization()
 void Tracking::CreateInitialMapMonocular()
 {
     // Create KeyFrames
-    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB);
-    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB,pKFini);//zzh, it's very important! or assert failed in KF->SetBadFlag()
+    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB, true);
+    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB, true,pKFini);//zzh, it's very important! or assert failed in KF->SetBadFlag()
 
     pKFini->ComputeBoW();
     pKFcur->ComputeBoW();
@@ -1471,7 +1471,7 @@ void Tracking::CreateInitialMapMonocular()
     PreIntegration(2);//zzh, this will automatically Clear IMUData buffer before mCurrentFrame/pKFcur, must be put after Wrong return
     mpLastKeyFrame=pKFcur;//zzh, replaced here
 
-    mLastFrame = Frame(mCurrentFrame);
+    mLastFrame = Frame(mCurrentFrame, true);
 
     mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
 
@@ -1494,7 +1494,7 @@ void Tracking::CheckReplacedInLastFrame() {
     if (pMP) {
       MapPoint* pRep = pMP->GetReplaced();
       if (pRep) {
-        size_t cami = mLastFrame.mapin2n_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
+        size_t cami = mLastFrame.mapn2in_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
         CV_Assert(pMP->isBad());
         while (pRep && pRep->isBad()) {
 #ifndef CHECK_REPLACE_ALL
@@ -1936,7 +1936,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2])
         return;
 
     //ensure Tcw is always right for mCurrentFrame even there's no odom data, NavState/Tbw can be wrong when there's no odom data
-    KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB,mpLastKeyFrame,mState);//copy initial Tcw&Tbw(even wrong), update bi=bi+dbi
+    KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB, true,mpLastKeyFrame,mState);//copy initial Tcw&Tbw(even wrong), update bi=bi+dbi
     //here notice a fact: JingWang haven't considered no imu data's condition when imu is initialized(including reloc.), so his NavState after imu intialized is always right, but before is also wrong, but he should set the right NavState for the first initialized KeyFrame
     //so I need to UpdateNavStatePVRFromTcw for the Frame when imu data is empty after imu is initialized
     if (mState==ODOMOK) mnLastOdomKFId=pKF->mnId;

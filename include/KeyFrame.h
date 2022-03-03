@@ -27,7 +27,6 @@
 #include "Thirdparty/DBoW2/DBoW2/BowVector.h"
 #include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
-#include "ORBextractor.h"
 #include "KeyFrameDatabase.h"
 
 #include <mutex>
@@ -210,7 +209,7 @@ public:
 //created by zzh over.
 
 public:
-    KeyFrame(Frame &F, Map* pMap, KeyFrameDatabase* pKFDB,KeyFrame* pPrevKF=NULL,const char state=2);//2 is OK
+    explicit KeyFrame(Frame &F, Map* pMap, KeyFrameDatabase* pKFDB, bool copy_shallow = false,KeyFrame* pPrevKF=NULL, const char state=2);//2 is OK
 
     // Pose functions
     void SetPose(const cv::Mat &Tcw);
@@ -253,7 +252,6 @@ public:
     void AddMapPoint(MapPoint* pMP, const size_t &idx) override;//mvpMapPoints[idx]=pMP
     void EraseMapPointMatch(const size_t &idx) override;//mvpMapPoints[idx]=nullptr
     void EraseMapPointMatch(MapPoint* pMP);//mvpMapPoints[idx corresp. pMP]=nullptr
-    std::set<MapPoint*> GetMapPoints() override;//make set from good mvpMapPoints
     std::set<std::pair<MapPoint*, size_t>> GetMapPointsCami() override;
     std::vector<MapPoint*> GetMapPointMatches() override;//mvpMapPoints
     int TrackedMapPoints(const int &minObs);//return the number of good mvpMapPoints whose nObs>=minObs
