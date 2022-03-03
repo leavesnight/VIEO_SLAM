@@ -441,12 +441,6 @@ void KeyFrame::EraseMapPointMatch(MapPoint* pMP) {
   }
 }
 
-set<MapPoint*> KeyFrame::GetMapPoints()
-{
-    unique_lock<mutex> lock(mMutexFeatures);
-    return FrameBase::GetMapPoints();
-}
-
 std::set<std::pair<MapPoint*, size_t>> KeyFrame::GetMapPointsCami()
 {
   unique_lock<mutex> lock(mMutexFeatures);

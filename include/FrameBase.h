@@ -33,7 +33,6 @@ class FrameBase {
   virtual void EraseMapPointMatch(const size_t &idx) { mvpMapPoints[idx] = nullptr; }
   virtual std::vector<MapPoint *> GetMapPointMatches() { return mvpMapPoints; }
   virtual void ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) { mvpMapPoints[idx] = pMP; }
-  virtual std::set<MapPoint *> GetMapPoints();
   virtual std::set<std::pair<MapPoint *, size_t>> GetMapPointsCami();
 
   // virtual makes it could be implemented as thread-safe one and used by PreIntegration()
