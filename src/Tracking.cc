@@ -1494,7 +1494,7 @@ void Tracking::CheckReplacedInLastFrame() {
     if (pMP) {
       MapPoint* pRep = pMP->GetReplaced();
       if (pRep) {
-        size_t cami = mLastFrame.mapin2n_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
+        size_t cami = mLastFrame.mapn2in_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
         CV_Assert(pMP->isBad());
         while (pRep && pRep->isBad()) {
 #ifndef CHECK_REPLACE_ALL

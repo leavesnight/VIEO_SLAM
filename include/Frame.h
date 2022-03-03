@@ -192,17 +192,17 @@ class Frame : public FrameBase {
   int N;
   // Number of Non Lapping Keypoints
   vector<size_t> num_mono = vector<size_t>(1);
+
   // For stereo matching
+  static cv::BFMatcher BFmatcher;  // for fisheye matching
+  // Triangulated stereo observations using as reference the left camera. These are
+  // computed during ComputeStereoFishEyeMatches
+  aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
   vector<vector<size_t>> mvidxsMatches;
   vector<bool> goodmatches_;                          // keep same size with mvidxsMatches
   map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
   size_t GetMapn2idxs(size_t i);
   vector<size_t> mapidxs2n_;
-  // For stereo fisheye matching
-  static cv::BFMatcher BFmatcher;
-  // Triangulated stereo observations using as reference the left camera. These are
-  // computed during ComputeStereoFishEyeMatches
-  aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
 
   // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
   // In the stereo case, mvKeysUn is redundant as images must be rectified.
