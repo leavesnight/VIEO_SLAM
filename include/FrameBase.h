@@ -31,8 +31,7 @@ class FrameBase {
 
   virtual void AddMapPoint(MapPoint *pMP, const size_t &idx);
   virtual void EraseMapPointMatch(const size_t &idx) { mvpMapPoints[idx] = nullptr; }
-  virtual const std::vector<MapPoint *> &GetMapPointMatches() { return mvpMapPoints; }
-  const std::vector<MapPoint *> &GetMapPointMatches() const { return mvpMapPoints; }
+  virtual std::vector<MapPoint *> GetMapPointMatches() { return mvpMapPoints; }
   virtual void ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) { mvpMapPoints[idx] = pMP; }
   virtual std::set<MapPoint *> GetMapPoints();
   virtual std::set<std::pair<MapPoint *, size_t>> GetMapPointsCami();
