@@ -101,15 +101,6 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
   FrameBase::PreIntegration<IMUData, IMUPreintegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
-std::set<KeyFrame *> KeyFrame::GetConnectedKeyFramesByWeight(int w){
-  vector<KeyFrame*> vConnectedKFw=GetCovisiblesByWeight(w);
-  unique_lock<mutex> lock(mMutexConnections);
-  set<KeyFrame*> s;
-  for(vector<KeyFrame*>::iterator vit=vConnectedKFw.begin();vit!=vConnectedKFw.end();++vit)
-    s.insert(*vit);
-  return s;
-}
-
 //for LoadMap()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,istream &is)
     : FrameBase(F),// we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
