@@ -26,14 +26,14 @@
 
 namespace VIEO_SLAM
 {
-  
+
 std::mutex KeyFrame::mstMutexPNChanging;
-  
+
 void KeyFrame::UpdatePoseFromNS()//same as Frame::UpdatePoseFromNS()
 {
   cv::Mat Rbc = Frame::mTbc.rowRange(0,3).colRange(0,3);//don't need clone();
   cv::Mat Pbc = Frame::mTbc.rowRange(0,3).col(3);//or tbc
-  
+
   cv::Mat Rwb = Converter::toCvMat(mNavState.getRwb());
   cv::Mat Pwb = Converter::toCvMat(mNavState.mpwb);//or twb
   //Tcw=Tcb*Twb, Twc=Twb*Tbc
@@ -213,12 +213,12 @@ bool KeyFrame::write(ostream &os){
   os.write(&mState,sizeof(mState));
   return os.good();
 }
-  
+
 //created by zzh over.
 
 long unsigned int KeyFrame::nNextId=0;
 
-KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevKF,const char state)
+KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,bool copy_shallow,KeyFrame* pPrevKF, const char state)
     : FrameBase(F),
       mnFrameId(F.mnId), mnGridCols(FRAME_GRID_COLS), mnGridRows(FRAME_GRID_ROWS),
     mfGridElementWidthInv(F.mfGridElementWidthInv), mfGridElementHeightInv(F.mfGridElementHeightInv),
@@ -226,7 +226,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB,KeyFrame* pPrevK
     mnLoopQuery(0), mnLoopWords(0), mnRelocQuery(0), mnRelocWords(0), mnBAGlobalForKF(0),
     fx(F.fx), fy(F.fy), cx(F.cx), cy(F.cy), invfx(F.invfx), invfy(F.invfy),
     mbf(F.mbf), mb(F.mb), mThDepth(F.mThDepth), N(F.N), mvKeys(F.mvKeys), mvKeysUn(F.mvKeysUn),
-    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(F.mDescriptors.clone()),
+    mvuRight(F.mvuRight), mvDepth(F.mvDepth), mDescriptors(copy_shallow ? F.mDescriptors : F.mDescriptors.clone()),
     mBowVec(F.mBowVec), mFeatVec(F.mFeatVec), mnScaleLevels(F.mnScaleLevels), mfScaleFactor(F.mfScaleFactor),
     mfLogScaleFactor(F.mfLogScaleFactor), mvScaleFactors(F.mvScaleFactors), mvLevelSigma2(F.mvLevelSigma2),
     mvInvLevelSigma2(F.mvInvLevelSigma2), mnMinX(F.mnMinX), mnMinY(F.mnMinY), mnMaxX(F.mnMaxX),
@@ -368,7 +368,7 @@ void KeyFrame::UpdateBestCovisibles()
     }
 
     mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
-    mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());    
+    mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 }
 
 set<KeyFrame*> KeyFrame::GetConnectedKeyFrames()
@@ -550,7 +550,7 @@ void KeyFrame::UpdateConnections(KeyFrame* pLastKF)
 // 	  mvOrderedWeights.clear();
 // 	  mvpOrderedConnectedKeyFrames.push_back(pLastKF);
 // 	  mvOrderedWeights.push_back(0);//0 means it's an Odom link
-	  
+
 	  //if first connected then update spanning tree
 	  if (mbFirstConnection&&mnId!=0){//mnId!=0/this!=pLastKF is important for 0th F/KF to ensure its parent is NULL!
 	    assert(this!=pLastKF);
@@ -732,7 +732,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree)//this will be released in UpdateLocalK
         // Update Spanning Tree
         set<KeyFrame*> sParentCandidates;
 	assert(mpParent!=NULL);
-// 	if (mpParent!=NULL) 
+// 	if (mpParent!=NULL)
         sParentCandidates.insert(mpParent);
 
         // Assign at each iteration one children with a parent (the pair with highest covisibility weight)
