@@ -56,6 +56,7 @@ class Frame : public FrameBase {
   NavState mNavStatePrior;             // needed by PoseOptimization twice, notice if no imu data, it's unintialized
   bool mbPrior;                        // meaning if mNavStatePrior&mMargCovInv exist
 
+  const std::vector<MapPoint *> &GetMapPointMatches() const { return mvpMapPoints; }
   const NavState &GetNavState() const { return mNavState; }
   NavState &GetNavStateRef() { return mNavState; }
   // rewrite the one in FrameBase for efficiency

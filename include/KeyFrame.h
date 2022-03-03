@@ -49,22 +49,22 @@ class KeyFrame : public FrameBase, public MutexUsed
   std::mutex mMutexNavState;//the mutex of mNavState(state/vertex), similar to mMutexPose
 
   std::mutex mMutexOdomData;//the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to the unchanged IMU measurement, KFCulling() does change Odom measurement
-  
+
   // Odom connections for localBA
   KeyFrame *mpPrevKeyFrame,*mpNextKeyFrame;
   std::mutex mMutexPNConnections;//the mutex of Prev/Next KF(connections/sparse states related to this KF), similar to mMutexConnections
 //   bool mbPNChanging;std::mutex mMutexPNChanging;
   static std::mutex mstMutexPNChanging;//avoid conescutive 2/3 KFs' SetBadFlag() and SetErase() at the same time! //or check if the former & latter KFs' mbPNChanging are both false
-  
+
   void UpdatePoseFromNS();
-  
+
 public:
   NavState mNavStateGBA;//like mTcwGBA, for LoopClosing, set and used in the same thread(LoopClosing or IMUInitialization)
   NavState mNavStatePrior;Matrix<double,15,15> mMargCovInv;std::vector<bool> mvbOutlier;//empty, just for template of PoseOptimization()
   const bool mbPrior;//always false
   //PCL used image
   cv::Mat Img[2];//0 is color,1 is depth
-  
+
   NavState GetNavState(void) override{//cannot use const &(make mutex useless)
     unique_lock<mutex> lock(mMutexNavState);
     return mNavState;//call copy constructor
@@ -111,7 +111,7 @@ public:
     mpNextKeyFrame = pKF;
   }
   void UpdateNavStatePVRFromTcw();//mainly for Posegraph optimization, but I think when Tcw is finally optimized, please call this func. to update NavState
-  
+
   // Odom PreIntegration
   template <class _OdomData>
   void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,
@@ -143,9 +143,9 @@ public:
     unique_lock<mutex> lock(mMutexOdomData);
     FrameBase::PreIntegration<OdomData, EncPreIntegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
   }
-  
+
   std::set<KeyFrame *> GetConnectedKeyFramesByWeight(int w);//set made from mConnectedKeyFrameWeights[i].first restricted by weight
-  
+
   inline char getState(){
 //     unique_lock<mutex> lock(mMutexState);
     return mState;
@@ -205,10 +205,10 @@ public:
   }
   bool read(istream &is);
   bool write(ostream &os);
-  
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW//for quaterniond in NavState
 //created by zzh over.
-  
+
 public:
     KeyFrame(Frame &F, Map* pMap, KeyFrameDatabase* pKFDB,KeyFrame* pPrevKF=NULL,const char state=2);//2 is OK
 
@@ -255,7 +255,7 @@ public:
     void EraseMapPointMatch(MapPoint* pMP);//mvpMapPoints[idx corresp. pMP]=nullptr
     std::set<MapPoint*> GetMapPoints() override;//make set from good mvpMapPoints
     std::set<std::pair<MapPoint*, size_t>> GetMapPointsCami() override;
-    const std::vector<MapPoint*> &GetMapPointMatches() override;//mvpMapPoints
+    std::vector<MapPoint*> GetMapPointMatches() override;//mvpMapPoints
     int TrackedMapPoints(const int &minObs);//return the number of good mvpMapPoints whose nObs>=minObs
     MapPoint* GetMapPoint(const size_t &idx);//mvpMapPoints[idx]
     void FuseMP(size_t idx, MapPoint* pMP);
@@ -369,7 +369,7 @@ protected:
     // Grid over the image to speed up feature matching
     std::vector<std::vector< std::vector <std::vector<size_t>>>> vgrids_;
 
-    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;//covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints 
+    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;//covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;//ordered covisibility graph/connected KFs need KFs >=15 covisible MPs or the KF with Max covisible MapPoints
     std::vector<int> mvOrderedWeights;//covisible MPs' number
 
@@ -382,7 +382,7 @@ protected:
     // Bad flags
     bool mbNotErase;
     bool mbToBeErased;
-    bool mbBad;    
+    bool mbBad;
 
     float mHalfBaseline; // Only for visualization
 
