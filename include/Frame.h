@@ -240,9 +240,10 @@ class Frame : public FrameBase {
   float mfScaleFactor;
   float mfLogScaleFactor;
   vector<float> mvScaleFactors;
-  vector<float> mvInvScaleFactors;
   vector<float> mvLevelSigma2;
   vector<float> mvInvLevelSigma2;
+
+  vector<float> mvInvScaleFactors;  // for ComputeStereoMatches
 
   // Undistorted Image Bounds (computed once).
   static float mnMinX;
