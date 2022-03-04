@@ -236,10 +236,10 @@ class Frame : public FrameBase {
   KeyFrame *mpReferenceKF;
 
   // Scale pyramid info.
+  vector<float> mvScaleFactors;
   int mnScaleLevels;
   float mfScaleFactor;
   float mfLogScaleFactor;
-  vector<float> mvScaleFactors;
   vector<float> mvLevelSigma2;
   vector<float> mvInvLevelSigma2;
 
