@@ -439,7 +439,7 @@ void MapPoint::UpdateNormalAndDepth() {
         const cv::Mat Rcrw = pKF->GetRotation();
         twc += Rcrw.t() * pcam1->Getcvtrc();
       }
-      cv::Mat normali = mWorldPos - twc;
+      cv::Mat normali = Pos - twc;
       normal = normal + normali / cv::norm(normali);
       n++;
     }
