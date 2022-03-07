@@ -57,9 +57,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   void UpdatePoseFromNS();
 
  public:
-  // like mTcwGBA, for LoopClosing, set and used in the same thread(LoopClosing or IMUInitialization)
-  NavState mNavStateGBA;
-
   // empty, just for template of PoseOptimization()
   NavState mNavStatePrior;
   Matrix<double, 15, 15> mMargCovInv;
@@ -150,8 +147,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
                                                           breset);
   }
 
-  inline char getState() { return mState; }
-
   // for LoadMap() in System.cc
   KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is);
   template <class T>
@@ -212,6 +207,9 @@ class KeyFrame : public FrameBase, public MutexUsed {
   explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false, KeyFrame *pPrevKF = NULL,
                     const char state = 2);  // 2 is OK
 
+  // Image
+  bool IsInImage(const float &x, const float &y) const;
+
   // Pose functions
   void SetPose(const cv::Mat &Tcw);
   cv::Mat GetPose();  // Tcw
@@ -226,32 +224,22 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // Bag of Words Representation
   void ComputeBoW();
 
-  // Covisibility graph functions
-  void AddConnection(KeyFrame *pKF, const int &weight);
-  void EraseConnection(KeyFrame *pKF);  // mConnectedKeyFrameWeights.erase(pKF) && UpdateBestCovisibles()
-  void UpdateConnections(
-      KeyFrame *pLastKF = NULL);  // first connect other KFs to this, then connect this to other KFs/update
-                                  // this->mConnectedKeyFrameWeights...; an undirected graph(covisibility graph)
-  void UpdateBestCovisibles();    // update mvpOrderedConnectedKeyFrames && mvOrderedWeights by sort()
-  std::set<KeyFrame *> GetConnectedKeyFrames();           // set made from mConnectedKeyFrameWeights[i].first
-  std::vector<KeyFrame *> GetVectorCovisibleKeyFrames();  // mvpOrderedConnectedKeyFrames
-  std::vector<KeyFrame *> GetBestCovisibilityKeyFrames(
-      const int &N);  // get N closest KFs in covisibility graph(map<KF*,int>)
-  std::vector<KeyFrame *> GetCovisiblesByWeight(
-      const int &w);             // get some closest KFs in covisibility graph whose weight>=w
-  int GetWeight(KeyFrame *pKF);  // mConnectedKeyFrameWeights[pKF](0 no found), now 0 maybe found rectified by zzhs
+  // KeyPoint functions
+  // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
+  std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const;
 
-  // Spanning tree functions
-  void AddChild(KeyFrame *pKF);  // mspChildrens.insert(pKF)
-  void EraseChild(KeyFrame *pKF);
-  void ChangeParent(KeyFrame *pKF);  // mpParent = pKF,pKF->AddChild(this);
-  std::set<KeyFrame *> GetChilds();  // mspChildrens
-  KeyFrame *GetParent();             // mpParent
-  bool hasChild(KeyFrame *pKF);      // if pKF in mspChildrens
+  cv::Mat UnprojectStereo(int i);
 
-  // Loop Edges
-  void AddLoopEdge(KeyFrame *pKF);      // mspLoopEdges.insert(pKF);mbNotErase=true;
-  std::set<KeyFrame *> GetLoopEdges();  // mspLoopEdges
+  // Set/check bad flag
+  bool isBad();  // mbBad
+  // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF) in mpMap && mpKeyFrameDB;
+  // KeepTree=true is used for BadKF's recover in LoadMap()
+  void SetBadFlag(bool bKeepTree = false);
+
+  // Enable/Disable bad flag changes
+  void SetNotErase();  // mbNotErase=true means it cannot be directly erased by SetBadFlag(), but can use SetErase()
+  // try to erase this(&KF) by SetBadFlag() when mbToBeErased==true(SetBadFlag() before)&&mspLoopEdges.empty()
+  void SetErase();
 
   // MapPoint observation functions
   void AddMapPoint(MapPoint *pMP, const size_t &idx) override;  // mvpMapPoints[idx]=pMP
@@ -263,30 +251,32 @@ class KeyFrame : public FrameBase, public MutexUsed {
   MapPoint *GetMapPoint(const size_t &idx);               // mvpMapPoints[idx]
   void FuseMP(size_t idx, MapPoint *pMP);
 
-  // KeyPoint functions
-  std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r)
-      const;  // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike
-              // Frame.h
-  cv::Mat UnprojectStereo(int i);
+  inline char getState() { return mState; }
 
-  // Image
-  bool IsInImage(const float &x, const float &y) const;
+  // Covisibility graph functions
+  // first connect other KFs to this, then connect this to other KFs/update this->mConnectedKeyFrameWeights...;
+  // an undirected graph(covisibility graph)
+  void UpdateConnections(KeyFrame *pLastKF = NULL);
+  std::set<KeyFrame *> GetConnectedKeyFrames();           // set made from mConnectedKeyFrameWeights[i].first
+  std::vector<KeyFrame *> GetVectorCovisibleKeyFrames();  // mvpOrderedConnectedKeyFrames
+  // get N closest KFs in covisibility graph(map<KF*,int>)
+  std::vector<KeyFrame *> GetBestCovisibilityKeyFrames(const int &N);
+  // get some closest KFs in covisibility graph whose weight>=w
+  std::vector<KeyFrame *> GetCovisiblesByWeight(const int &w);
+  int GetWeight(KeyFrame *pKF);  // mConnectedKeyFrameWeights[pKF](0 no found), now 0 maybe found rectified by zzhs
 
-  // Enable/Disable bad flag changes
-  void SetNotErase();  // mbNotErase=true means it cannot be directly erased by SetBadFlag(), but can use SetErase()
-  void SetErase();     // try to erase this(&KF) by SetBadFlag() when mbToBeErased==true(SetBadFlag()
-                       // before)&&mspLoopEdges.empty()
+  // Spanning tree functions
+  void ChangeParent(KeyFrame *pKF);  // mpParent = pKF,pKF->AddChild(this);
+  std::set<KeyFrame *> GetChilds();  // mspChildrens
+  KeyFrame *GetParent();             // mpParent
+  bool hasChild(KeyFrame *pKF);      // if pKF in mspChildrens
 
-  // Set/check bad flag
-  void SetBadFlag(
-      bool bKeepTree = false);  // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF)
-                                // in mpMap && mpKeyFrameDB; KeepTree=true is used for BadKF's recover in LoadMap()
-  bool isBad();                 // mbBad
+  // Loop Edges
+  void AddLoopEdge(KeyFrame *pKF);      // mspLoopEdges.insert(pKF);mbNotErase=true;
+  std::set<KeyFrame *> GetLoopEdges();  // mspLoopEdges
 
   // Compute Scene Depth (q=2 median). Used in monocular.
   float ComputeSceneMedianDepth(const int q);
-
-  static bool weightComp(int a, int b) { return a > b; }
 
   static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->mnId < pKF2->mnId; }
 
@@ -294,7 +284,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
  public:
   static long unsigned int nNextId;
   long unsigned int mnId;
-  
+
   const long unsigned int mnFrameId;
 
   // Grid (to speed up feature matching)
@@ -303,13 +293,14 @@ class KeyFrame : public FrameBase, public MutexUsed {
   const float mfGridElementWidthInv;
   const float mfGridElementHeightInv;
 
-  // Variables used by the tracking
+  // Variables to avoid duplicate inserting
   long unsigned int mnTrackReferenceForFrame;  // for local Map in tracking
   long unsigned int mnFuseTargetForKF;         // for LocalMapping
-
   // Variables used by the local mapping
   long unsigned int mnBALocalForKF;  // for local BA in LocalMapping
   long unsigned int mnBAFixedForKF;  // for local BA in LocalMapping
+  // like mTcwGBA, for LoopClosing, set and used in the same thread(LoopClosing or IMUInitialization)
+  NavState mNavStateGBA;
 
   // Variables used by the keyframe database
   long unsigned int mnLoopQuery;
@@ -361,42 +352,54 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   // The following variables need to be accessed trough a mutex to be thread safe.
  protected:
+  // Bad flags
+  bool mbBad;
+  Map *mpMap;
+  // BoW
+  KeyFrameDatabase *mpKeyFrameDB;
+  bool mbNotErase;
+  bool mbToBeErased;
+
   // SE3 Pose and camera center
   cv::Mat Twc;
   cv::Mat Ow;
   cv::Mat Cw;  // Stereo middel point. Only for visualization
 
-  // BoW
-  KeyFrameDatabase *mpKeyFrameDB;
   ORBVocabulary *mpORBvocabulary;
 
   // Grid over the image to speed up feature matching
   std::vector<std::vector<std::vector<std::vector<size_t>>>> vgrids_;
 
-  std::map<KeyFrame *, int> mConnectedKeyFrameWeights;   // covisibility graph need KFs (>0 maybe unidirectional
-                                                         // edge!maybe u can revise it~) covisible MapPoints
-  std::vector<KeyFrame *> mvpOrderedConnectedKeyFrames;  // ordered covisibility graph/connected KFs need KFs >=15
-                                                         // covisible MPs or the KF with Max covisible MapPoints
-  std::vector<int> mvOrderedWeights;                     // covisible MPs' number
+  // covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints
+  std::map<KeyFrame *, int> mConnectedKeyFrameWeights;
+  // ordered covisibility graph/connected KFs need KFs >=15 covisible MPs or the KF with Max covisible MapPoints
+  std::vector<KeyFrame *> mvpOrderedConnectedKeyFrames;
+  // covisible MPs' number
+  std::vector<int> mvOrderedWeights;
 
-  // Spanning Tree and Loop Edges
+  // Spanning Tree
   bool mbFirstConnection;
   KeyFrame *mpParent;
   std::set<KeyFrame *> mspChildrens;
+
+  // Loop Edges
   std::set<KeyFrame *> mspLoopEdges;
 
-  // Bad flags
-  bool mbNotErase;
-  bool mbToBeErased;
-  bool mbBad;
-
   float mHalfBaseline;  // Only for visualization
-
-  Map *mpMap;
 
   std::mutex mMutexPose;
   std::mutex mMutexConnections;
   std::mutex mMutexFeatures;  // the mutex of mvpMapPoints(landmarks' states/vertices)
+
+  // Covisibility graph functions
+  void AddConnection(KeyFrame *pKF, const int &weight);
+  void EraseConnection(KeyFrame *pKF);  // mConnectedKeyFrameWeights.erase(pKF) && UpdateBestCovisibles()
+  void UpdateBestCovisibles();          // update mvpOrderedConnectedKeyFrames && mvOrderedWeights by sort()
+  static bool weightComp(int a, int b) { return a > b; }
+
+  // Spanning tree functions
+  void AddChild(KeyFrame *pKF);  // mspChildrens.insert(pKF)
+  void EraseChild(KeyFrame *pKF);
 
   inline const Sophus::SE3d GetTcwCst() const { CV_Assert(0 && "Need Lock Mutex, cannot use ()const!"); }
 };

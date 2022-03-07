@@ -33,12 +33,17 @@ namespace VIEO_SLAM {
 
 class ORBmatcher {
  public:
+  static const int TH_LOW;
+  static const int TH_HIGH;
+  static const int HISTO_LENGTH;
+
+  // Computes the Hamming distance between two ORB descriptors(1*256bit/32*8bit)
+  static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
+
   enum ModeSBP { SBPFuseLater = 0x1, SBPMatchMultiCam = 0x2 };
 
   ORBmatcher(float nnratio = 0.6, bool checkOri = true);
 
-  // Computes the Hamming distance between two ORB descriptors(1*256bit/32*8bit)
-  static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
   static void SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, cv::Mat Rcrw, cv::Mat tcrw, KeyFrame *pKF,
                                      const float th_radius, const float th_bestdist, bool bCheckViewingAngle = false,
                                      const float *pbf = nullptr, int *pnfused = nullptr,
@@ -108,11 +113,6 @@ class ORBmatcher {
       vector<MapPoint *> &vpReplacePoint);  //return number <= the real fused/added matched MPs in pKF->mvpMapPoints, \
     rectify vpReplacePoint(to be replaced), \
     matching method is similar to SearchByProjection(KF*,cvScw,vec<MP*>,vec<MP*>), also need lots of validation but no chi2 distr. error check in Fuse(KF*,vec<MP*>)
-
- public:
-  static const int TH_LOW;
-  static const int TH_HIGH;
-  static const int HISTO_LENGTH;
 
  protected:
   bool CheckDistEpipolarLine(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &F12,
