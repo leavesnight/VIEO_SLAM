@@ -614,8 +614,8 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
       // 	  mvOrderedWeights.push_back(0);//0 means it's an Odom link
 
       // if first connected then update spanning tree
-      if (mbFirstConnection &&
-          mnId != 0) {  // mnId!=0/this!=pLastKF is important for 0th F/KF to ensure its parent is NULL!
+      // mnId!=0/this!=plastkf is important for 0th F/KF to ensure its parent is NULL!
+      if (mbFirstConnection && mnId != 0) {
         assert(this != pLastKF);
         mbFirstConnection = false;
         mpParent = pLastKF;  // the closer, the first connection is better
@@ -666,8 +666,6 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
 
   {
     unique_lock<mutex> lockCon(mMutexConnections);
-
-    // mspConnectedKeyFrames = spConnectedKeyFrames;
     mConnectedKeyFrameWeights = KFcounter;
     mvpOrderedConnectedKeyFrames = vector<KeyFrame *>(lKFs.begin(), lKFs.end());
     mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
