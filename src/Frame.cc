@@ -352,10 +352,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   usedistort_ = usedistort;
 
   CV_Assert(ims.size() == extractors.size());
-  mpORBextractors.resize(extractors.size());
-  for (int i = 0; i < extractors.size(); ++i) {
-    mpORBextractors[i] = extractors[i];
-  }
+  mpORBextractors = extractors;
   // Scale Level Info
   mnScaleLevels = mpORBextractors[0]->GetLevels();
   mfScaleFactor = mpORBextractors[0]->GetScaleFactor();
@@ -1101,7 +1098,6 @@ void Frame::ComputeStereoFishEyeMatches() {
       if (iteridxs != mapcamidx2idxs_.end()) {
         auto &ididxs = iteridxs->second;
         if (-1 != ididxs && goodmatches_[ididxs]) {
-          auto &idxs = mvidxsMatches[ididxs];
           Vector3d x3Dc = ((KannalaBrandt8 *)mpCameras[i])->GetTcr() * mv3Dpoints[ididxs];
           mvDepth.push_back(x3Dc[2]);
         } else
@@ -1116,7 +1112,7 @@ void Frame::ComputeStereoFishEyeMatches() {
     }
   }
 
-  if (mapin2n_.size() < vvkeys_.size()) mapin2n_.resize(vvkeys_.size());
+  if (mapin2n_.size() < n_cams) mapin2n_.resize(n_cams);
   mapidxs2n_.resize(mv3Dpoints.size(), -1);
   for (size_t k = 0; k < mvKeys.size(); ++k) {
     size_t cami = get<0>(mapn2in_[k]);

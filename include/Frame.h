@@ -143,9 +143,6 @@ class Frame : public FrameBase {
   // and fill variables of the MapPoint to be used by the tracking
   bool isInFrustum(MapPoint *pMP, float viewingCosLimit);
 
-  // Compute the cell of a keypoint (return false if outside the grid)
-  bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
-
   vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r, const int minLevel = -1,
                                    const int maxLevel = -1) const;
 
@@ -162,8 +159,35 @@ class Frame : public FrameBase {
   cv::Mat UnprojectStereo(const int &i);
 
  public:
+  // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
+  // In the stereo case, mvKeysUn is redundant as images must be rectified.
+  // In the RGB-D case, RGB images can be distorted.
+  std::vector<cv::KeyPoint> mvKeys;
+  std::vector<cv::KeyPoint> mvKeysUn;
+
+  // Corresponding stereo coordinate and depth for each keypoint.
+  // "Monocular" keypoints have a negative value.
+  std::vector<float> mvuRight;
+  std::vector<float> mvDepth;
+
+  // Flag to identify outlier associations.
+  std::vector<bool> mvbOutlier;
+
+  // Threshold close/far points. Close points are inserted from 1 view.
+  // Far points are inserted as in the monocular case from 2 views.
+  float mThDepth;
+
+  // Current and Next Frame id.
+  static long unsigned int nNextId;
+  long unsigned int mnId;
+
   // Vocabulary used for relocalization.
   ORBVocabulary *mpORBvocabulary;
+  // ORB descriptor, each row associated to a keypoint.
+  cv::Mat mDescriptors;
+  // Bag of Words Vector structures.
+  DBoW2::BowVector mBowVec;
+  DBoW2::FeatureVector mFeatVec;
 
   // Feature extractor. The right is used only in the stereo case.
   vector<ORBextractor *> mpORBextractors;
@@ -184,14 +208,12 @@ class Frame : public FrameBase {
   // Stereo baseline in meters.
   float mb;
 
-  // Threshold close/far points. Close points are inserted from 1 view.
-  // Far points are inserted as in the monocular case from 2 views.
-  float mThDepth;
-
   // Number of KeyPoints.
   int N;
   // Number of Non Lapping Keypoints
   vector<size_t> num_mono = vector<size_t>(1);
+  std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
+  std::vector<cv::Mat> vdescriptors_ = std::vector<cv::Mat>(1);
 
   // For stereo matching
   static cv::BFMatcher BFmatcher;  // for fisheye matching
@@ -203,51 +225,25 @@ class Frame : public FrameBase {
   map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
   size_t GetMapn2idxs(size_t i);
   vector<size_t> mapidxs2n_;
-
-  // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
-  // In the stereo case, mvKeysUn is redundant as images must be rectified.
-  // In the RGB-D case, RGB images can be distorted.
-  std::vector<cv::KeyPoint> mvKeys;
-  std::vector<cv::KeyPoint> mvKeysUn;
-  std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
   std::vector<std::vector<size_t>> mapin2n_;  // mapcamidx2n_ for addobs func.
-
-  // Corresponding stereo coordinate and depth for each keypoint.
-  // "Monocular" keypoints have a negative value.
-  std::vector<float> mvuRight;
-  std::vector<float> mvDepth;
-
-  // Bag of Words Vector structures.
-  DBoW2::BowVector mBowVec;
-  DBoW2::FeatureVector mFeatVec;
-
-  // ORB descriptor, each row associated to a keypoint.
-  cv::Mat mDescriptors;
-  std::vector<cv::Mat> vdescriptors_ = std::vector<cv::Mat>(1);
-
-  // Flag to identify outlier associations.
-  std::vector<bool> mvbOutlier;
 
   // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
   static float mfGridElementWidthInv;
   static float mfGridElementHeightInv;
   std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
 
-  // Current and Next Frame id.
-  static long unsigned int nNextId;
-  long unsigned int mnId;
-
   // Reference Keyframe.
   KeyFrame *mpReferenceKF;
 
   // Scale pyramid info.
+  vector<float> mvScaleFactors;
   int mnScaleLevels;
   float mfScaleFactor;
   float mfLogScaleFactor;
-  vector<float> mvScaleFactors;
-  vector<float> mvInvScaleFactors;
   vector<float> mvLevelSigma2;
   vector<float> mvInvLevelSigma2;
+
+  vector<float> mvInvScaleFactors;  // for ComputeStereoMatches
 
   // Undistorted Image Bounds (computed once).
   static float mnMinX;
@@ -274,6 +270,8 @@ class Frame : public FrameBase {
 
   // Assign keypoints to the grid for speed up feature matching (called in the constructor).
   void AssignFeaturesToGrid();
+  // Compute the cell of a keypoint (return false if outside the grid)
+  bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
   // Rotation, translation and camera center
   cv::Mat mRcw;
