@@ -24,6 +24,7 @@
 #include "Tracking.h"
 #include "MapPoint.h"
 #include "Map.h"
+#include "common/common.h"
 
 #include<opencv2/core/core.hpp>
 #include<opencv2/features2d/features2d.hpp>
@@ -60,6 +61,13 @@ protected:
     int N;
     std::vector<std::pair<size_t, size_t>> mapn2in_;
     vector<cv::KeyPoint> mvCurrentKeys;
+#ifdef DRAW_KP2MP_LINE
+    typedef struct _KptDraw {
+      cv::Point2f pt;
+      bool valid = false;
+    } KptDraw;
+    vector<KptDraw> kpts_proj_;
+#endif
     vector<bool> mvbMap, mvbVO;
     bool mbOnlyTracking;
     int mnTracked, mnTrackedVO;
