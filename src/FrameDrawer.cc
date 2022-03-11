@@ -44,6 +44,9 @@ cv::Mat FrameDrawer::DrawFrame(int cami)
     vector<cv::KeyPoint> vCurrentKeys; // KeyPoints in current frame
     vector<bool> vbVO, vbMap; // Tracked MapPoints in current frame
     int state; // Tracking state
+#ifdef DRAW_KP2MP_LINE
+    vector<KptDraw> kpts_proj;
+#endif
 
     //Copy variables within scoped mutex
     {
@@ -63,6 +66,9 @@ cv::Mat FrameDrawer::DrawFrame(int cami)
         else if(mState==Tracking::OK)
         {
             vCurrentKeys = mvCurrentKeys;
+#ifdef DRAW_KP2MP_LINE
+            kpts_proj = kpts_proj_;
+#endif
             vbVO = mvbVO;
             vbMap = mvbMap;
         }
@@ -85,7 +91,7 @@ cv::Mat FrameDrawer::DrawFrame(int cami)
                 cv::line(im,vIniKeys[i].pt,vCurrentKeys[vMatches[i]].pt,
                         cv::Scalar(0,255,0));
             }
-        }        
+        }
     }
     else if(state==Tracking::OK) //TRACKING
     {
@@ -106,6 +112,12 @@ cv::Mat FrameDrawer::DrawFrame(int cami)
           if (vbMap[i]) {
             cv::rectangle(im, pt1, pt2, cv::Scalar(0, 255, 0));
             cv::circle(im, vCurrentKeys[i].pt, 2, cv::Scalar(0, 255, 0), -1);
+#ifdef DRAW_KP2MP_LINE
+            assert(kpts_proj.size() > i);
+            if (kpts_proj[i].valid) {
+              cv::line(im, kpts_proj[i].pt, vCurrentKeys[i].pt, cv::Scalar(255, 0, 0), 2);
+            }
+#endif
             mnTracked++;
           } else  // This is match to a "visual odometry" MapPoint created in the last frame
           {
@@ -114,6 +126,11 @@ cv::Mat FrameDrawer::DrawFrame(int cami)
             mnTrackedVO++;
           }
         }
+#ifdef DRAW_ALL_KPS
+        else {
+          cv::drawMarker(im, vCurrentKeys[i].pt, cv::Scalar(0, 255, 250), cv::MARKER_CROSS, 15, 1);
+        }
+#endif
       }
     }
 
@@ -183,23 +200,46 @@ void FrameDrawer::Update(Tracking *pTracker)
         mvIniKeys=pTracker->mInitialFrame.mvKeys;
         mvIniMatches=pTracker->mvIniMatches;
     }
-    else if(pTracker->mLastProcessedState==Tracking::OK)
-    {
+    else if(pTracker->mLastProcessedState==Tracking::OK) {
       const auto &curfmps = pTracker->mCurrentFrame.GetMapPointMatches();
-        for(int i=0;i<N;i++)
-        {
-            MapPoint* pMP = curfmps[i];
-            if(pMP)
-            {
-                if(!pTracker->mCurrentFrame.mvbOutlier[i])
-                {
-                    if(pMP->Observations()>0)
-                        mvbMap[i]=true;
-                    else
-                        mvbVO[i]=true;
-                }
-            }
+#ifdef DRAW_KP2MP_LINE
+      kpts_proj_.clear();
+      kpts_proj_.reserve(N);
+#endif
+      for (int i = 0; i < N; i++) {
+        MapPoint *pMP = curfmps[i];
+        if (pMP) {
+          if (!pTracker->mCurrentFrame.mvbOutlier[i]) {
+            if (pMP->Observations() > 0)
+              mvbMap[i] = true;
+            else
+              mvbVO[i] = true;
+          }
         }
+#ifdef DRAW_KP2MP_LINE
+        KptDraw pt;
+        static double max_dist = 0;
+        if (mvbMap[i]) {
+          // bad one not used for lba opt. but used for motion_only ba opt.
+          //          if (pMP->isBad()) continue;
+          size_t cami = mapn2in_.size() <= i ? 0 : get<0>(mapn2in_[i]);
+          if (pTracker->mCurrentFrame.mpCameras.size() <= cami) continue;
+          auto &pcami = pTracker->mCurrentFrame.mpCameras[cami];
+          auto Tcw = pcami->GetTcr() * pTracker->mCurrentFrame.GetTcwCst();
+          auto cX = Tcw * Converter::toVector3d(pMP->GetWorldPos());
+          auto p2d = pcami->project(cX);
+          pt.pt = cv::Point2f(p2d[0], p2d[1]);
+          auto dist = cv::norm(pt.pt - mvCurrentKeys[i].pt);
+          if (cv::norm(pt.pt - mvCurrentKeys[i].pt) > 10)
+            cout << "check pt norm=" << cv::norm(pt.pt - mvCurrentKeys[i].pt) << ";" << pt.pt << "/"
+                 << mvCurrentKeys[i].pt << endl;
+          if (max_dist < dist) max_dist = dist;
+          if (pTracker->mCurrentFrame.IsInImage(pt.pt.x, pt.pt.y)) pt.valid = true;
+        }
+        cout << "max dist = " << max_dist << "pixels" << endl;
+        kpts_proj_.push_back(pt);
+#endif
+      }
     }
     mState=static_cast<int>(pTracker->mLastProcessedState);
 }
