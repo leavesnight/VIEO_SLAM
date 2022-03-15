@@ -448,7 +448,7 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
   Jproj.template block<2, 3>(0, 0) = -intr_->projectJac(Pc);
   // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0 -fx*x/z^2+bf/z^2]
-  if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), 0, Jproj(0, 2) - bf_ * invz_2;
+  if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), Jproj(0, 1), Jproj(0, 2) - bf_ * invz_2;
 
   // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
   // corresponding Vertex, so here is the same, a bit dfferent from (21)
