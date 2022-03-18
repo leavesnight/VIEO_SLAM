@@ -205,6 +205,11 @@ void FrameDrawer::Update(Tracking *pTracker)
 #ifdef DRAW_KP2MP_LINE
       kpts_proj_.clear();
       kpts_proj_.reserve(N);
+
+      static double dist_max_tot = 0, dist_max_rmse[2] = {0}, dist_rmse_tot[2] = {0};
+      static size_t num_rmse_tot = 0;
+      double dist_rmse[2] = {0};
+      size_t count = 0;
 #endif
       for (int i = 0; i < N; i++) {
         MapPoint *pMP = curfmps[i];
@@ -218,10 +223,12 @@ void FrameDrawer::Update(Tracking *pTracker)
         }
 #ifdef DRAW_KP2MP_LINE
         KptDraw pt;
-        static double max_dist = 0;
         if (mvbMap[i]) {
           // bad one not used for lba opt. but used for motion_only ba opt.
-          //          if (pMP->isBad()) continue;
+          //          if (/*pMP->isBad() ||*/ mvCurrentKeys[i].octave) {
+          //            kpts_proj_.push_back(pt);
+          //            continue;
+          //          }
           size_t cami = mapn2in_.size() <= i ? 0 : get<0>(mapn2in_[i]);
           if (pTracker->mCurrentFrame.mpCameras.size() <= cami) continue;
           auto &pcami = pTracker->mCurrentFrame.mpCameras[cami];
@@ -229,17 +236,36 @@ void FrameDrawer::Update(Tracking *pTracker)
           auto cX = Tcw * Converter::toVector3d(pMP->GetWorldPos());
           auto p2d = pcami->project(cX);
           pt.pt = cv::Point2f(p2d[0], p2d[1]);
-          auto dist = cv::norm(pt.pt - mvCurrentKeys[i].pt);
           if (cv::norm(pt.pt - mvCurrentKeys[i].pt) > 10)
             cout << "check pt norm=" << cv::norm(pt.pt - mvCurrentKeys[i].pt) << ";" << pt.pt << "/"
                  << mvCurrentKeys[i].pt << endl;
-          if (max_dist < dist) max_dist = dist;
           if (pTracker->mCurrentFrame.IsInImage(pt.pt.x, pt.pt.y)) pt.valid = true;
+
+          auto dist = cv::norm(pt.pt - mvCurrentKeys[i].pt);
+          dist_rmse[0] += dist * dist;
+          if (dist_max_tot < dist) dist_max_tot = dist;
+          Vector3d pt3dtest[2];
+          pt3dtest[0] = pcami->unproject(p2d);
+          pt3dtest[1] = pcami->unproject(Vector2d(mvCurrentKeys[i].pt.x, mvCurrentKeys[i].pt.y));
+          dist = (pcami->toK() * (pt3dtest[0] - pt3dtest[1])).segment<2>(0).norm();
+          dist_rmse[1] += dist * dist;
+          ++count;
         }
-        cout << "max dist = " << max_dist << "pixels" << endl;
         kpts_proj_.push_back(pt);
 #endif
       }
+#ifdef DRAW_KP2MP_LINE
+      cout << "total max dist = " << dist_max_tot << "pixels" << endl;
+      num_rmse_tot += count;
+      for (int j = 0; j < 2; ++j) {
+        dist_rmse_tot[j] += dist_rmse[j];
+        dist_rmse[j] = sqrt(dist_rmse[j] / count);
+        if (dist_max_rmse[j] < dist_rmse[j]) dist_max_rmse[j] = dist_rmse[j];
+        if (j) cout << "undistort plane:";
+        cout << "dist_rmse = " << dist_rmse[j] << ", max rmse dist = " << dist_max_rmse[j]
+             << ", rmse dist = " << sqrt(dist_rmse_tot[j] / num_rmse_tot) << endl;
+      }
+#endif
     }
     mState=static_cast<int>(pTracker->mLastProcessedState);
 }
