@@ -55,6 +55,10 @@ Normally use it like:
 
 Please contact zhuzhanghao9331@yahoo.co.jp for more details.
 
+### Related Publications:
+
+[IMU, Encoders and Stereo/RGB-D] Zhanghao Zhu, Yutaka Kaizu, Kenichi Furuhashi and Kenji Imou. **Visual-Inertial RGB-D SLAM with Encoders for a Differential Wheeled Robot**. *IEEE Sensors Journal,* vol. 22, pp. 5360-5371, 2022. **(https://ieeexplore.ieee.org/document/9502133)**
+
 Below most part is the primary README of ORBSLAM2
 ----------------------------------------
 # ORB-SLAM2

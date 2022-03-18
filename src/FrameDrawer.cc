@@ -230,7 +230,10 @@ void FrameDrawer::Update(Tracking *pTracker)
           //            continue;
           //          }
           size_t cami = mapn2in_.size() <= i ? 0 : get<0>(mapn2in_[i]);
-          if (pTracker->mCurrentFrame.mpCameras.size() <= cami) continue;
+          if (pTracker->mCurrentFrame.mpCameras.size() <= cami) {
+            kpts_proj_.push_back(pt);
+            continue;
+          }
           auto &pcami = pTracker->mCurrentFrame.mpCameras[cami];
           auto Tcw = pcami->GetTcr() * pTracker->mCurrentFrame.GetTcwCst();
           auto cX = Tcw * Converter::toVector3d(pMP->GetWorldPos());
