@@ -89,12 +89,12 @@ int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plas
 }
 // zzh
 
-Frame::Frame(istream &is, ORBVocabulary *voc)
-    : mpORBvocabulary(voc) {  // please don't forget voc!! Or ComputeBoW() will have a segement fault problem
-  mnId = nNextId++;           // new Frame ID
+// please don't forget voc!! Or ComputeBoW() will have a segement fault problem
+Frame::Frame(istream &is, ORBVocabulary *voc) : mpORBvocabulary(voc) {
+  mnId = nNextId++;  // new Frame ID
   read(is);
-  mvpMapPoints.resize(N, static_cast<MapPoint *>(NULL));  // N is got in read(), very important allocation! for
-                                                          // LoadMap()
+  // N is got in read(), very important allocation! for LoadMap()
+  mvpMapPoints.resize(N, static_cast<MapPoint *>(NULL));
 }
 bool Frame::read(istream &is, bool bOdomList) {
   // we don't save old ID for it's useless in LoadMap()
@@ -114,10 +114,13 @@ bool Frame::read(istream &is, bool bOdomList) {
   mvKeys.resize(N);
   mvKeysUn.resize(N);
   KeyFrame::readVec(is, mvKeys);
+  vvkeys_.resize(1);
+  vvkeys_[0] = mvKeys;
   KeyFrame::readVec(is, mvKeysUn);
   KeyFrame::readVec(is, mvuRight);
   KeyFrame::readVec(is, mvDepth);
-  vdescriptors_.resize(1);
+  // TODO(zzh): for nonRGBD MAPREUSE
+  //  vdescriptors_.resize(1);
   mDescriptors = cv::Mat::zeros(N, 32, CV_8UC1);  // 256bit binary descriptors
   KeyFrame::readMat(is, mDescriptors);
   ComputeBoW();  // calculate mBowVec & mFeatVec, or we can do it by pKF
