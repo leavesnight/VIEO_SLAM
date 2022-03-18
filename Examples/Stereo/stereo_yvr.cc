@@ -19,9 +19,11 @@
 using namespace std;
 using namespace rapidjson;
 
-static void GetFileNames(const string& path, vector<string>& filenames, const string& suffix=".pgm", const string& prefix="");
+static void GetFileNames(const string &path, vector<string> &filenames, const string &suffix = ".pgm",
+                         const string &prefix = "");
 
-void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps, const string& suffix = ".pgm");
+void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps,
+                const string &suffix = ".pgm");
 
 void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vector<cv::Point3f> &vAcc,
              vector<cv::Point3f> &vGyro);
@@ -60,19 +62,19 @@ void odomRun(vector<double> &vTimestampsImu, vector<cv::Point3f> &vAcc, vector<c
     // cout<<green<<timestamp<<whiteSTR<<endl;
     tmstpLast = timestamp;
   }
-  PRINT_INFO_MUTEX( greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
+  PRINT_INFO_MUTEX(greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 
 int main(int argc, char **argv) {
   thread *pOdomThread = NULL;
   int totalNum = 0;
-  PRINT_INFO_MUTEX( fixed << setprecision(6) << endl);
+  PRINT_INFO_MUTEX(fixed << setprecision(6) << endl);
 
   const int num_seq = argc < 3 ? 1 : argc - 3;
   int seq = 0;
   string pathSeq(argv[(seq) + 3]);
-  vector< vector<vector<cv::Point3f>> > vAcc, vGyro;
-  vector< vector<vector<double>> > vTimestampsImu;
+  vector<vector<vector<cv::Point3f>>> vAcc, vGyro;
+  vector<vector<vector<double>>> vTimestampsImu;
   vAcc.resize(num_seq, vector<vector<cv::Point3f>>(1));
   vGyro.resize(num_seq, vector<vector<cv::Point3f>>(1));
   vTimestampsImu.resize(num_seq, vector<vector<double>>(1));
@@ -82,6 +84,7 @@ int main(int argc, char **argv) {
   switch (argc) {
     case 5:
       mode = argv[4];
+      if ("VIO" != mode) break;
     case 4: {
       vector<string> pathImu = {pathSeq + "/Sensors/gyroscope.xml", pathSeq + "/Sensors/accelerometer.xml"};
       auto &vacc = vAcc[seq], &vgyr = vGyro[seq];
@@ -104,40 +107,43 @@ int main(int argc, char **argv) {
           }
         }
       }
-      PRINT_INFO_MUTEX( "IMU size="<<vtmimu[0].size()<<endl);
+      PRINT_INFO_MUTEX("IMU size=" << vtmimu[0].size() << endl);
       if (!vtmimu[0].size()) {
         cerr << redSTR "Please check the last path_to_odometryFolder" << endl;
         return -1;
       }
       string strTmp;
       pOdomThread = new thread(&odomRun, ref(vtmimu[0]), ref(vacc[0]), ref(vgyr[0]));
-      PRINT_INFO_MUTEX( "OdomThread created!" << endl);
+      PRINT_INFO_MUTEX("OdomThread created!" << endl);
     } break;
     default:
       cerr << endl << "Usage: ./stereo_yvr path_to_vocabulary path_to_settings path_to_folder (VIO)" << endl;
       return 1;
   }
-  if (mode != "VIO") {
-    cerr << "unsupported mode now" << endl;
+  if (mode != "VIO" && mode != "VO") {
+    cerr << "unsupported mode " << mode << "now" << endl;
+    CV_Assert(0);
   }
 
   cv::FileStorage fSettings(argv[2], cv::FileStorage::READ);  // already checked in System() creator
   cv::FileNode fnDelay = fSettings["Camera.delayForPolling"];
-  cv::FileNode fnimumode = fSettings["IMU.mode"];
-  int mode_imu = fnimumode.empty() ? 0 : (int)fnimumode;
-  if (1 == (int)mode_imu) {  // 1 menas -gy,gxgz/-ay,axaz
-    for (int seq = 0; seq < num_seq; ++seq) {
-      auto &vacc = vAcc[seq], &vgyr = vGyro[seq];
-      for (int i = 0; i < vacc.size(); ++i)
-        for (int j = 0; j < vacc[i].size(); ++j) {
-          swap(vacc[i][j].x, vacc[i][j].y);
-          vacc[i][j].y = -vacc[i][j].y;
-        }
-      for (int i = 0; i < vgyr.size(); ++i)
-        for (int j = 0; j < vgyr[i].size(); ++j) {
-          swap(vgyr[i][j].x, vgyr[i][j].y);
-          vgyr[i][j].y = -vgyr[i][j].y;
-        }
+  if ("VIO" == mode) {
+    cv::FileNode fnimumode = fSettings["IMU.mode"];
+    int mode_imu = fnimumode.empty() ? 0 : (int)fnimumode;
+    if (1 == (int)mode_imu) {  // 1 menas -gy,gxgz/-ay,axaz
+      for (int seq = 0; seq < num_seq; ++seq) {
+        auto &vacc = vAcc[seq], &vgyr = vGyro[seq];
+        for (int i = 0; i < vacc.size(); ++i)
+          for (int j = 0; j < vacc[i].size(); ++j) {
+            swap(vacc[i][j].x, vacc[i][j].y);
+            vacc[i][j].y = -vacc[i][j].y;
+          }
+        for (int i = 0; i < vgyr.size(); ++i)
+          for (int j = 0; j < vgyr[i].size(); ++j) {
+            swap(vgyr[i][j].x, vgyr[i][j].y);
+            vgyr[i][j].y = -vgyr[i][j].y;
+          }
+      }
     }
   }
   if (fnDelay.empty()) {
@@ -147,8 +153,8 @@ int main(int argc, char **argv) {
   }
 
   // Retrieve paths to images
-  vector< vector<vector<string>> > vstrImages;
-  vector< vector<vector<double>> > vTimestampsCam;
+  vector<vector<vector<string>>> vstrImages;
+  vector<vector<vector<double>>> vTimestampsCam;
   vstrImages.resize(num_seq, vector<vector<string>>(1));
   vTimestampsCam.resize(num_seq, vector<vector<double>>(1));
   string pathCam0 = pathSeq + "/Camera8";
@@ -170,7 +176,7 @@ int main(int argc, char **argv) {
       }
     }
   }
-  PRINT_INFO_MUTEX( "Img size="<<vtmcam[0].size()<<endl);
+  PRINT_INFO_MUTEX("Img size=" << vtmcam[0].size() << endl);
 
   if (vstrImages[0].empty()) {
     cerr << "ERROR: No images in provided path." << endl;
@@ -194,9 +200,9 @@ int main(int argc, char **argv) {
   vector<float> vTimesTrack;
   vTimesTrack.resize(nImages, 0);
 
-  PRINT_INFO_MUTEX( endl << "-------" << endl);
-  PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
-  PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
+  PRINT_INFO_MUTEX(endl << "-------" << endl);
+  PRINT_INFO_MUTEX("Start processing sequence ..." << endl);
+  PRINT_INFO_MUTEX("Images in the sequence: " << nImages << endl << endl);
 
   // Main loop
   vector<cv::Mat> ims(2);
@@ -209,13 +215,13 @@ int main(int argc, char **argv) {
     if (fpsrat < 1) fpsrat = 1;
     PRINT_INFO_MUTEX("fps ratio: " << fpsrat << endl);
   }
-  {
-    auto &vtmimu = vTimestampsImu[seq];
+  auto &vtmimu = vTimestampsImu[seq];
+  if (vtmimu[0].size()) {
     while (vtmcam[0][nImages - 1] > vtmimu[0].back()) {
       --nImages;
     }
   }
-  for (int ni = 0; ni < nImages; ni+=fpsrat) {
+  for (int ni = 0; ni < nImages; ni += fpsrat) {
     // Read left and right images from file
     ims[0] = cv::imread(vstrimg[0][ni], cv::IMREAD_GRAYSCALE);
     if (!dataset_type) {
@@ -224,7 +230,7 @@ int main(int argc, char **argv) {
     } else {
       cv::FileNode fncam3 = fSettings["Camera4.fx"];
       if (vtmcam[3][ni] != vtmcam[0][ni]) break;
-//      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
+      //      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
       if (fncam3.empty()) {
         ims[1] = cv::imread(vstrimg[3][ni], cv::IMREAD_GRAYSCALE);
       } else {
@@ -283,7 +289,7 @@ int main(int argc, char **argv) {
     g_brgbdFinished = true;
   }
   if (SLAM.MapChanged()) {
-    PRINT_INFO_MUTEX( "Map is changing!Please enter s to stop!" << endl);
+    PRINT_INFO_MUTEX("Map is changing!Please enter s to stop!" << endl);
     //       while (cin.get()!='s') {sleep(1);}
     sleep(5);
   }
@@ -300,10 +306,10 @@ int main(int argc, char **argv) {
   if (!fnFBA.empty()) {
     if ((int)fnFBA) {
       SLAM.FinalGBA(fnFBA);
-      PRINT_INFO_MUTEX( azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
+      PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
     }
   } else {
-    PRINT_INFO_MUTEX( redSTR "No FullBA at the end!" << whiteSTR << endl);
+    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
   }
 
   // Tracking time statistics
@@ -312,9 +318,9 @@ int main(int argc, char **argv) {
   for (int ni = 0; ni < nImages; ni++) {
     totaltime += vTimesTrack[ni];
   }
-  PRINT_INFO_MUTEX( "-------" << endl << endl);
-  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImagesUsed << endl);
-  PRINT_INFO_MUTEX( "max tracking time: " << vTimesTrack.back() << endl);
+  PRINT_INFO_MUTEX("-------" << endl << endl);
+  PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImagesUsed << endl);
+  PRINT_INFO_MUTEX("max tracking time: " << vTimesTrack.back() << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
@@ -324,11 +330,11 @@ int main(int argc, char **argv) {
   return 0;
 }
 
-static void GetFileNames(const string& path, vector<string>& filenames, const string& suffix, const string& prefix) {
+static void GetFileNames(const string &path, vector<string> &filenames, const string &suffix, const string &prefix) {
   DIR *pDir;
-  struct dirent* ptr;
+  struct dirent *ptr;
   if (!(pDir = opendir(path.c_str()))) {
-    cerr<<path<<" opendir failed"<<endl;
+    cerr << path << " opendir failed" << endl;
     return;
   }
 
@@ -336,27 +342,24 @@ static void GetFileNames(const string& path, vector<string>& filenames, const st
     if (strcmp(ptr->d_name, ".") && strcmp(ptr->d_name, "..")) {
       string d_name = string(ptr->d_name);
       size_t pos_suffix = d_name.rfind(suffix), pos_prefix = 0;
-      if (!prefix.empty())
-        pos_prefix = d_name.find(prefix);
+      if (!prefix.empty()) pos_prefix = d_name.find(prefix);
       if (string::npos != pos_suffix && pos_suffix + suffix.length() == d_name.length()) {
-        if (!pos_prefix)
-          filenames.push_back(path + "/" + ptr->d_name);
+        if (!pos_prefix) filenames.push_back(path + "/" + ptr->d_name);
       }
     }
   }
   closedir(pDir);
 }
 
-void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps, const string& suffix)
-{
+void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<double> &vTimeStamps,
+                const string &suffix) {
   ifstream fTimes;
   GetFileNames(strImagePath, vstrImages, suffix);
-  sort(vstrImages.begin(),vstrImages.end());
+  sort(vstrImages.begin(), vstrImages.end());
   for (int i = 0; i < vstrImages.size(); ++i) {
     string dir_path = dirname(strdup(vstrImages[i].c_str()));
     int offset = dir_path.length();
-    if (dir_path[offset - 1] != '/' and dir_path[offset - 1] != '\\')
-      ++offset;
+    if (dir_path[offset - 1] != '/' and dir_path[offset - 1] != '\\') ++offset;
     double ftmp = strtod(vstrImages[i].substr(offset).c_str(), 0) * 1e-9;
     vTimeStamps.push_back(ftmp);
   }
@@ -435,7 +438,8 @@ void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vect
             cv::Point3f(IMUData[i]["g_x"].GetFloat(), IMUData[i]["g_y"].GetFloat(), IMUData[i]["g_z"].GetFloat()));
         vAcc.push_back(
             cv::Point3f(IMUData[i]["a_x"].GetFloat(), IMUData[i]["a_y"].GetFloat(), IMUData[i]["a_z"].GetFloat()));
-        //cout << "check tm="<<vTimeStamps.back()<<",ga="<<vGyro.back().x<<","<<vGyro.back().y<<","<<vGyro.back().z<<"/"<<vAcc.back().x<<","<<vAcc.back().y<<","<<vAcc.back().z<<endl;
+        // cout << "check
+        // tm="<<vTimeStamps.back()<<",ga="<<vGyro.back().x<<","<<vGyro.back().y<<","<<vGyro.back().z<<"/"<<vAcc.back().x<<","<<vAcc.back().y<<","<<vAcc.back().z<<endl;
       }
     }
   }

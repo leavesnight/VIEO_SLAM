@@ -119,6 +119,10 @@ class Frame : public FrameBase {
         cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf = nullptr,
         EncPreIntegrator *ppreint_enc_kf = nullptr);
 
+  bool IsInImage(const float &x, const float &y) const {
+    return (x >= mnMinX && x < mnMaxX && y >= mnMinY && y < mnMaxY);
+  }
+
   std::vector<MapPoint *> &GetMapPointsRef() { return mvpMapPoints; }
 
   // Extract ORB on the image. 0 for left image and 1 for right image.
