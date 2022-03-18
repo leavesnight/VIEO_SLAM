@@ -158,15 +158,13 @@ void LocalMapping::ProcessNewKeyFrame() {
     mlNewKeyFrames.pop_front();
   }
 
-  if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {  // added by zzh, it can also be put in
-                                                                  // InsertKeyFrame()
-    if (mnLastOdomKFId > 0 &&
-        mpCurrentKeyFrame->mnId <=
-            mnLastOdomKFId + 5) {  // 5 is the threshold of Reset() soon after initilization in Tracking, here we will
-                                   // clean these middle state==OK KFs for a better map
-      // one kind of Reset()
-      if (!mpIMUInitiator
-               ->GetCopyInitKFs()) {  // during the copying KFs' stage in IMU Initialization, don't cull any KF!
+  // added by zzh, it can also be put in InsertKeyFrame()
+  if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
+    // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
+    // KFs for a better map
+    if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->mnId <= mnLastOdomKFId + 5) {
+      // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
+      if (!mpIMUInitiator->GetCopyInitKFs()) {
         mpIMUInitiator->SetCopyInitKFs(true);
         KeyFrame *pLastKF = mpCurrentKeyFrame;
         vector<KeyFrame *> vecEraseKF;
@@ -207,9 +205,9 @@ void LocalMapping::ProcessNewKeyFrame() {
           mpLastCamKF = pLastKF;
         }
         PRINT_INFO_MUTEX(vecEraseKF.size() << " ");
-        for (int i = 0; i < vecEraseKF.size();
-             ++i) {  // the last one is the before ODOMOK(delete the former consecutive OdomOK KF as soon as possible,
-                     // it seems to have a better effect)
+        // the last one is the before ODOMOK(delete the former consecutive OdomOK KF as soon as possible, it seems to
+        // have a better effect)
+        for (int i = 0; i < vecEraseKF.size(); ++i) {
           PRINT_INFO_MUTEX(i << " ");
           vecEraseKF[i]->SetBadFlag();  // it may be SetNotErase() by LoopClosing thread
         }
@@ -698,9 +696,8 @@ void LocalMapping::KeyFrameCulling() {
   // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
   // in at least other 3 keyframes (in the same or finer scale)
   // We only consider close stereo points
-  vector<KeyFrame *> vpLocalKeyFrames =
-      mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();  // get all 1st layer covisibility KFs as localKFs, notice no
-                                                         // mpCurrentKeyFrame
+  // get all 1st layer covisibility KFs as localKFs, notice no mpCurrentKeyFrame
+  vector<KeyFrame *> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
 
   // get last Nth KF or the front KF of the local window
   KeyFrame *pLastNthKF = mpCurrentKeyFrame;
@@ -719,8 +716,9 @@ void LocalMapping::KeyFrameCulling() {
 
     vbEntered.resize(vpLocalKeyFrames.size(), false);
     if (mpIMUInitiator->GetVINSInited()) {
-      nRestrict = 2;  // notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW,
-                      // for MH04 has problem with 0.5/3s strategy!
+      // notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW, for MH04 has
+      // problem with 0.5/3s strategy!
+      nRestrict = 2;
     }
   }
 
@@ -739,8 +737,9 @@ void LocalMapping::KeyFrameCulling() {
       if (k == 0) {
         if (bSensorIMU) {  // restriction is only for VIO
           assert(pKF != NULL);
-          // 	    assert(pKF->GetPrevKeyFrame()!=NULL);//solved old bug: for there exists unidirectional edge in
-          // covisibility graph, so a bad KF may still exist in other's connectedKFs
+          // assert(pKF->GetPrevKeyFrame()!=NULL);
+          // solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in
+          // other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
             PRINT_INFO_MUTEX(pKF->mnId << " " << (int)pKF->isBad() << endl);
             vbEntered[vi] = true;
@@ -752,7 +751,7 @@ void LocalMapping::KeyFrameCulling() {
           else
             vbEntered[vi] = true;
 
-          // 	    if
+          // if
           // (pKF==pLastNthKF||pLastNthKF!=NULL&&pKF==pLastNthKF->GetNextKeyFrame()||pKF->GetNextKeyFrame()==mpCurrentKeyFrame)
           // {vbEntered[vi]=true;continue;}
         }
@@ -760,8 +759,8 @@ void LocalMapping::KeyFrameCulling() {
         if (vbEntered[vi]) continue;
         assert(pKF != NULL && pKF->GetPrevKeyFrame() != NULL);
         tmNext = pKF->GetNextKeyFrame()->mTimeStamp;
-        if (tmNext > tmNthKF ||  // this KF is in next time's local window or N+1th
-            tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 3)
+        // this KF is in next time's local window or N+1th
+        if (tmNext > tmNthKF || tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 3)
           continue;  // normal restriction to perform full BA
       }
 
@@ -770,14 +769,16 @@ void LocalMapping::KeyFrameCulling() {
       if (pNextKF == NULL) {
         PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl);
         continue;
-      }  // solved old bug
-      // 	if (pNextKF!=NULL){//for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF
-      // of the loaded map
+      }
+      // solved old bug
+      //  for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the
+      //  loaded map
+      // if (pNextKF!=NULL){
       if (pNextKF->getState() == Tracking::ODOMOK) {
-        if (pKF->getState() ==
-            Tracking::ODOMOK) {  // 2 consecutive ODOMOK KFs then delete the former one for a better quality map
-          if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its
-                                                         // prev-next<=0.5 then we should move tmNthKF forward 1 KF
+        // 2 consecutive ODOMOK KFs then delete the former one for a better quality map
+        if (pKF->getState() == Tracking::ODOMOK) {
+          // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
+          if (tmNext > tmNthKF && pLastNthKF != NULL) {
             pLastNthKF = pLastNthKF->GetPrevKeyFrame();
             tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
           }  // must done before pKF->SetBadFlag()!
@@ -785,11 +786,12 @@ void LocalMapping::KeyFrameCulling() {
           pKF->SetBadFlag();
         }  // else next is OK then continue
         continue;
-      } else {  // next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph
-                // Optimization?)
+      } else {
+        // next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph
+        // Optimization?)
         if (pKF->getState() == Tracking::ODOMOK) continue;
       }
-      // 	}
+      // }
 
       const vector<MapPoint *> vpMapPoints = pKF->GetMapPointMatches();
       int nObs = 3;

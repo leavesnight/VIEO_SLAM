@@ -93,70 +93,77 @@ cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
 }
 
 void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
-  if (!mpIMUInitiator
-           ->GetVINSInited()) {  // VEO, we use mVelocity as EncPreIntegrator from LastFrame if EncPreIntegrator exists
+  if (!mpIMUInitiator->GetVINSInited()) {
+    // VEO, we use mVelocity as EncPreIntegrator from LastFrame if EncPreIntegrator exists
     assert(!mVelocity.empty());
-    cv::Mat Tcw = mVelocity * mLastFrame.GetTcwRef();  // To avoid accumulated numerical error of pure encoder
-                                                       // predictions causing Rcw is not Unit Lie Group (|Rcw|=1)!!!
+    // To avoid accumulated numerical error of pure encoder predictions causing Rcw is not Unit Lie Group (|Rcw|=1)!!!
+    cv::Mat Tcw = mVelocity * mLastFrame.GetTcwRef();
     Matrix3d eigRcw = Converter::toMatrix3d(Tcw.rowRange(0, 3).colRange(0, 3));
     cv::Mat Rcw = Converter::toCvMat(Sophus::SO3exd::normalizeRotationM(eigRcw));
     Rcw.copyTo(Tcw.rowRange(0, 3).colRange(0, 3));
-    mCurrentFrame.SetPose(Tcw);  // if directly use mVelocity*mLastFrame.mTcw), will cause big bug when insertion
-                                 // strategy tends to less insertion!
+    // if directly use mVelocity*mLastFrame.mTcw), will cause big bug when insertion strategy tends to less insertion!
+    mCurrentFrame.SetPose(Tcw);
     // it's difficult to get mCurrentFrame.mvbOutlier like motion-only BA
     mState = ODOMOK;
     cout << greenSTR << mVelocity.at<float>(0, 3) << " " << mVelocity.at<float>(1, 3) << " "
          << mVelocity.at<float>(2, 3) << whiteSTR << endl;
     cout << "ODOM KF: " << mCurrentFrame.mTimeStamp << endl;
-  } else {  // VIEO, for convenience, we don't use mVelocity as it won't be updated as EncPreIntegrator from LastFrame
-            // before
-    using namespace Eigen;
-    // motion update/prediction by Enc motion model
-    const EncPreIntegrator& encpreint = mCurrentFrame.GetEncPreInt();
-    // get To1o2:p12 R12
-    Vector3d pij(encpreint.mdelxEij.segment<3>(3));
-    Matrix3d Rij = Sophus::SO3exd::Expmap(encpreint.mdelxEij.segment<3>(0));
-    cv::Mat Tij = Converter::toCvSE3(Rij, pij);
-    // get Tc2c1
-    cv::Mat Tec = Converter::toCvMatInverse(Frame::mTce);
-    cv::Mat TlwIE = bMapUpdated ? mpLastKeyFrame->GetPose() : mLastFrame.GetTcwRef();
-    cv::Mat Tcw = Frame::mTce * Converter::toCvMatInverse(Tij) * Tec *
-                  TlwIE;  // To avoid accumulated numerical error of pure encoder predictions
-    Matrix3d eigRcw = Converter::toMatrix3d(Tcw.rowRange(0, 3).colRange(0, 3));
-    cv::Mat Rcw = Converter::toCvMat(Sophus::SO3exd::normalizeRotationM(eigRcw));
-    Rcw.copyTo(Tcw.rowRange(0, 3).colRange(0, 3));
-    mCurrentFrame.SetPose(Tcw);
-    mCurrentFrame.UpdateNavStatePVRFromTcw();
-    mState = ODOMOK; /*
-       if (mCurrentFrame.GetIMUPreInt().mdeltatij>0){
-         // Pose optimization. false: no need to compute marginalized for current Frame(motion-only), see VIORBSLAM
-       paper (4)~(8) if(bMapUpdated){//we call this 2 frames'(FKF/FF) motion-only BA
-           //not use Hessian matrix, it's ok
-           Optimizer::PoseOptimization(&mCurrentFrame,mpLastKeyFrame,mpIMUInitiator->GetGravityVec(),true,true);//fixing
-       lastKF(i), optimize curF(j), save its Hessian }else{
-           //unfix lastF(j): Hessian matrix exists, use prior Hessian to keep lastF(j)'s Pose stable, optimize j&j+1;
-       fix lastF(j): optimize curF(j+1)
-           Optimizer::PoseOptimization(&mCurrentFrame,&mLastFrame,mpIMUInitiator->GetGravityVec(),true,true);//last F
-       unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate(), save its Hessian
-         }
-         // Discard outliers
-         for(int i =0; i<mCurrentFrame.N; i++){
-             if(mCurrentFrame.mvpMapPoints[i]&&mCurrentFrame.mvbOutlier[i]){
-               MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
-               mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL);
-               mCurrentFrame.mvbOutlier[i]=false;
-               pMP->mbTrackInView = false;
-               pMP->mnLastFrameSeen = mCurrentFrame.mnId;
-             }
-         }
-       }*/
+  } else {
+    if (mCurrentFrame.GetEncPreInt().mdeltatij > 0) {
+      // VIEO, for convenience, we don't use mVelocity as it won't be updated as EncPreIntegrator from LastFrame before
+      using namespace Eigen;
+      // motion update/prediction by Enc motion model
+      const EncPreIntegrator& encpreint = mCurrentFrame.GetEncPreInt();
+      // get To1o2:p12 R12
+      Vector3d pij(encpreint.mdelxEij.segment<3>(3));
+      Matrix3d Rij = Sophus::SO3exd::Expmap(encpreint.mdelxEij.segment<3>(0));
+      cv::Mat Tij = Converter::toCvSE3(Rij, pij);
+      // get Tc2c1
+      cv::Mat Tec = Converter::toCvMatInverse(Frame::mTce);
+      cv::Mat TlwIE = bMapUpdated ? mpLastKeyFrame->GetPose() : mLastFrame.GetTcwRef();
+      cv::Mat Tcw = Frame::mTce * Converter::toCvMatInverse(Tij) * Tec *
+                    TlwIE;  // To avoid accumulated numerical error of pure encoder predictions
+      Matrix3d eigRcw = Converter::toMatrix3d(Tcw.rowRange(0, 3).colRange(0, 3));
+      cv::Mat Rcw = Converter::toCvMat(Sophus::SO3exd::normalizeRotationM(eigRcw));
+      Rcw.copyTo(Tcw.rowRange(0, 3).colRange(0, 3));
+      mCurrentFrame.SetPose(Tcw);
+      mCurrentFrame.UpdateNavStatePVRFromTcw();
+      mState = ODOMOK;
+      /*
+         if (mCurrentFrame.GetIMUPreInt().mdeltatij>0){
+           // Pose optimization. false: no need to compute marginalized for current Frame(motion-only), see VIORBSLAM
+         paper (4)~(8) if(bMapUpdated){//we call this 2 frames'(FKF/FF) motion-only BA
+             //not use Hessian matrix, it's ok
+             Optimizer::PoseOptimization(&mCurrentFrame,mpLastKeyFrame,mpIMUInitiator->GetGravityVec(),true,true);//fixing
+         lastKF(i), optimize curF(j), save its Hessian }else{
+             //unfix lastF(j): Hessian matrix exists, use prior Hessian to keep lastF(j)'s Pose stable, optimize j&j+1;
+         fix lastF(j): optimize curF(j+1)
+             Optimizer::PoseOptimization(&mCurrentFrame,&mLastFrame,mpIMUInitiator->GetGravityVec(),true,true);//last F
+         unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate(), save its Hessian
+           }
+           // Discard outliers
+           for(int i =0; i<mCurrentFrame.N; i++){
+               if(mCurrentFrame.mvpMapPoints[i]&&mCurrentFrame.mvbOutlier[i]){
+                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+                 mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL);
+                 mCurrentFrame.mvbOutlier[i]=false;
+                 pMP->mbTrackInView = false;
+                 pMP->mnLastFrameSeen = mCurrentFrame.mnId;
+               }
+           }
+         }*/
+    } else if (mCurrentFrame.GetIMUPreInt().mdeltatij > 0) {
+      // motion update/prediction by IMU motion model, but cannot preint twice
+      PredictNavStateByIMU(bMapUpdated, false);
+      mState = ODOMOK;
+    }
     // Update motion model, we don't need to adjust mLastFrame.mTcw.empty() for before ODOMOK, it cannot be LOST(when
     // LOST, PreIntegration(1/3) is not executed/mdeltatij==0, but (2) may be executed if it's a new KF)
     cv::Mat LastTwc = cv::Mat::eye(4, 4, CV_32F);
     mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0, 3).colRange(0, 3));
     mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0, 3).col(3));
     mVelocity = mCurrentFrame.GetTcwRef() * LastTwc;  // Tc2c1/Tcl
-    cout << greenSTR << "IEODOM KF: " << mCurrentFrame.mTimeStamp << whiteSTR << endl;
+    cout << greenSTR << "I/EODOM KF: " << mCurrentFrame.mTimeStamp << whiteSTR << endl;
   }
 }
 
@@ -258,9 +265,8 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     PRINT_INFO_MUTEX(redSTR "CurF.mdeltatij==0! we have to TrackWithMotionModel()!" << whiteSTR << endl);
     if (!mVelocity.empty()) {
       bool bOK = TrackWithMotionModel();  // maybe track failed then call pure-vision TrackWithMotionModel
-      if (bOK)
-        mCurrentFrame.UpdateNavStatePVRFromTcw();  // don't forget to update NavState though
-                                                   // bg(bg_bar,dbg)/ba(ba_bar,dba) cannot be updated
+      // don't forget to update NavState though bg(bg_bar,dbg)/ba(ba_bar,dba) cannot be updated
+      if (bOK) mCurrentFrame.UpdateNavStatePVRFromTcw();
       return bOK;
     } else
       return false;  // all motion model failed
@@ -275,10 +281,8 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     th = 15;
   else
     th = 7;
-  int nmatches = matcher.SearchByProjection(
-      mCurrentFrame, mLastFrame, th,
-      mSensor ==
-          System::MONOCULAR);  // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
+  // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
+  int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR);
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -295,15 +299,15 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   // (4)~(8)
   if (bMapUpdated) {  // we call this 2 frames'(FKF/FF) motion-only BA
     // not use Hessian matrix, it's ok
-    Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(),
-                                false);  // fixing lastKF(i), optimize curF(j)
+    // fixing lastKF(i), optimize curF(j)
+    Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), false);
   } else {
     //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
     // unfix lastF(j): Hessian matrix exists, use prior Hessian to keep lastF(j)'s Pose stable, optimize j&j+1; fix
     // lastF(j): optimize curF(j+1)
-    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
-                                false);  // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or
-                                         // RecomputeIMUBiasAndCurrentNavstate(), save its Hessian
+    // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate(), save its
+    // Hessian
+    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), false);
   }
 
   // Discard outliers
@@ -327,17 +331,19 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     }
   }
 
-  if (mbOnlyTracking)  // we haven't designed tracking mode in VIO/VIEO, but we can just consider VIEO map as VEO then
-                       // use VEO tracking mode! & VIO map as RGBD map then use RGBD tracking mode!
-  {
-    mbVO = nmatchesMap < 6;  // change to VO mode if the inlier MapPoint is too few i.e. robot goes to the new
-                             // environment outside of the given map;old 10
-    return nmatches > 12;    // Track ok when enough inlier matches;old 20
+  // we haven't designed tracking mode in VIO/VIEO, but we can just consider VIEO map as VEO then
+  // use VEO tracking mode! & VIO map as RGBD map then use RGBD tracking mode!
+  if (mbOnlyTracking) {
+    // change to VO mode if the inlier MapPoint is too few i.e. robot goes to the new environment outside of the given
+    // map;old 10
+    mbVO = nmatchesMap < 6;
+    // Track ok when enough inlier matches;old 20
+    return nmatches > 12;
   }
 
   return nmatchesMap >= 6;  // 10;//Track ok when enough inlier MapPoints, changed by JingWang
 }
-bool Tracking::PredictNavStateByIMU(bool bMapUpdated) {
+bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   assert(mpIMUInitiator->GetVINSInited());
 
   // Initialize NavState of mCurrentFrame
@@ -346,14 +352,16 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated) {
   if (bMapUpdated) {
     // Get initial NavState&pose from Last KeyFrame
     ns = mpLastKeyFrame->GetNavState();
-    PreIntegration(3);  // preintegrate from LastKF to curF
+    // preintegrate from LastKF to curF
+    if (preint) PreIntegration(3);
     //     cout<<"LastKF's pwb="<<ns.mpwb.transpose()<<endl;
   }
   // Map not updated, optimize with last Frame
   else {
     // Get initial pose from Last Frame
     ns = mLastFrame.GetNavStateRef();
-    PreIntegration(1);  // preintegrate from LastF to curF
+    // preintegrate from LastF to curF
+    if (preint) PreIntegration(1);
     //     cout<<"LastF's pwb="<<ns.mpwb.transpose()<<endl;
   }
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
@@ -1122,28 +1130,34 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
         }
       }
     } else {
-      // we shouldn't make it LOST for robustness
-      // mState=LOST;
+      // if (mState==MAP_REUSE_RELOC) mState=MAP_REUSE;
+      // if MAP_REUSE, we keep mState until it's relocalized
+      if (mState == MAP_REUSE) return;
+
+      if (OK == mState) timestamp_lost_ = mCurrentFrame.mTimeStamp;
+
       // use Odom data to get mCurrentFrame.mTcw
       // though it may introduce error, it ensure the completeness of the Map
-      if (mCurrentFrame.GetEncPreInt().mdeltatij > 0) {
-        TrackWithOnlyOdom(bMapUpdated);
-      } else {
-        // for when enc ok, always OK/ODOMOK, no mbRelocBiasPrepare entered for no relocalization is called or
-        // always Preintegration(1/3) before, but when enc failed we need to preint kf2kf next relocalization time
-        for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
-        // Clear Frame vectors for reloc bias computation
-        if (mv20pFramesReloc.size() > 0) {
-          for (int i = 0; i < mv20pFramesReloc.size(); ++i) delete mv20pFramesReloc[i];
-          mv20pFramesReloc.clear();
-        }
-        // if (mState==MAP_REUSE_RELOC) mState=MAP_REUSE;
-        if (mState == MAP_REUSE)
-          return;  // if MAP_REUSE, we keep mState until it's relocalized
-        else
+      if (OK == mState || ODOMOK == mState) {
+        if (mCurrentFrame.GetEncPreInt().mdeltatij > 0 ||
+            mCurrentFrame.GetIMUPreInt().mdeltatij > 0 &&
+                mCurrentFrame.mTimeStamp - timestamp_lost_ <= time_recently_lost) {
+          TrackWithOnlyOdom(bMapUpdated);
+        } else {
+          // for when enc ok, always OK/ODOMOK, no mbRelocBiasPrepare entered for no relocalization is called or
+          // always Preintegration(1/3) before, but when enc failed we need to preint kf2kf next relocalization time
+          for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
+
+          // Clear Frame vectors for reloc bias computation
+          if (mv20pFramesReloc.size() > 0) {
+            for (int i = 0; i < mv20pFramesReloc.size(); ++i) delete mv20pFramesReloc[i];
+            mv20pFramesReloc.clear();
+          }
+
           // if LOST, the system can only be recovered through relocalization module, so no need to set
           // mbRelocBiasPrepare
           mState = LOST;
+        }
       }
     }
 
@@ -1871,13 +1885,11 @@ bool Tracking::NeedNewKeyFrame() {
 
   // Tracked MapPoints in the reference keyframe
   int nMinObs = 3;
-  if (nKFs <= 2 ||
-      mState == OK &&
-          mpLastKeyFrame->mnId < mnLastOdomKFId + 2)  // just check for one(with ur>=0) KF demand for RGBD, if one of
-                                                      // former 2 KFs is ODOMOK must also use this like nKFs<=2!!!
-    nMinObs = 2;
-  int nRefMatches = mpReferenceKF->TrackedMapPoints(
-      nMinObs);  // the number of good MinObs(for Monocular) KFs tracked MapPoints in the RefKF
+  // just check for one(with ur>=0) KF demand for RGBD, if one of former 2 KFs is ODOMOK must also use this like
+  // nKFs<=2!!!
+  if (nKFs <= 2 || mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2) nMinObs = 2;
+  // the number of good MinObs(for Monocular) KFs tracked MapPoints in the RefKF
+  int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);
 
   // check if Local Mapping accept keyframes or LM thread is idle
   bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();
@@ -1916,51 +1928,50 @@ bool Tracking::NeedNewKeyFrame() {
     }
   }
 
-  bool bNeedToInsertClose =
-      (nTrackedClose < 100) &&
-      (nNonTrackedClose > 70);  //τt=100(enough dis)( τc=70(enough info) for stereo/RGBD to insert a new KF
+  //τt=100(enough dis)( τc=70(enough info) for stereo/RGBD to insert a new KF
+  bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
 
+  // JW uses different timegap during IMU Initialization(0.1s)
+  // if (!mpIMUInitiator->GetVINSInited()) timegap=0.1;
   double timegap = 0.5;
-  //     if (!mpIMUInitiator->GetVINSInited()) timegap=0.1;//JW uses different timegap during IMU Initialization(0.1s)
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
     cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
                mnMatchesInliers > 15;
-    //     if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
-    bNeedToInsertClose = false;  // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap
-                                 // can do similar jobs
-    if (mState == ODOMOK) {      // for VIEO+RGB-D, cTimeGap won't affect ODOMOK, so we may need it
+    // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
+    // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
+    bNeedToInsertClose = false;
+    // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
+    if (mState == ODOMOK) {
       cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
     }
-    //       minClose=100;
+    // minClose=100;
   }
 
   // Thresholds
   float thRefRatio = 0.75f;
-  if (nKFs < 2 ||
-      mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2)  // it's necessary for this stricter enough distance
-                                                                  // threshold! in my dataset Corridor004, like nKFs<=2!
-    thRefRatio = 0.4f;
+  // it's necessary for this stricter enough distance threshold! in my dataset Corridor004, like nKFs<=2!
+  if (nKFs < 2 || mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2) thRefRatio = 0.4f;
 
   if (mSensor == System::MONOCULAR) thRefRatio = 0.9f;  // JingWang uses 0.8f
 
   // Condition 1a: More than "MaxFrames" have passed from last keyframe insertion
-  const bool c1a = mCurrentFrame.mnId >= mnLastKeyFrameId + mMaxFrames;  // time span too long(1s)
+  // time span too long(1s)
+  const bool c1a = mCurrentFrame.mnId >= mnLastKeyFrameId + mMaxFrames;
   // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
-  const bool c1b =
-      (mCurrentFrame.mnId >= mnLastKeyFrameId + mMinFrames && bLocalMappingIdle);  // for minF=0, if LocalMapper is idle
+  // for minF=0, if LocalMapper is idle
+  const bool c1b = (mCurrentFrame.mnId >= mnLastKeyFrameId + mMinFrames && bLocalMappingIdle);
   // Condition 1c: tracking is weak
-  const bool c1c = mSensor != System::MONOCULAR &&
-                   (mnMatchesInliers < nRefMatches * 0.25 ||
-                    bNeedToInsertClose);  // rgbd/stereo tracking weak outside(large part are far points)
+  // rgbd/stereo tracking weak outside(large part are far points)
+  const bool c1c = mSensor != System::MONOCULAR && (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
   // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
-  const bool c2 = ((mnMatchesInliers < nRefMatches * thRefRatio || bNeedToInsertClose) &&
-                   mnMatchesInliers > 15);  // not too close && not too far
+  // not too close && not too far
+  const bool c2 = ((mnMatchesInliers < nRefMatches * thRefRatio || bNeedToInsertClose) && mnMatchesInliers > 15);
 
   // Condition 3: odom && time conditon && min new close points' demand
-  const bool c3 = (mState == ODOMOK) && (c1a || c1b || c1c) &&
-                  nNonTrackedClose > 70;  // may we can also use &&mCurrentFrame.N>500 like StereoInitialization()
+  // may we can also use &&mCurrentFrame.N>500 like StereoInitialization(), so c3 now is not for VIO Mono RECENTLY_LOST
+  const bool c3 = (mState == ODOMOK) && (c1a || c1b || c1c) && nNonTrackedClose > 70;
 
   if ((c1a || c1b || c1c) && c2 || cTimeGap || c3)  // cTimeGap added by JingWang
   {
@@ -1990,8 +2001,8 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
 
   // ensure Tcw is always right for mCurrentFrame even there's no odom data, NavState/Tbw can be wrong when there's no
   // odom data
-  KeyFrame* pKF = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true, mpLastKeyFrame,
-                               mState);  // copy initial Tcw&Tbw(even wrong), update bi=bi+dbi
+  // copy initial Tcw&Tbw(even wrong), update bi=bi+dbi
+  KeyFrame* pKF = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true, mpLastKeyFrame, mState);
   // here notice a fact: JingWang haven't considered no imu data's condition when imu is initialized(including reloc.),
   // so his NavState after imu intialized is always right, but before is also wrong, but he should set the right
   // NavState for the first initialized KeyFrame so I need to UpdateNavStatePVRFromTcw for the Frame when imu data is
@@ -2109,8 +2120,8 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
           nPoints++;
         }
 
-        if (vDepthIdx[j].first > mThDepth &&
-            nPoints > 100)  //&&mState==OK)//maybe we can also use this for ODOMOK like StereoInitialization()
+        // maybe we can also use this for ODOMOK like StereoInitialization()
+        if (vDepthIdx[j].first > mThDepth && nPoints > 100)  //&&mState==OK)
           break;
       }
     }

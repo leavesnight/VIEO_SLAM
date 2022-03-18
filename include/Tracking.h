@@ -86,8 +86,8 @@ class Tracking {
   void PreIntegration(const int8_t type = 0);
   bool TrackWithIMU(bool bMapUpdated);  // use IMU prediction instead of constant velocity/uniform motion model
   // Predict the NavState of Current Frame by IMU
-  bool PredictNavStateByIMU(bool bMapUpdated);  // use IMU motion model, like motion update/prediction in ekf, if
-                                                // prediction failed(e.g. no imu data) then false
+  // use IMU motion model, like motion update/prediction in ekf, if prediction failed(e.g. no imu data) then false
+  bool PredictNavStateByIMU(bool bMapUpdated, bool preint = true);
   // IMUPreintegrator GetIMUPreIntSinceLastKF();
   bool TrackLocalMapWithIMU(
       bool bMapUpdated);  // track local map with IMU motion-only BA, if no imu data it degenerates to TrackLocalMap()
@@ -184,6 +184,7 @@ class Tracking {
 
   eTrackingState mState;
   eTrackingState mLastProcessedState;
+  double timestamp_lost_, time_recently_lost = 5;
 
   // Input sensor
   int mSensor;  // value's type is VIEO_SLAM::System::eSensor
