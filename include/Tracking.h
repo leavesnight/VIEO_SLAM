@@ -177,7 +177,7 @@ class Tracking {
     NOT_INITIALIZED = 1,
     OK = 2,
     LOST = 3,
-    ODOMOK = 4,          // added by zzh
+    ODOMOK = 4,          // added by zzh, like RECENTLY_LOST in ORB3
     MAP_REUSE = 5,       // added by zzh
     MAP_REUSE_RELOC = 6  // added by zzh
   };
