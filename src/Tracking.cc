@@ -44,6 +44,11 @@ using namespace std;
 
 namespace VIEO_SLAM {
 
+//#define NO_TRACK_MAP
+//#define CHECK_JITTER
+//#define NO_LBA_THREAD
+//#define DEBUG_STRATEGY
+
 cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
                             const char mode) {  // different thread from GrabImageX
   // you can add some odometry here for fast Tcw retrieve(e.g. 200Hz)
@@ -93,6 +98,9 @@ cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
 }
 
 void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
+#ifdef DEBUG_STRATEGY
+  CV_Assert(0);
+#endif
   if (!mpIMUInitiator->GetVINSInited()) {
     // VEO, we use mVelocity as EncPreIntegrator from LastFrame if EncPreIntegrator exists
     assert(!mVelocity.empty());
@@ -300,14 +308,24 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   if (bMapUpdated) {  // we call this 2 frames'(FKF/FF) motion-only BA
     // not use Hessian matrix, it's ok
     // fixing lastKF(i), optimize curF(j)
-    Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), false);
+    Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(),
+#ifndef NO_TRACK_MAP
+                                false);
+#else
+                                true);
+#endif
   } else {
     //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
     // unfix lastF(j): Hessian matrix exists, use prior Hessian to keep lastF(j)'s Pose stable, optimize j&j+1; fix
     // lastF(j): optimize curF(j+1)
     // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate(), save its
     // Hessian
-    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), false);
+    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
+#ifndef NO_TRACK_MAP
+                                false);
+#else
+                                true);
+#endif
   }
 
   // Discard outliers
@@ -319,7 +337,9 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
         MapPoint* pMP = curfmps[i];
 
         mCurrentFrame.EraseMapPointMatch(i);
+#ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
+#endif
         pMP->mbTrackInView = false;
         size_t n_cams = pMP->vbtrack_inview.size();
         pMP->vbtrack_inview.clear();
@@ -330,6 +350,8 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
         nmatchesMap++;
     }
   }
+  mnMatchesInliers = nmatchesMap;
+//  cout << "check matchinliers IMU=" << mnMatchesInliers << endl;
 
   // we haven't designed tracking mode in VIO/VIEO, but we can just consider VIEO map as VEO then
   // use VEO tracking mode! & VIO map as RGBD map then use RGBD tracking mode!
@@ -992,6 +1014,14 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
             GetVelocityByEnc(bMapUpdated);  // try to utilize the Encoder's data
           else
             cout << redSTR << "LastFrame has no Tcw!" << whiteSTR << endl;
+#ifdef DEBUG_STRATEGY
+          if (mVelocity.empty()) mVelocity = cv::Mat::eye(4, 4, CV_32F);
+          cout << "check vel=" << mVelocity.col(3).rowRange(0, 3).t() << ","
+               << Sophus::SO3exd(Converter::toMatrix3d(mVelocity.rowRange(0, 3).colRange(0, 3))).log().transpose()
+               << endl;
+          auto dt = mCurrentFrame.mTimeStamp - mLastFrame.mTimeStamp;
+          CV_Assert(dt < 0.045);
+#endif
           // if last frame relocalized, there's no motion could be calculated, so I think 2nd condition is useless
           if (mVelocity.empty()) {  // || mCurrentFrame.mnId<mnLastRelocFrameId+2){
             // if (!mVelocity.empty()) cerr<<redSTR"Error in Velocity.empty()!!!"<<endl;
@@ -1093,13 +1123,38 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       if (bOK) {
         if (!mpIMUInitiator->GetVINSInited() ||
             mbRelocBiasPrepare)  // if imu not intialized(including relocalized bias recomputation)
+#ifndef NO_TRACK_MAP
           bOK = TrackLocalMap();
         else
           bOK = TrackLocalMapWithIMU(bMapUpdated);
+#else
+          ;
+        else
+          ;
+#endif
 
         if (!bOK) {
           cout << redSTR "TrackLocalMap() failed!" whiteSTR << endl;
         }
+#ifdef DEBUG_STRATEGY
+        else {
+          static set<string> opened_paths;
+          string path = "/data_1/home/leavesnight/dataset/yvr/5/realtime_trajBE_ham.txt";
+          ofstream fout(path, (opened_paths.count(path) ? ios::app : ios::out));
+          opened_paths.insert(path);
+          fout << fixed << setprecision(9);
+          Eigen::Vector3d twi;
+
+          auto ns = mCurrentFrame.GetNavState();
+          twi = ns.mpwb;
+          Vector4d qwi = ns.mRwb.unit_quaternion().coeffs();
+          auto Twc = mCurrentFrame.GetTwc();
+          twi = Twc.translation();
+          qwi = Twc.so3().unit_quaternion().coeffs();
+          fout << mCurrentFrame.mTimeStamp << " " << twi[0] << " " << twi[1] << " " << twi[2] << " " << qwi.x() << " "
+               << qwi.y() << " " << qwi.z() << " " << qwi.w() << endl;
+        }
+#endif
       }
     } else {
       // mbVO true means that there are few matches to MapPoints in the map. We cannot retrieve
@@ -1650,7 +1705,9 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
         MapPoint* pMP = curfmps[i];  // use temporary pointer to avoid mutex problem?
 
         mCurrentFrame.EraseMapPointMatch(i);
+#ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
+#endif
         pMP->mbTrackInView = false;
         size_t n_cams = pMP->vbtrack_inview.size();
         pMP->vbtrack_inview.clear();
@@ -1773,10 +1830,26 @@ bool Tracking::TrackWithMotionModel() {
 
   if (nmatches < 20) return false;
 
+#ifdef CHECK_JITTER
+  mCurrentFrame.UpdateNavStatePVRFromTcw();
+  NavState oldns = mCurrentFrame.GetNavState();
+#endif
   // Optimize frame pose with all matches
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);  // motion-only BA
   //     Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
   PRINT_DEBUG_INFO_MUTEX("inliers2=" << num_inliers << endl, imu_tightly_debug_path, "debug.txt");
+#ifdef CHECK_JITTER
+  using Tdata = double;
+  NavStated newns = mCurrentFrame.GetNavState();
+  Sophus::SO3ex<Tdata> diff_rot = newns.mRwb * oldns.mRwb.inverse();
+  Sophus::Vector3<Tdata> diff_p = newns.mpwb - oldns.mpwb;
+  Sophus::Vector3<Tdata> diff_v = newns.mvwb - oldns.mvwb;
+  bool identical = true;
+  if (diff_rot.log().norm() > 0.2 || diff_p.norm() > 0.1 || diff_v.norm() > 1.5) {
+    identical = false;
+  }
+  if (!identical) CV_Assert(0);
+#endif
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -1787,7 +1860,9 @@ bool Tracking::TrackWithMotionModel() {
         MapPoint* pMP = curfmps[i];
 
         mCurrentFrame.EraseMapPointMatch(i);
+#ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
+#endif
         pMP->mbTrackInView = false;
         size_t n_cams = pMP->vbtrack_inview.size();
         pMP->vbtrack_inview.clear();
@@ -1798,6 +1873,8 @@ bool Tracking::TrackWithMotionModel() {
         nmatchesMap++;
     }
   }
+  mnMatchesInliers = nmatchesMap;
+//  cout << "check matchinliers=" << mnMatchesInliers << endl;
 
   if (mbOnlyTracking) {
     mbVO = nmatchesMap < 10;  // change to VO mode if the inlier MapPoint is too few i.e. robot goes to the new
@@ -1817,11 +1894,27 @@ bool Tracking::TrackLocalMap() {
   PRINT_DEBUG_INFO_MUTEX("SLP" << endl, imu_tightly_debug_path, "debug.txt");
   SearchLocalPoints();
 
+#ifdef CHECK_JITTER
+  mCurrentFrame.UpdateNavStatePVRFromTcw();
+  NavState oldns = mCurrentFrame.GetNavState();
+#endif
   // Optimize Pose
-  int num_inliers = Optimizer::PoseOptimization(
-      &mCurrentFrame, &mLastFrame);  // motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
-  //     Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA, for added matching MP&&KeyPoints in
-  //     SearchLocalPoints();
+  // motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
+  int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);
+  // motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
+  //      Optimizer::PoseOptimization(&mCurrentFrame);
+#ifdef CHECK_JITTER
+  using Tdata = double;
+  NavStated newns = mCurrentFrame.GetNavState();
+  Sophus::SO3ex<Tdata> diff_rot = newns.mRwb * oldns.mRwb.inverse();
+  Sophus::Vector3<Tdata> diff_p = newns.mpwb - oldns.mpwb;
+  Sophus::Vector3<Tdata> diff_v = newns.mvwb - oldns.mvwb;
+  bool identical = true;
+  if (diff_rot.log().norm() > 0.2 || diff_p.norm() > 0.1 || diff_v.norm() > 1.5) {
+    identical = false;
+  }
+  if (!identical) CV_Assert(0);
+#endif
 
   mnMatchesInliers = 0;
   PRINT_DEBUG_INFO_MUTEX("num_inliers22=" << num_inliers << endl, imu_tightly_debug_path, "debug.txt");
@@ -2127,7 +2220,9 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
     }
   }
 
+#ifndef NO_LBA_THREAD
   mpLocalMapper->InsertKeyFrame(pKF);
+#endif
 
   mpLocalMapper->SetNotStop(false);
 
@@ -2278,6 +2373,9 @@ void Tracking::UpdateLocalKeyFrames() {
     KeyFrame* pKF = *itKF;
 
     const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);
+#ifdef NO_LBA_THREAD
+    CV_Assert(!vNeighs.size());
+#endif
 
     for (vector<KeyFrame*>::const_iterator itNeighKF = vNeighs.begin(), itEndNeighKF = vNeighs.end();
          itNeighKF != itEndNeighKF; itNeighKF++) {
@@ -2295,6 +2393,9 @@ void Tracking::UpdateLocalKeyFrames() {
     }
 
     const set<KeyFrame*> spChilds = pKF->GetChilds();
+#ifdef NO_LBA_THREAD
+    CV_Assert(!spChilds.size());
+#endif
     for (set<KeyFrame*>::const_iterator sit = spChilds.begin(), send = spChilds.end(); sit != send; sit++) {
       KeyFrame* pChildKF = *sit;
       if (!pChildKF->isBad()) {
@@ -2307,6 +2408,9 @@ void Tracking::UpdateLocalKeyFrames() {
     }
 
     KeyFrame* pParent = pKF->GetParent();
+#ifdef NO_LBA_THREAD
+    CV_Assert(!pParent);
+#endif
     if (pParent) {
       if (pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(pParent);

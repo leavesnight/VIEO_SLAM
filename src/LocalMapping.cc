@@ -26,6 +26,8 @@
 
 #include <mutex>
 
+//#define NO_GBA_THREAD
+
 namespace VIEO_SLAM {
 
 LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSettingPath)
@@ -116,7 +118,9 @@ void LocalMapping::Run() {
         KeyFrameCulling();
       }
 
+#ifndef NO_GBA_THREAD
       mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+#endif
     } else if (Stop()) {
       // Safe area to stop
       while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction

@@ -12,7 +12,7 @@
 
 namespace VIEO_SLAM {
 enum TYPE_PRINT_LEVEL { PRINT_LEVEL_SILENT = 0, PRINT_LEVEL_INFO = 1, PRINT_LEVEL_DEBUG = 2 };
-constexpr int PRINT_LEVEL = PRINT_LEVEL_INFO;  // PRINT_LEVEL_DEBUG;
+constexpr int PRINT_LEVEL = PRINT_LEVEL_INFO;  // PRINT_LEVEL_DEBUG;//
 
 extern std::mutex gmutexOUTPUT;
 const std::string imu_tightly_debug_path = "/home/leavesnight/tmp/VIEOSLAM/";  //"/backup/imu_tightly/";
