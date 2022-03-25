@@ -1061,7 +1061,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
               pcam2 = pcaminst[1].get();
             } else {
               pcam1 = pKF1->mpCameras[cami[0]];
-              pcam2 = pKF2->mpCameras[cami[1]];
+              pcam2 = pKF2->mpCameras[cami[1] - vn_cams[0]];
             }
             if (pcam1->FillMatchesFromPair(
                     vector<GeometricCamera *>(1, pcam2), n_cams,
