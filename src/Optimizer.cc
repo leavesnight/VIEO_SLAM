@@ -32,6 +32,7 @@
 #include "Converter.h"
 
 #include <mutex>
+#include "FrameBase_impl.h"
 
 namespace VIEO_SLAM {  // changed a lot refering to the JingWang's code
 
@@ -267,7 +268,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
 
-  vector<g2o::EdgeReprojectPR*> vpEdgesMono;
+  typedef struct _BaseEdgeMono {
+    g2o::EdgeReprojectPR* pedge;
+    size_t idx;
+  } BaseEdgeMono;
+  vector<BaseEdgeMono> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFMono;
   vpEdgeKFMono.reserve(nExpectedSize);
@@ -347,7 +352,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             }
 
             optimizer.addEdge(e);
-            vpEdgesMono.push_back(e);
+            vpEdgesMono.push_back(BaseEdgeMono());
+            BaseEdgeMono& pbaseedgemono = vpEdgesMono.back();
+            pbaseedgemono.pedge = e;
+            pbaseedgemono.idx = idx;
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
           } else                                // Stereo observation
@@ -410,7 +418,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   if (bDoMore) {
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-      g2o::EdgeReprojectPR* e = vpEdgesMono[i];
+      g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
 
       if (pMP->isBad())  // why this can be true?
@@ -442,19 +450,19 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<pair<KeyFrame*, MapPoint*>> vToErase;
+  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    g2o::EdgeReprojectPR* e = vpEdgesMono[i];
+    const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
 
     if (pMP->isBad()) continue;
 
-    if (e->chi2() > 5.991 || !e->isDepthPositive()) {
+    if (e.pedge->chi2() > 5.991 || !e.pedge->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in monocular edges
+      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
     }
   }
   for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
@@ -465,7 +473,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     if (e->chi2() > 7.815 || !e->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFStereo[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in stereo edges
+      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
   }
 
@@ -498,10 +506,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   if (!vToErase.empty()) {  // erase the relation between outliers of pKFi(matched mvpMapPoints) && pMP(mObservations)
     for (size_t i = 0; i < vToErase.size(); i++) {
-      KeyFrame* pKFi = vToErase[i].first;
-      MapPoint* pMPi = vToErase[i].second;
-      pKFi->EraseMapPointMatch(pMPi);
-      pMPi->EraseObservation(pKFi);  // here may erase pMP in mpMap
+      KeyFrame* pKFi = get<0>(vToErase[i]);
+      MapPoint* pMPi = get<1>(vToErase[i]);
+      auto idx = get<2>(vToErase[i]);
+
+      // here may erase pMP in mpMap
+      ErasePairObs(pKFi, pMPi, idx);
     }
   }
 
@@ -1655,8 +1665,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   // Set MapPoint vertices && MPs-KFs' edges
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
-
-  vector<g2o::EdgeReprojectPR*> vpEdgesMono;
+  typedef struct _BaseEdgeMono {
+    g2o::EdgeReprojectPR* pedge;
+    size_t idx;
+  } BaseEdgeMono;
+  vector<BaseEdgeMono> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
 
   vector<KeyFrame*> vpEdgeKFMono;
@@ -1740,7 +1753,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             }
 
             optimizer.addEdge(e);
-            vpEdgesMono.push_back(e);
+            vpEdgesMono.push_back(BaseEdgeMono());
+            BaseEdgeMono& pbaseedgemono = vpEdgesMono.back();
+            pbaseedgemono.pedge = e;
+            pbaseedgemono.idx = idx;
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
           } else                                // Stereo observation
@@ -1802,7 +1818,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   if (bDoMore) {
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-      g2o::EdgeReprojectPR* e = vpEdgesMono[i];
+      g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
 
       if (pMP->isBad())  // why this can be true?
@@ -1836,19 +1852,19 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<pair<KeyFrame*, MapPoint*>> vToErase;
+  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    g2o::EdgeReprojectPR* e = vpEdgesMono[i];
+    const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
 
     if (pMP->isBad()) continue;
 
-    if (e->chi2() > 5.991 || !e->isDepthPositive()) {
+    if (e.pedge->chi2() > 5.991 || !e.pedge->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in monocular edges
+      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
     }
   }
 
@@ -1860,7 +1876,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
     if (e->chi2() > 7.815 || !e->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFStereo[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in stereo edges
+      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
   }
 
@@ -1882,10 +1898,12 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   if (!vToErase.empty())  // erase the relation between outliers of pKFi(matched mvpMapPoints) && pMP(mObservations)
   {
     for (size_t i = 0; i < vToErase.size(); i++) {
-      KeyFrame* pKFi = vToErase[i].first;
-      MapPoint* pMPi = vToErase[i].second;
-      pKFi->EraseMapPointMatch(pMPi);
-      pMPi->EraseObservation(pKFi);  // here may erase pMP in mpMap
+      KeyFrame* pKFi = get<0>(vToErase[i]);
+      MapPoint* pMPi = get<1>(vToErase[i]);
+      auto idx = get<2>(vToErase[i]);
+
+      // here may erase pMP in mpMap
+      ErasePairObs(pKFi, pMPi, idx);
     }
   }
 

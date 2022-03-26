@@ -55,7 +55,8 @@ class MapPoint {
   // if map is large, for single search time cost stability, please use map instead of unordered_map
   std::map<KeyFrame*, std::set<size_t>> GetObservations();  // mObservations
   void AddObservation(KeyFrame* pKF, size_t idx);           // mObservations[pKF]=idx;nObs+=2/1;
-  void EraseObservation(KeyFrame* pKF);  // mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
+  // mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
+  void EraseObservation(KeyFrame* pKF, size_t idx = -1);
   std::set<size_t> GetIndexInKeyFrame(KeyFrame* pKF);                   // mObservations[pKF](empty() unfound)
   int Observations();                                                   // nObs
   bool IsInKeyFrame(KeyFrame* pKF, size_t idx = -1, size_t cami = -1);  // mObservations.count(pKF)
