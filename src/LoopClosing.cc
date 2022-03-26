@@ -44,8 +44,10 @@ void LoopClosing::CreateGBA()
   }else{
     // Launch a new thread to perform Global Bundle Adjustment
     mbRunningGBA = true;
-    CV_Assert(!mbStopGBA && mpCurrentKF);//it's already false
-    mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment,this,mpCurrentKF->mnId);
+    CV_Assert(!mbStopGBA);//it's already false
+    if (mpCurrentKF) {
+      mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, mpCurrentKF->mnId);
+    }
   }
 }
   

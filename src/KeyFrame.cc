@@ -512,7 +512,10 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
     mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
   }
 }
-
+void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  FrameBase::ReplaceMapPointMatch(idx, pMP);
+}
 std::set<std::pair<MapPoint *, size_t>> KeyFrame::GetMapPointsCami() {
   unique_lock<mutex> lock(mMutexFeatures);
   return FrameBase::GetMapPointsCami();

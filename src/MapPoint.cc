@@ -28,10 +28,10 @@
 namespace VIEO_SLAM {
 
 void MapPoint::UpdateScale(const float& scale) {
-  SetWorldPos(mWorldPos * scale);
   unique_lock<mutex> lock(mMutexPos);
   mfMaxDistance *= scale;
   mfMinDistance *= scale;
+  SetWorldPos(mWorldPos * scale, false);
 }
 
 // for Load/SaveMap()
@@ -149,9 +149,10 @@ MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF
   mnId = nNextId++;
 }
 
-void MapPoint::SetWorldPos(const cv::Mat& Pos) {
+void MapPoint::SetWorldPos(const cv::Mat& Pos, bool block) {
   unique_lock<mutex> lock2(mGlobalMutex);
-  unique_lock<mutex> lock(mMutexPos);
+  unique_lock<mutex> lock(mMutexPos, defer_lock);
+  if (block) lock.lock();
   Pos.copyTo(mWorldPos);
 }
 

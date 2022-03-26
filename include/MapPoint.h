@@ -50,7 +50,7 @@ class MapPoint {
   MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF);  // used in localization mode tracking
 
   cv::Mat GetWorldPos();
-  void SetWorldPos(const cv::Mat& Pos);  // Pos.copyTo(mWorldPos)
+  void SetWorldPos(const cv::Mat& Pos, bool block = true);  // Pos.copyTo(mWorldPos)
 
   // if map is large, for single search time cost stability, please use map instead of unordered_map
   std::map<KeyFrame*, std::set<size_t>> GetObservations();  // mObservations

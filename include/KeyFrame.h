@@ -245,6 +245,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   void AddMapPoint(MapPoint *pMP, const size_t &idx) override;  // mvpMapPoints[idx]=pMP
   void EraseMapPointMatch(const size_t &idx) override;          // mvpMapPoints[idx]=nullptr
   void EraseMapPointMatch(MapPoint *pMP);                       // mvpMapPoints[idx corresp. pMP]=nullptr
+  void ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) override;
   std::set<std::pair<MapPoint *, size_t>> GetMapPointsCami() override;
   std::vector<MapPoint *> GetMapPointMatches() override;  // mvpMapPoints
   int TrackedMapPoints(const int &minObs);                // return the number of good mvpMapPoints whose nObs>=minObs
