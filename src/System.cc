@@ -68,6 +68,7 @@ cv::Mat System::TrackOdom(const double &timestamp, const double* odomdata, const
   return Tcw;
 }
 void System::FinalGBA(int nIterations,bool bRobust){
+  if (!nIterations) return;
   if (mpIMUInitiator->GetVINSInited()){//zzh, Full BA, GetVINSInited() instead of GetSensorIMU() for pure-vision+IMU Initialization mode
     Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,mpIMUInitiator->GetGravityVec(),nIterations,NULL,0,bRobust,true);
   }else
