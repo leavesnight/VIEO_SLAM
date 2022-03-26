@@ -550,6 +550,11 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", imu_tightly_debug_path, "debug.txt");
+  while (pMP && pMP->isBad()) {
+    pMP = pMP->GetReplaced();
+  }
+  if (!pMP) return;
+
   // If there is already a MapPoint replace otherwise add new measurement
   MapPoint *pMPinKF = GetMapPoint(idx);
   if (pMPinKF) {
