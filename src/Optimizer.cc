@@ -53,8 +53,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     lLocalKeyFrames.push_front(pKFlocal);  // notice the order is opposite
     pKFlocal = pKFlocal->GetPrevKeyFrame();
   } while (--Nlocal > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
-                                               << whiteSTR << endl);
   //   assert(pKFlocal!=NULL||pKFlocal==NULL&&pMap->KeyFramesInMap()<=NlocalIni);
 
   // Local MapPoints seen in Local KeyFrames
@@ -72,6 +70,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
           }
     }
   }
+  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                               << ", mps=" << lLocalMapPoints.size() << whiteSTR << endl);
 
   // Fixed Keyframes. Keyframes that see Local MapPoints and last (N+1)th KF but that are not Local Keyframes: \
   2nd layer fixed neighbors(don't optimize them but contribute to the target min funcation)
@@ -391,6 +391,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       }
     }
   }
+  PRINT_INFO_MUTEX("factor_visual num="<<vpEdgesMono.size()<<endl);
 
   if (pbStopFlag)     // true in LocalMapping
     if (*pbStopFlag)  // if mbAbortBA
@@ -1516,8 +1517,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       pKFlocal = pKFlocal->GetPrevKeyFrame();
     } while (--NlocalCnt > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
   }
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
-       << endl);
 
   // Local MapPoints seen in Local KeyFrames
   list<MapPoint*> lLocalMapPoints;
@@ -1534,6 +1533,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
           }
     }
   }
+  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                               << ", mps=" << lLocalMapPoints.size() << whiteSTR << endl);
 
   // Fixed Keyframes. Keyframes that see Local MapPoints but that are not Local Keyframes, 2nd layer fixed
   // neighbors(don't optimize them but contribute to the target min funcation)
