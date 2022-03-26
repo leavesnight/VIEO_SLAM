@@ -34,20 +34,17 @@
 
 namespace VIEO_SLAM
 {
-void LoopClosing::CreateGBA()
-{ 
-  mpIMUInitiator->SetInitGBA(false);//avoid enter this func. twice when lock mMutexGBA after entered
-  
+void LoopClosing::CreateGBA() {
+  mpIMUInitiator->SetInitGBA(false);  // avoid enter this func. twice when lock mMutexGBA after entered
+
   // If a Global Bundle Adjustment is running, abort it
-  if(isRunningGBA()){
-    //do nothing, for it must be the one just after IMU Initialization
-  }else{
+  if (isRunningGBA()) {
+    // do nothing, for it must be the one just after IMU Initialization
+  } else if (mpCurrentKF) {
+    CV_Assert(!mbStopGBA);  // it's already false
     // Launch a new thread to perform Global Bundle Adjustment
     mbRunningGBA = true;
-    CV_Assert(!mbStopGBA);//it's already false
-    if (mpCurrentKF) {
-      mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, mpCurrentKF->mnId);
-    }
+    mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, mpCurrentKF->mnId);
   }
 }
   
