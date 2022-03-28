@@ -2415,7 +2415,7 @@ void Tracking::UpdateLocalKeyFrames() {
       if (pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(pParent);
         pParent->mnTrackReferenceForFrame = mCurrentFrame.mnId;
-        break;
+        // break;
       }
     }
   }
