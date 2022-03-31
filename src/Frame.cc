@@ -999,6 +999,7 @@ void Frame::ComputeStereoFishEyeMatches() {
   for (int i = 0; i < n_cams - 1; ++i) {
     for (int j = i + 1; j < n_cams; ++j) {
       allmatches.push_back(vector<vector<cv::DMatch>>());
+      if (vdescriptors_[i].empty() || vdescriptors_[j].empty()) continue;
       BFmatcher.knnMatch(vdescriptors_[i].rowRange(num_mono[i], vdescriptors_[i].rows),
                          vdescriptors_[j].rowRange(num_mono[j], vdescriptors_[j].rows), allmatches.back(), 2);
     }
@@ -1091,7 +1092,8 @@ void Frame::ComputeStereoFishEyeMatches() {
   CV_Assert(!mvDepth.size() && !mvuRight.size());
   size_t num_pt_added = 0;
   for (size_t i = 0; i < n_cams; ++i) {
-    if (mDescriptors.empty() && vdescriptors_.size()) {
+    if (vdescriptors_.size() <= i || vdescriptors_[i].empty()) continue;
+    if (mDescriptors.empty()) {
       mDescriptors = vdescriptors_[i].clone();
     } else
       cv::vconcat(mDescriptors, vdescriptors_[i], mDescriptors);
