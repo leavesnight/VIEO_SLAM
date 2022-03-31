@@ -1,0 +1,192 @@
+%YAML:1.0
+
+#path of temperary recording files for analysis
+test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
+
+# Timestamp shift(s) Timage = Timu/Tenc + image_delay
+Camera.delaytoimu: -0.003
+Camera.delaytoenc: 0.
+# when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
+Camera.delayForPolling: 0.005
+
+# 2 differential driving wheels' distance (m)
+Encoder.rc: 0.280
+
+# encoder coefficient to m/s : vscaleforhall=2.0/ppr*M_PI*wheelradius/datatime=2.0/400*M_PI*0.105/10
+Encoder.scale: 1.649336143e-4
+
+# encoder_sigma[8]: el,er,em[6](vx,vy,vz,wx,wy,wz) [m/s/sqrt(Hz),model: m/s^2/sqrt(Hz)]
+Encoder.sigma:
+ [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
+
+# mode 0 is normal right order gxgygz/axayaz, 1 means -gy,gxgz/-ay,axaz
+IMU.mode: 0
+
+# Sigma etawi of IMU
+IMU.SigmaI:
+ [0.1, 0, 0,
+  0, 0.1, 0,
+  0, 0, 1]
+
+# sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
+IMU.sigma:
+# [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
+# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+ [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+
+IMU.freq_hz: 1000.0
+IMU.dt_cov_noise_fix: 1
+
+# acc=acc*IMU.dMultiplyG, if below is 9.80665 meaning acc=acc*9.80665, but internal referenced G used for prior is still 9.810
+IMU.dMultiplyG: 1.
+
+# camera-imu frame transformation, Pi = Tic * Pc; For stereo: it's the rectified left(0) camera's Tbc'=Tbc0*Tc'c0.inv(), notice LEFT.R is Rc'c0(R1) & tc'c0=0
+Camera.Tbc:
+ [0.201001681 , 0.962939688 , 0.179848494 , 0.096997531,
+  -0.764177789 , 0.269003539 ,-0.586233232 , 0.001302848,
+  -0.612887128 ,-0.019602360 , 0.789927285  ,0.008262006,
+  0        ,   0,           0         ,  1]
+
+# imu-encoder frame transformation
+Camera.Tce:
+ [0.000000000, -1.000000000,  0.000000000,  -0.015000000,
+  0.000000000,  0.000000000, -1.000000000,  0.473000000,
+  1.000000000,  0.000000000,  0.000000000, -0.518000000,
+  0.000000000,  0.000000000,  0.000000000,  1.000000000]
+
+# Local Window size(0 means pure-vision+IMU Initialzation but no IMU error in BA): JW is 20, VIORBSLAM paper uses 10, but 5 for V203 in my PC
+LocalMapping.LocalWindowSize: 10
+
+# the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
+ErrIMUImg: 0.03
+
+# IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
+IMU.InitTime: 0
+IMU.FinalTime: 2
+IMU.SleepTime: 1.0
+
+# normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
+GBA.iterations: 10
+GBA.initIterations: 15
+GBA.finalIterations: 0
+GBA.threshMatches : 10
+GBA.threshInliers : 10
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters. Adjust them!
+#--------------------------------------------------------------------------------------------
+
+Camera.type: "KannalaBrandt8"
+# Camera calibration and distortion parameters (OpenCV)
+Camera.fx: 235.2142652
+Camera.fy: 235.9645543
+Camera.cx: 318.1415002
+Camera.cy: 231.6680088
+Camera.k1: 0.2147914615
+Camera.k2: -0.1668974968
+Camera.k3: 0.06061419983
+Camera.k4: -0.00953557947
+Camera2.fx: 237.8561448
+Camera2.fy: 238.3965886
+Camera2.cx: 315.1253443
+Camera2.cy: 234.9123443
+Camera2.k1: 0.2212046852
+Camera2.k2: -0.1915680692
+Camera2.k3: 0.0830793958
+Camera2.k4: -0.01653183432
+Camera3.fx: 234.1567467
+Camera3.fy: 234.8787781
+Camera3.cx: 316.565752
+Camera3.cy: 233.4381589
+Camera3.k1: 0.2172858419
+Camera3.k2: -0.1703862185
+Camera3.k3: 0.06170501518
+Camera3.k4: -0.009682727357
+Camera4.fx: 233.4342969
+Camera4.fy: 233.5495262
+Camera4.cx: 319.5323293
+Camera4.cy: 232.6459866
+Camera4.k1: 0.2093988973
+Camera4.k2: -0.1552384766
+Camera4.k3: 0.0534472303
+Camera4.k4: -0.008206886505
+# Transformation matrix from reference camera to current camera
+Camera2.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ -0.868121682, -0.183877617, -0.461035538, -0.018291693,
+          -0.413607255, -0.245503750,  0.876730830,  0.042184872,
+          -0.274397129,  0.951796686,  0.137074011 ,-0.039091628]
+Camera3.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ -0.619610521,  0.123239782, -0.775174018, -0.062817961,
+          0.783056621 , 0.029238639,  -0.621262770 ,-0.120318169,
+          -0.053899255, -0.991946096, -0.114620296, -0.065170043]
+Camera4.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ 0.922498867  ,0.381249295 ,-0.060372313 ,-0.023102361,
+          -0.376948759 , 0.856109525 ,-0.353533754 ,-0.109318088,
+          -0.083099182,  0.348891756 , 0.933471515 ,-0.020018736]
+
+# Lapping area between images
+Camera.lappingBegin: 0
+Camera.lappingEnd: 639
+Camera2.lappingBegin: 0
+Camera2.lappingEnd: 639
+Camera3.lappingBegin: 0
+Camera3.lappingEnd: 639
+Camera4.lappingBegin: 0
+Camera4.lappingEnd: 639
+Camera.width: 640
+Camera.height: 480
+
+# Camera frames per second 
+Camera.fps: 30.0
+
+# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
+Camera.RGB: 1
+
+# stereo baseline times fx
+Camera.bf: 15.7801
+# Close/Far threshold. Baseline times.
+ThDepth: 35.0 # 35
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+# ORB Extractor: Number of features per image
+ORBextractor.nFeatures: 350
+
+# ORB Extractor: Scale factor between levels in the scale pyramid 	
+ORBextractor.scaleFactor: 2.
+
+# ORB Extractor: Number of levels in the scale pyramid	
+ORBextractor.nLevels: 4
+
+# ORB Extractor: Fast threshold
+# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
+# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST
+# You can lower these values if your images have low contrast			
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#---------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500
+

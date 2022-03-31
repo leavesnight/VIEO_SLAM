@@ -19,6 +19,52 @@
 using namespace std;
 using namespace rapidjson;
 
+//#define DEBUG_STRATEGY
+
+void AlignImgs(vector<vector<double>> &vtmcam, vector<vector<string>> &vstrimg) {
+  CV_Assert(vtmcam.size() == vstrimg.size());
+  if (!vtmcam.size()) return;
+  CV_Assert(vtmcam[0].size() == vstrimg[0].size());
+  size_t n_cams = vtmcam.size();
+  size_t i = 0;
+  const double synch_allow = 0.010;
+  while (i < vtmcam[0].size()) {
+    bool bplus = true;
+    // cout << "tm0:" << vtmcam[0][i] << " ";
+    for (size_t j = 1; j < n_cams; ++j) {
+      while (vtmcam[j].size() > i && (vtmcam[j][i] < vtmcam[0][i] - synch_allow || vtmcam[0].size() <= i)) {
+        vtmcam[j].erase(vtmcam[j].begin() + i);
+        vstrimg[j].erase(vstrimg[j].begin() + i);
+      }
+      if (vtmcam[j].size() <= i) {
+        CV_Assert(i == vtmcam[j].size());
+        if (vtmcam[0].size() > i) {
+          vtmcam[0].resize(i);
+          vstrimg[0].resize(i);
+        }
+        continue;
+      }
+      if (vtmcam[j][i] > vtmcam[0][i] + synch_allow) {
+        vtmcam[0].erase(vtmcam[0].begin() + i);
+        vstrimg[0].erase(vstrimg[0].begin() + i);
+        bplus = false;
+      }
+      // cout << "tm" << j << ":" << vtmcam[j][i] << " ";
+    }
+    // cout << endl;
+    if (bplus) ++i;
+  }
+  auto n0 = vtmcam[0].size();
+  for (size_t j = 0; j < n_cams; ++j) {
+    CV_Assert(vtmcam[j].size() >= n0);
+    CV_Assert(vstrimg[j].size() == vtmcam[j].size());
+    vtmcam[j].resize(n0);
+    vstrimg[j].resize(n0);
+    CV_Assert(vstrimg[j].size() == n0);
+  }
+  cout << "After align img size=" << vtmcam[0].size() << endl;
+}
+
 static void GetFileNames(const string &path, vector<string> &filenames, const string &suffix = ".pgm",
                          const string &prefix = "");
 
@@ -221,6 +267,8 @@ int main(int argc, char **argv) {
       --nImages;
     }
   }
+  AlignImgs(vtmcam, vstrimg);
+  nImages = vtmcam[0].size();
   for (int ni = 0; ni < nImages; ni += fpsrat) {
     // Read left and right images from file
     ims[0] = cv::imread(vstrimg[0][ni], cv::IMREAD_GRAYSCALE);
@@ -229,7 +277,7 @@ int main(int argc, char **argv) {
       ims[0] = ims[0].colRange(0, ims[0].cols / 2);
     } else {
       cv::FileNode fncam3 = fSettings["Camera4.fx"];
-      if (vtmcam[3][ni] != vtmcam[0][ni]) break;
+      // if (vtmcam[3][ni] != vtmcam[0][ni]) break;
       //      CV_Assert(vtmcam[3][ni] == vtmcam[0][ni]);
       if (fncam3.empty()) {
         ims[1] = cv::imread(vstrimg[3][ni], cv::IMREAD_GRAYSCALE);
@@ -290,7 +338,11 @@ int main(int argc, char **argv) {
   }
   if (SLAM.MapChanged()) {
     PRINT_INFO_MUTEX("Map is changing!Please enter s to stop!" << endl);
-    //       while (cin.get()!='s') {sleep(1);}
+#ifdef DEBUG_STRATEGY
+    while (cin.get() != 's') {
+      sleep(1);
+    }
+#endif
     sleep(5);
   }
   // zzh over
