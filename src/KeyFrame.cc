@@ -77,7 +77,17 @@ void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
                                              const typename aligned_list<IMUData>::const_iterator &begin,
                                              const typename aligned_list<IMUData>::const_iterator &end) {
   unique_lock<mutex> lock(mMutexOdomData);
-  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, end);
+  auto stop = end;
+  if (mOdomPreIntIMU.getlOdom().size()) {
+    double tm_ref = mOdomPreIntIMU.getlOdom().begin()->mtm;
+    for (auto iter = end; iter != begin;) {
+      stop = iter--;
+      if (iter->mtm >= tm_ref) continue;
+      break;
+    }
+  }
+  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, stop);
+  if (stop != end) x.erase(stop, end);
 }
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
@@ -91,13 +101,13 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
 #endif
 }
 template <>
-void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
                                                  const typename aligned_list<IMUData>::const_iterator &iteri,
                                                  const typename aligned_list<IMUData>::const_iterator &iterj,
                                                  bool breset, int8_t verbose) {
   NavState ns = plastkf->GetNavState();
   unique_lock<mutex> lock(mMutexOdomData);
-  FrameBase::PreIntegration<IMUData, IMUPreintegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 // for LoadMap()

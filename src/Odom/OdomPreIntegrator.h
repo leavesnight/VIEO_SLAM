@@ -8,6 +8,8 @@
 
 #include <iostream>
 
+//#define USE_PREINT_EULA
+
 namespace VIEO_SLAM{
 
     using Eigen::Quaterniond;
@@ -150,138 +152,176 @@ public:
 //when template<>: specialized definition should be defined in .cpp(avoid redefinition) or use inline/static(not good) in .h and template func. in template class can't be specialized(only fully) when its class is not fully specialized
 template<class IMUDataBase>
 int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
-						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset){
-  //TODO: refer to the code by JingWang
-  if (iterBegin!=iterEnd){//default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
+						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset) {
+  if (iterBegin != iterEnd) {  // default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
     // Reset pre-integrator first
     if (breset) reset();
     // remember to consider the gap between the last KF and the first IMU
     // integrate each imu
     IMUDataBase imu_last;
     double t_last;
-    for (typename listeig(IMUDataBase)::const_iterator iterj=iterBegin;iterj!=iterEnd;){
-      typename listeig(IMUDataBase)::const_iterator iterjm1=iterj++;//iterj-1
+
+    // for iterBegin!=iterEnd, here iter_stop can no init
+    typename listeig(IMUDataBase)::const_iterator iter_start = iterBegin, iter_stop;
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi;iter_start = iterj++) {
+    }
+    for (auto iterj = iterEnd; iterj != iterBegin;) {
+      iter_stop = iterj--;
+      if (iterj->mtm >= timeStampj) continue;
+      break;
+    }
+
+    for (typename listeig(IMUDataBase)::const_iterator iterj = iter_start; iterj != iter_stop;) {
+      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj++;  // iterj-1
 
       // delta time
-      double dt,tj,tj_1;
-      if (iterjm1==iterBegin) tj_1=timeStampi; else tj_1=iterjm1->mtm;
-      if (iterj==iterEnd) tj=timeStampj; else{ tj=iterj->mtm;assert(tj-tj_1>=0);}
-      dt=tj-tj_1;
-      if (dt==0) continue;//for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj], when we concate them in KeyFrameCulling(), dt may be 0
-      if (dt>1.5){ this->mdeltatij=0;std::cout<<"CheckIMU!!!"<<std::endl;return -1;}//for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
-
-      //selete/design measurement_j-1
-      const IMUDataBase& imu=*iterjm1;//imuj-1 for w~j-1 & a~j-1 chooses imu(tj-1), maybe u can try (imu(tj-1)+imu(tj))/2 or other filter here
-//      IMUDataBase imu=*iterjm1, imu_now = iterj != iterEnd ? *iterj : iterjm1 != iterBegin ? imu_last : imu;//(interplot)
-//      if (iterj == iterEnd && iterjm1 != iterBegin) {
-////          Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-//          double rat = (tj - tj_1)/(t_last - tj_1);
-//          if (rat > 0 ) {//we could use imu to preintegrate [timeStampi,imu]
-////              Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
-////              imu_now.mw = ang_mid.angle() * ang_mid.axis();
-//              imu_now.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
-//              imu_now.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
-//          }
-//      }
-//      if (iterjm1 == iterBegin && iterj != iterEnd) {
-////          Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-//          double rat = (tj_1 - iterjm1->mtm)/(tj - iterjm1->mtm);
-//          if (rat > 0 ) {
-////              Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
-////              imu.mw = ang_mid.angle() * ang_mid.axis();
-//              imu.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
-//              imu.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
-//          }
-//      }
-
-      const bool test_lower_freq = false;//true;//
-      if (test_lower_freq) {
-          if (iterjm1 == iterBegin)
-              imu_last = imu;
-          mdt_hf += dt;
-          update_highfreq(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
-          if (mdt_hf >= mdt_hf_ref || iterj == iterEnd) {
-              if (iterj == iterEnd)
-                std::cout<<"mdt_hf="<<mdt_hf<<std::endl;
-              IMUDataBase imu_fake;
-              double dt_fake = 1./200;
-
-//              int n = int(mdt_hf / dt_fake) + 1;
-//              Eigen::Vector3d alphadt, a0;
-//              double coeff[4];//vij=c0*a0+c1*alpha*dt;pij=a0*c2+alpha*dt*c3;
-//              double D = 0;
-//              if (n > 0) {
-//                  double dtf_fake = mdt_hf - (n-1) * dt_fake;
-//                  double dt2_fake = dt_fake * dt_fake, dtf2_fake = dtf_fake * dtf_fake, dtdtf_fake = dt_fake * dtf_fake;
-//                  double n2 = n * n;
-//                  coeff[0] = (n - 1) * dt_fake + dtf_fake;
-//                  coeff[1] = (n2 - 3 * n + 2) * dt_fake / 2 + (n - 1) * dtf_fake;
-//                  coeff[2] = (n2 - 2 * n + 1) * dt2_fake / 2 + dtf2_fake / 2 + (n - 1) * dtdtf_fake;
-//                  coeff[3] = ((2 * n2 * n - 9 * n2 + 13 * n - 6) * dt2_fake / 6 + (n - 1) * dtf2_fake +
-//                              (n - 2) * (n - 1) * dtdtf_fake) / 2;
-//                  D = coeff[0] * coeff[3] - coeff[1] * coeff[2];
-//              } else {
-//                  std::cout<<"Error: n=0"<<std::endl;
-//              }
-//              if (!D) {
-//                  alphadt.setZero();
-//                  a0 = mvij_hf / mdt_hf;
-//              } else {
-//                  a0 = (coeff[3] * mvij_hf - coeff[1] * mpij_hf) / D;
-//                  alphadt = (coeff[0] * mpij_hf - coeff[2] * mvij_hf) / D;
-//              }
-
-              imu_fake.mw = Sophus::SO3exd(mRij_hf).log() / mdt_hf;
-//              imu_fake.ma = a0;
-              imu_fake.ma = mvij_hf / mdt_hf;
-//              imu_fake.ma = mpij_hf/(mdt_hf*mdt_hf/2);
-              std::cout<<"ma = "<< mvij_hf / mdt_hf << " map = "<<mpij_hf/(mdt_hf*mdt_hf/2)<<std::endl;
-              std::cout<<"before i_p_i_j = Rij-1 * j-1(j)_p_j-1_j + p_i_j-1(j) = "<< (mRij * mpij_hf + mpij + mvij * mdt_hf).transpose() << std::endl;
-              std::cout<<"i_v_i_j = "<<(mRij * mvij_hf + mvij).transpose()<<std::endl;
-              std::cout<<mRij * mRij_hf<<std::endl;
-
-//              double t_tmp = 0;
-//              Matrix3d mRij_1_hf = mRij;
-//              while (t_tmp < mdt_hf) {
-//                  if (t_tmp + dt_fake >= mdt_hf)
-//                      dt_fake = mdt_hf - t_tmp;
-//                  update(imu_fake.mw, mRij.transpose() * mRij_1_hf * imu_fake.ma, dt_fake);
-//                  t_tmp += dt_fake;
-////                  imu_fake.ma += alphadt;
-//              }
-              update(imu_fake.mw, imu_fake.ma, mdt_hf);
-//              update((imu_last.mw + imu.mw)/2 - bgi_bar, (imu_last.ma + imu.ma)/2 - bai_bar, mdt_hf);
-//              update(imu.mw - bgi_bar, imu.ma - bai_bar, mdt_hf);
-              imu_last = imu;
-
-              std::cout<<"after i_p_i_j = "<< mpij.transpose() <<std::endl;
-              std::cout<<"i_v_i_j = "<< mvij.transpose()<<std::endl;
-              std::cout<<mRij<<std::endl;
-              mRij_hf.setIdentity();mvij_hf.setZero();mpij_hf.setZero();
-              mdt_hf = 0;
-          }
-          continue;
+      double dt, tj, tj_1;
+      if (iterjm1 == iter_start)
+        tj_1 = timeStampi;
+      else
+        tj_1 = iterjm1->mtm;
+      if (iterj == iter_stop)
+        tj = timeStampj;
+      else {
+        tj = iterj->mtm;
+        assert(tj - tj_1 >= 0);
+      }
+      dt = tj - tj_1;
+      // for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj],
+      // when we concate them in KeyFrameCulling(), dt may be 0
+      if (dt == 0) continue;
+      // for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
+      // (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
+      if (dt > 1.5) {
+        this->mdeltatij = 0;
+        std::cout << "CheckIMU!!!" << std::endl;
+        return -1;
       }
 
+      // selete/design measurement_j-1
+#ifdef USE_PREINT_EULA
+      // imuj-1 for w~j-1 & a~j-1 chooses imu(tj-1), maybe u can try (imu(tj-1)+imu(tj))/2 or other filter here
+      const IMUDataBase &imu = *iterjm1;
+#else
+      //(interplot)
+      IMUDataBase imu = *iterjm1, imu_now = iterj != iter_stop ? *iterj : iterjm1 != iter_start ? imu_last : imu;
+#endif
+#ifndef USE_PREINT_EULA
+      if (iterj == iter_stop && iterjm1 != iter_start) {
+        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
+        double rat = (tj - tj_1) / (t_last - tj_1);
+        if (rat > 0) {
+          // we could use imu to preintegrate [timeStampi,imu]
+          // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
+          // imu_now.mw = ang_mid.angle() * ang_mid.axis();
+          imu_now.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
+          imu_now.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+        }
+      }
+      if (iterjm1 == iter_start && iterj != iter_stop) {
+        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
+        double rat = (tj_1 - iterjm1->mtm) / (tj - iterjm1->mtm);
+        if (rat > 0) {
+          // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
+          // imu.mw = ang_mid.angle() * ang_mid.axis();
+          imu.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
+          imu.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+        }
+      }
+#endif
+
+      /*
+      const bool test_lower_freq = false;  // true;//
+      if (test_lower_freq) {
+        if (iterjm1 == iter_start) imu_last = imu;
+        mdt_hf += dt;
+        update_highfreq(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
+        if (mdt_hf >= mdt_hf_ref || iterj == iter_stop) {
+          if (iterj == iter_stop) std::cout << "mdt_hf=" << mdt_hf << std::endl;
+          IMUDataBase imu_fake;
+          double dt_fake = 1. / 200;
+
+          //              int n = int(mdt_hf / dt_fake) + 1;
+          //              Eigen::Vector3d alphadt, a0;
+          //              double coeff[4];//vij=c0*a0+c1*alpha*dt;pij=a0*c2+alpha*dt*c3;
+          //              double D = 0;
+          //              if (n > 0) {
+          //                  double dtf_fake = mdt_hf - (n-1) * dt_fake;
+          //                  double dt2_fake = dt_fake * dt_fake, dtf2_fake = dtf_fake * dtf_fake, dtdtf_fake = dt_fake
+      * dtf_fake; double n2 = n * n; coeff[0] = (n - 1) * dt_fake + dtf_fake; coeff[1] = (n2 - 3 * n + 2) * dt_fake / 2
+      + (n - 1) * dtf_fake; coeff[2] = (n2 - 2 * n + 1) * dt2_fake / 2 + dtf2_fake / 2 + (n - 1) * dtdtf_fake; coeff[3]
+      = ((2 * n2 * n - 9 * n2 + 13 * n - 6) * dt2_fake / 6 + (n - 1) * dtf2_fake +
+          //                              (n - 2) * (n - 1) * dtdtf_fake) / 2;
+          //                  D = coeff[0] * coeff[3] - coeff[1] * coeff[2];
+          //              } else {
+          //                  std::cout<<"Error: n=0"<<std::endl;
+          //              }
+          //              if (!D) {
+          //                  alphadt.setZero();
+          //                  a0 = mvij_hf / mdt_hf;
+          //              } else {
+          //                  a0 = (coeff[3] * mvij_hf - coeff[1] * mpij_hf) / D;
+          //                  alphadt = (coeff[0] * mpij_hf - coeff[2] * mvij_hf) / D;
+          //              }
+
+          imu_fake.mw = Sophus::SO3exd(mRij_hf).log() / mdt_hf;
+          //              imu_fake.ma = a0;
+          imu_fake.ma = mvij_hf / mdt_hf;
+          //              imu_fake.ma = mpij_hf/(mdt_hf*mdt_hf/2);
+          std::cout << "ma = " << mvij_hf / mdt_hf << " map = " << mpij_hf / (mdt_hf * mdt_hf / 2) << std::endl;
+          std::cout << "before i_p_i_j = Rij-1 * j-1(j)_p_j-1_j + p_i_j-1(j) = "
+                    << (mRij * mpij_hf + mpij + mvij * mdt_hf).transpose() << std::endl;
+          std::cout << "i_v_i_j = " << (mRij * mvij_hf + mvij).transpose() << std::endl;
+          std::cout << mRij * mRij_hf << std::endl;
+
+          //              double t_tmp = 0;
+          //              Matrix3d mRij_1_hf = mRij;
+          //              while (t_tmp < mdt_hf) {
+          //                  if (t_tmp + dt_fake >= mdt_hf)
+          //                      dt_fake = mdt_hf - t_tmp;
+          //                  update(imu_fake.mw, mRij.transpose() * mRij_1_hf * imu_fake.ma, dt_fake);
+          //                  t_tmp += dt_fake;
+          ////                  imu_fake.ma += alphadt;
+          //              }
+          update(imu_fake.mw, imu_fake.ma, mdt_hf);
+          //              update((imu_last.mw + imu.mw)/2 - bgi_bar, (imu_last.ma + imu.ma)/2 - bai_bar, mdt_hf);
+          //              update(imu.mw - bgi_bar, imu.ma - bai_bar, mdt_hf);
+          imu_last = imu;
+
+          std::cout << "after i_p_i_j = " << mpij.transpose() << std::endl;
+          std::cout << "i_v_i_j = " << mvij.transpose() << std::endl;
+          std::cout << mRij << std::endl;
+          mRij_hf.setIdentity();
+          mvij_hf.setZero();
+          mpij_hf.setZero();
+          mdt_hf = 0;
+        }
+        continue;
+      }*/
+
+#ifndef USE_PREINT_EULA
       // update pre-integrator(interplot)
-//      if (iterjm1 == iterBegin) {//we could use imu to preintegrate [timeStampi,imu]
-//          double dt_comple = iterjm1->mtm - timeStampi;
-//          if (dt_comple > 0) {
-//              update(imu.mw - bgi_bar, imu.ma - bai_bar, dt_comple);
-//              dt -= dt_comple;
-//              if (!dt) continue;
-//          }
-//      }
-//      if (iterj == iterEnd) {
-//          if (dt > 0) {
-//              imu_now = imu;
-//          }
-//      }//end speical constant process
-//      update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
-//      imu_last = imu;
-//      t_last = tj_1;
+      if (iterjm1 == iter_start) {  // we could use imu to preintegrate [timeStampi,imu]
+        double dt_comple = iterjm1->mtm - timeStampi;
+        if (dt_comple > 0) {
+          update(imu.mw - bgi_bar, imu.ma - bai_bar, dt_comple);
+          dt -= dt_comple;
+          if (!dt) continue;
+        }
+      }
+      if (iterj == iter_stop) {
+        if (dt > 0) {
+          imu_now = imu;
+        }
+      }
+      // end speical constant process
+      update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
+      imu_last = imu;
+      t_last = tj_1;
+#else
       // update pre-integrator
-      update(imu.mw-bgi_bar,imu.ma-bai_bar,dt);
+      update(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
+#endif
     }
   }
   return 0;

@@ -106,6 +106,7 @@ class Tracking {
   // Consts
   // Error allow between "simultaneous" IMU data(Timu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]
   double mdErrIMUImg;
+  double tm_shift_ = 0.005;
   // Tbc,Tbo
   cv::Mat mTbc, mTce;  // Tbc is from IMU frame to camera frame;Tbo is from IMU frame to encoder frame(the centre of 2
                        // driving wheels, +x pointing to forward,+z pointing up)
@@ -391,7 +392,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
   using Tldata = OdomData;
 
   double cur_time = pcurfb->mTimeStamp;
-  double derr_imuimg = mdErrIMUImg;
+  double derr_imuimg = mdErrIMUImg + tm_shift_;
   bool ret = true;
   switch (type) {  // 0/2 will cull 2 Odom lists,1 will shift the pointer
     case 0:  // for 0th keyframe/frame: erase all the data whose tm<=mCurrentFrame.mTimeStamp but keep the last one,
@@ -399,7 +400,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       if (!lodom_data.empty()) {
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end();
         // we just find the nearest iteri(for next time) to cur_time, don't need to judge if it's true
-        iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg);
+        iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
         if (verbose)
           cout << redSTR "ID=" << mCurrentFrame.mnId << "; curDiff:" << iter->mtm - cur_time << whiteSTR << endl;
 
@@ -420,8 +421,8 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iterj,
                                                       iteri = type == 1 ? iter_lastodom : lodom_data.begin();
         // iterj&iteri both found then calculate delta~xij(phi,p)
-        if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg) &&
-            iterijFind<OdomData>(lodom_data, last_time, iteri, derr_imuimg, false)) {
+        if (iterijFind<OdomData>(lodom_data, cur_time + tm_shift_, iter, derr_imuimg) &&
+            iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
           //                        assert((miter_lastodom->mtm-last_time)==0&&(iter->mtm-curFTime)==0);
           //                        cout<<redSTR"ID="<<pcurfb->mnId<<"; LastDiff:"<<miter_lastodom->mtm-last_time<<",
           //                        curDiff:"<<iter->mtm-curfTime<<whiteSTR<<endl;
@@ -432,19 +433,45 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
           if (plastkf) {
             assert(plastfb_kf);
             Frame *pcurf = dynamic_cast<Frame *>(pcurfb);
+
+            double cur_time2 = cur_time;
+//#ifdef USE_PREINT_EULA
+            if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg - tm_shift_)) {
+              cur_time2 = iter->mtm;
+            }
+//#endif
             if (biteri_research) {
               last_time = plastfb_kf->mTimeStamp;
               iteri = lodom_data.begin();
-              if (iterijFind<OdomData>(lodom_data, last_time, iteri, derr_imuimg, false))
-                ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, iteri, iterj, breset_intkf);
-              else
+
+              if (iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
+                double last_time2 = last_time;
+//#ifdef USE_PREINT_EULA
+                auto iteri2 = iteri;
+                if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
+                  last_time2 = iteri2->mtm;
+                }
+//#endif
+                ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri,
+                                                                 iterj, breset_intkf);
+              } else
                 ret = false;
-            } else
-              ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, iteri, iterj, breset_intkf);
+            } else {
+              double last_time2 = last_time;
+//#ifdef USE_PREINT_EULA
+              auto iteri2 = iteri;
+              if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
+                last_time2 = iteri2->mtm;
+              }
+//#endif
+              ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri, iterj,
+                                                               breset_intkf);
+            }
           }
         } else
           ret = false;
 
+        iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
         // update miter_lastodom pointing to the nearest(now,not next time) one of this frame / begin for next
         // frame
         if (iter != lodom_data.end())
@@ -464,14 +491,16 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
         // iterj, iteri
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iteri = lodom_data.begin(), iterj;
         // iterj&iteri both found then calculate delta~xij(phi,p)
-        if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg) &&
-            iterijFind<OdomData>(lodom_data, last_time, iteri, derr_imuimg, false)) {
+        if (iterijFind<OdomData>(lodom_data, cur_time + tm_shift_, iter, derr_imuimg) &&
+            iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
           // save odom data list in curKF for KeyFrameCulling()
           iterj = iter;
+          iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
           pcurkf->SetPreIntegrationList<Tldata>(iter, ++iterj);
           lodom_data.erase(lodom_data.begin(), iteri);
           pcurkf->AppendFrontPreIntegrationList(lodom_data, iteri, iter);  // will lodom_data.erase(iteri, iter)
         } else {
+          iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
           lodom_data.erase(lodom_data.begin(), iter);
           pcurkf->ClearOdomPreInt<OdomData>();
         }
@@ -480,9 +509,16 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
 
         // mpLastKeyFrame cannot be bad here for mpReferenceKF hasn't been inserted
         // (SetBadFlag only for before KFs)
-        if (plastkf)
-          pcurkf->PreIntegrationFromLastKF<OdomData>(plastkf, iter, iterj, false, verbose);
-        else
+        if (plastkf) {
+          double cur_time2 = cur_time;
+//#ifdef USE_PREINT_EULA
+          auto iter2 = iter;
+          if (iterijFind<OdomData>(lodom_data, cur_time, iter2, derr_imuimg - tm_shift_, false)) {
+            cur_time2 = iter2->mtm;
+          }
+//#endif
+          pcurkf->PreIntegrationFromLastKF<OdomData>(plastkf, cur_time2, iter, iterj, false, verbose);
+        } else
           pcurkf->PreIntegration<OdomData>(plastkf2);
       } else
         pcurkf->ClearOdomPreInt<OdomData>();

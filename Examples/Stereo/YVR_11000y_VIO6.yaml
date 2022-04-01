@@ -4,7 +4,7 @@
 test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 
 # Timestamp shift(s) Timage = Timu/Tenc + image_delay
-Camera.delaytoimu: -0.003
+Camera.delaytoimu: -0.0035
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
 Camera.delayForPolling: 0.005

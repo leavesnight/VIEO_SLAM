@@ -32,13 +32,23 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
     Matrix2d eigSigmaeta(EncData::mSigma);
     Matrix6d eigSigmaetam(EncData::mSigmam);
     double rc(EncData::mrc);
+
+    // for iterBegin!=iterEnd, here iter_stop can no init
+    typename listeig(EncData)::const_iterator iter_start = iterBegin, iter_stop;
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi;iter_start = iterj++) {
+    }
+    for (auto iterj = iterEnd; iterj != iterBegin;) {
+      iter_stop = iterj--;
+      if (iterj->mtm >= timeStampj) continue;
+      break;
+    }
     
-    for (listeig(EncData)::const_iterator iterj=iterBegin;iterj!=iterEnd;){//start iterative method from i/iteri->tm to j/iter->tm
+    for (listeig(EncData)::const_iterator iterj=iter_start;iterj!=iter_stop;){//start iterative method from i/iteri->tm to j/iter->tm
       listeig(EncData)::const_iterator iterjm1=iterj++;//iterj-1
       
       double deltat,tj,tj_1;//deltatj-1j
-      if (iterjm1==iterBegin) tj_1=timeStampi; else tj_1=iterjm1->mtm;
-      if (iterj==iterEnd) {
+      if (iterjm1==iter_start) tj_1=timeStampi; else tj_1=iterjm1->mtm;
+      if (iterj==iter_stop) {
         //        if (timeStampj - tj_1 > 0)
         //          tj = timeStampj;
         //        else
@@ -58,7 +68,7 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
       double vl,vr;//vlj-1,vrj-1
       vl=iterjm1->mv[0];vr=iterjm1->mv[1];//this way seems to be more precise than the following one (arithmatical average) for Corridor004
       /*
-      if (iterj!=iterEnd){
+      if (iterj!=iter_stop){
 	vl=(iterjm1->mv[0]+iterj->mv[0])/2,vr=(iterjm1->mv[1]+iterj->mv[1])/2;
 // 	if (iterj->mtm>timeStampj){
 // 	  vl=(iterjm1->mv[0]+(iterjm1->mv[0]*(iterj->mtm-timeStampj)+iterj->mv[0]*deltat)/(iterj->mtm-iterjm1->mtm))/2;

@@ -522,7 +522,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate() {  // see VIORBSLAM paper IV
   if (!mlOdomEnc.empty()) {  // we update miterLastEnc to current Frame for the next Frame's Preintegration(1/3)!
     unique_lock<mutex> lock(mMutexOdom);
     listeig(EncData)::const_iterator iter = mlOdomEnc.end();
-    iterijFind<EncData>(mlOdomEnc, mv20pFramesReloc[N - 2]->mTimeStamp, iter, mdErrIMUImg);
+    iterijFind<EncData>(mlOdomEnc, mv20pFramesReloc[N - 2]->mTimeStamp - tm_shift_, iter, mdErrIMUImg + tm_shift_);
     if (iter != mlOdomEnc.end())
       miterLastEnc = iter;  // update miterLastEnc pointing to the nearest(now,not next time) one of this frame / begin
                             // for next frame
