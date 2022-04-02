@@ -1,45 +1,52 @@
-//created by zzh, inspired by Jing Wang
+// created by zzh, inspired by Jing Wang
 #ifndef ODOMPREINTEGRATOR_H
 #define ODOMPREINTEGRATOR_H
 
 #include <list>
 #include "OdomData.h"
-#include "so3_extra.h"//for IMUPreIntegratorBase::PreIntegration
+#include "so3_extra.h"  //for IMUPreIntegratorBase::PreIntegration
 
 #include <iostream>
 
 //#define USE_PREINT_EULA
 
-namespace VIEO_SLAM{
+namespace VIEO_SLAM {
 
-    using Eigen::Quaterniond;
-    using Eigen::Matrix;
+using Eigen::Matrix;
+using Eigen::Quaterniond;
 
-template<class _OdomData>
-class OdomPreIntegratorBase{//base class
-  OdomPreIntegratorBase(const OdomPreIntegratorBase &pre){}//don't want the list to be copied (e.g. by derived class)
-  OdomPreIntegratorBase& operator=(const OdomPreIntegratorBase &other){;return *this;}//do nothing, don't want the list to be assigned in any situation, this makes the derived class unable to use default =!
+template <class _OdomData>
+class OdomPreIntegratorBase {                                 // base class
+  OdomPreIntegratorBase(const OdomPreIntegratorBase &pre) {}  // don't want the list to be copied (e.g. by derived
+                                                              // class)
+  OdomPreIntegratorBase &operator=(const OdomPreIntegratorBase &other) {
+    ;
+    return *this;
+  }  // do nothing, don't want the list to be assigned in any situation, this makes the derived class unable to use
+     // default =!
 
-protected:
-  listeig(_OdomData) mlOdom;//for IMUPreIntegrator: IMU list
+ protected:
+  listeig(_OdomData) mlOdom;  // for IMUPreIntegrator: IMU list
 
   virtual void reset() {
     mdeltatij = 0;  // very important!
   }
 
-public:
- template <class T>
- using aligned_list = Eigen::aligned_list<T>;
+ public:
+  template <class T>
+  using aligned_list = Eigen::aligned_list<T>;
 
-  double mdeltatij;//0 means not preintegrated
+  double mdeltatij;  // 0 means not preintegrated
 
-  OdomPreIntegratorBase():mdeltatij(0){}
-  //though copy constructor/operator = already deep, please don't copy the list when preintegration is not related to the statei...j
-  virtual ~OdomPreIntegratorBase(){}
+  OdomPreIntegratorBase() : mdeltatij(0) {}
+  // though copy constructor/operator = already deep, please don't copy the list when preintegration is not related to
+  // the statei...j
+  virtual ~OdomPreIntegratorBase() {}
   // Odom PreIntegration List Setting
-  virtual void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,typename listeig(_OdomData)::const_iterator end){
+  virtual void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,
+                                     typename listeig(_OdomData)::const_iterator end) {
     mlOdom.clear();
-    mlOdom.insert(mlOdom.begin(),begin,end);
+    mlOdom.insert(mlOdom.begin(), begin, end);
   }
   // splice operation (like move) for fast append
   virtual void AppendFrontPreIntegrationList(aligned_list<_OdomData> &x,
@@ -47,34 +54,39 @@ public:
                                              const typename aligned_list<_OdomData>::const_iterator &end) {
     mlOdom.splice(mlOdom.begin(), x, begin, end);
   }
-  const listeig(_OdomData)& getlOdom(){return mlOdom;}//the list of Odom, for KFCulling()
+  const listeig(_OdomData) & getlOdom() { return mlOdom; }  // the list of Odom, for KFCulling()
   // the list of Odom, for deep proc(like KFCulling())
   aligned_list<_OdomData> &GetRawDataRef() { return mlOdom; }
   // Odom PreIntegration
-  virtual void PreIntegration(const double timeStampi,const double timeStampj){assert(0&&"You called an empty virtual function!!!");}//cannot use =0 for we allow transformed in derived class
+  virtual void PreIntegration(const double timeStampi, const double timeStampj) {
+    assert(0 && "You called an empty virtual function!!!");
+  }  // cannot use =0 for we allow transformed in derived class
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 typedef Eigen::Matrix<double, 6, 1> Vector6d;
 
-//next derived classes don't use operator=!
-class EncPreIntegrator:public OdomPreIntegratorBase<EncData>{
-  //mlOdom: mlOdomEnc list for vl,vr& its own timestamp
+// next derived classes don't use operator=!
+class EncPreIntegrator : public OdomPreIntegratorBase<EncData> {
+  // mlOdom: mlOdomEnc list for vl,vr& its own timestamp
   void reset() override;
-  Eigen::Vector2d eigdeltaPijM;//deltaPii=0
+  Eigen::Vector2d eigdeltaPijM;  // deltaPii=0
   double deltaThetaijMz;
-public:
-  Vector6d mdelxEij;// delta~Phiij(3*1),delta~pij(3*1) from Encoder PreIntegration, 6*1*float
-  Matrix6d mSigmaEij;// by Enc, 6*6*float
 
-  EncPreIntegrator():mdelxEij(Vector6d::Zero()),mSigmaEij(Matrix6d::Zero()){}
+ public:
+  Vector6d mdelxEij;   // delta~Phiij(3*1),delta~pij(3*1) from Encoder PreIntegration, 6*1*float
+  Matrix6d mSigmaEij;  // by Enc, 6*6*float
+
+  EncPreIntegrator() : mdelxEij(Vector6d::Zero()), mSigmaEij(Matrix6d::Zero()) {}
   EncPreIntegrator(const EncPreIntegrator &pre)
-      : eigdeltaPijM(pre.eigdeltaPijM),deltaThetaijMz(pre.deltaThetaijMz),
-        mdelxEij(pre.mdelxEij),mSigmaEij(pre.mSigmaEij) {
+      : eigdeltaPijM(pre.eigdeltaPijM),
+        deltaThetaijMz(pre.deltaThetaijMz),
+        mdelxEij(pre.mdelxEij),
+        mSigmaEij(pre.mSigmaEij) {
     mdeltatij = pre.mdeltatij;
-  }//don't copy list!
-  EncPreIntegrator& operator=(const EncPreIntegrator &pre) {
+  }  // don't copy list!
+  EncPreIntegrator &operator=(const EncPreIntegrator &pre) {
     eigdeltaPijM = pre.eigdeltaPijM;
     deltaThetaijMz = pre.deltaThetaijMz;
     mdelxEij = pre.mdelxEij;
@@ -82,88 +94,126 @@ public:
     mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
-  int PreIntegration(const double &timeStampi,const double &timeStampj,
-		      const listeig(EncData)::const_iterator &iterBegin,const listeig(EncData)::const_iterator &iterEnd, bool breset = true);//rewrite
-  void PreIntegration(const double &timeStampi,const double &timeStampj){PreIntegration(timeStampi,timeStampj,mlOdom.begin(),mlOdom.end());}//rewrite, inline
+  int PreIntegration(const double &timeStampi, const double &timeStampj,
+                     const listeig(EncData)::const_iterator &iterBegin, const listeig(EncData)::const_iterator &iterEnd,
+                     bool breset = true);  // rewrite
+  void PreIntegration(const double &timeStampi, const double &timeStampj) {
+    PreIntegration(timeStampi, timeStampj, mlOdom.begin(), mlOdom.end());
+  }  // rewrite, inline
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 typedef Eigen::Matrix<double, 9, 9> Matrix9d;
 
-template<class IMUDataBase>
-class IMUPreIntegratorBase:public OdomPreIntegratorBase<IMUDataBase>{//refer the IMUPreintergrator.cpp by JingWang, so use PVR/PRV Cov.
-public:
- typedef double Tcalc;
- using SO3calc = Sophus::SO3ex<Tcalc>;
-  Matrix3d mRij;//deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
-  Vector3d mvij,mpij;//deltav~ij,deltap~ij(bi_bar)
-  Matrix9d mSigmaijPRV;//Cov_p_Phi_v_ij, a bit different with paper for convenience
-  Matrix9d mSigmaij;//Cov_p_v_Phi_ij, opposite order with the paper
+template <class IMUDataBase>
+class IMUPreIntegratorBase
+    : public OdomPreIntegratorBase<IMUDataBase> {  // refer the IMUPreintergrator.cpp by JingWang, so use PVR/PRV Cov.
+ public:
+  typedef double Tcalc;
+  using SO3calc = Sophus::SO3ex<Tcalc>;
+  Matrix3d mRij;         // deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
+  Vector3d mvij, mpij;   // deltav~ij,deltap~ij(bi_bar)
+  Matrix9d mSigmaijPRV;  // Cov_p_Phi_v_ij, a bit different with paper for convenience
+  Matrix9d mSigmaij;     // Cov_p_v_Phi_ij, opposite order with the paper
   // jacobian of delta measurements w.r.t bias of gyro/acc
-  Matrix3d mJgpij;	// position / gyro, Jgdeltapij(bi_bar) in VIORBSLAM paper, par(deltapij)/par(bgi).t()(bi_bar) in Preintegration Paper, we may drop .t() later
-  Matrix3d mJapij;	// position / acc
-  Matrix3d mJgvij;	// velocity / gyro
-  Matrix3d mJavij;	// velocity / acc
-  Matrix3d mJgRij;	// rotation / gyro
-  //Vector3d mbgij,mbaij;//bg(ti)=b_bar_gi+db_gi, bg~ij not exists, neither do ba~ij
-  //Matrix3d mSigmabgd,mSigmabad;//should be deltatij*Cov(eta_bg),deltatij*Cov(eta_ba)
-  //for lower imu frequency test
-    Matrix3d mRij_hf;//deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
-    Vector3d mvij_hf,mpij_hf;//deltav~ij,deltap~ij(bi_bar)
-    double mdt_hf, mdt_hf_ref;
+  Matrix3d mJgpij;  // position / gyro, Jgdeltapij(bi_bar) in VIORBSLAM paper, par(deltapij)/par(bgi).t()(bi_bar) in
+                    // Preintegration Paper, we may drop .t() later
+  Matrix3d mJapij;  // position / acc
+  Matrix3d mJgvij;  // velocity / gyro
+  Matrix3d mJavij;  // velocity / acc
+  Matrix3d mJgRij;  // rotation / gyro
+                    // Vector3d mbgij,mbaij;//bg(ti)=b_bar_gi+db_gi, bg~ij not exists, neither do ba~ij
+  // Matrix3d mSigmabgd,mSigmabad;//should be deltatij*Cov(eta_bg),deltatij*Cov(eta_ba)
+  // for lower imu frequency test
+  Matrix3d mRij_hf;           // deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
+  Vector3d mvij_hf, mpij_hf;  // deltav~ij,deltap~ij(bi_bar)
+  double mdt_hf, mdt_hf_ref;
 
-  IMUPreIntegratorBase():mRij(Matrix3d::Identity()),mvij(0,0,0),mpij(0,0,0),mSigmaijPRV(Matrix9d::Zero()),mSigmaij(Matrix9d::Zero()){
-    mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
+  IMUPreIntegratorBase()
+      : mRij(Matrix3d::Identity()),
+        mvij(0, 0, 0),
+        mpij(0, 0, 0),
+        mSigmaijPRV(Matrix9d::Zero()),
+        mSigmaij(Matrix9d::Zero()) {
+    mJgpij.setZero();
+    mJapij.setZero();
+    mJgvij.setZero();
+    mJavij.setZero();
+    mJgRij.setZero();
   }
   IMUPreIntegratorBase(const IMUPreIntegratorBase &pre)
-      :mRij(pre.mRij),mvij(pre.mvij),mpij(pre.mpij),mSigmaijPRV(pre.mSigmaijPRV),mSigmaij(pre.mSigmaij),
-        mJgpij(pre.mJgpij),mJapij(pre.mJapij),mJgvij(pre.mJgvij),mJavij(pre.mJavij),mJgRij(pre.mJgRij) {
+      : mRij(pre.mRij),
+        mvij(pre.mvij),
+        mpij(pre.mpij),
+        mSigmaijPRV(pre.mSigmaijPRV),
+        mSigmaij(pre.mSigmaij),
+        mJgpij(pre.mJgpij),
+        mJapij(pre.mJapij),
+        mJgvij(pre.mJgvij),
+        mJavij(pre.mJavij),
+        mJgRij(pre.mJgRij) {
     this->mdeltatij = pre.mdeltatij;  // 2-phase name lookup used in Derived template class
-  }//don't copy list!
-  IMUPreIntegratorBase& operator=(const IMUPreIntegratorBase &pre) {
+  }                                   // don't copy list!
+  IMUPreIntegratorBase &operator=(const IMUPreIntegratorBase &pre) {
     this->mRij = pre.mRij, this->mvij = pre.mvij, this->mpij = pre.mpij, this->mSigmaijPRV = pre.mSigmaijPRV,
     this->mSigmaij = pre.mSigmaij, this->mJgpij = pre.mJgpij, this->mJapij = pre.mJapij, this->mJgvij = pre.mJgvij,
     this->mJavij = pre.mJavij, this->mJgRij = pre.mJgRij;
     this->mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
-  virtual ~IMUPreIntegratorBase(){}
+  virtual ~IMUPreIntegratorBase() {}
 
-  int PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
-		      const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset = true);//rewrite, like override but different
-  void PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar){//inline
-    PreIntegration(timeStampi,timeStampj,bgi_bar,bai_bar,this->mlOdom.begin(),this->mlOdom.end());
-  }//rewrite
+  int PreIntegration(const double &timeStampi, const double &timeStampj, const Vector3d &bgi_bar,
+                     const Vector3d &bai_bar, const typename listeig(IMUDataBase)::const_iterator &iterBegin,
+                     const typename listeig(IMUDataBase)::const_iterator &iterEnd,
+                     bool breset = true);  // rewrite, like override but different
+  void PreIntegration(const double &timeStampi, const double &timeStampj, const Vector3d &bgi_bar,
+                      const Vector3d &bai_bar) {  // inline
+    PreIntegration(timeStampi, timeStampj, bgi_bar, bai_bar, this->mlOdom.begin(), this->mlOdom.end());
+  }  // rewrite
   // incrementally update 1)delta measurements, 2)jacobians, 3)covariance matrix
-  void update(const Vector3d& omega, const Vector3d& acc, const double& dt);//don't allow dt<0!
-  void update_highfreq(const Vector3d& omega, const Vector3d& acc, const double& dt);//don't allow dt<0!
+  void update(const Vector3d &omega, const Vector3d &acc, const double &dt);           // don't allow dt<0!
+  void update_highfreq(const Vector3d &omega, const Vector3d &acc, const double &dt);  // don't allow dt<0!
 
   // reset to initial state
   void reset() override {
     OdomPreIntegratorBase<IMUDataBase>::reset();
-    mRij.setIdentity();mvij.setZero();mpij.setZero();mSigmaijPRV.setZero();mSigmaij.setZero();
-    mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
-      mRij_hf.setIdentity();mvij_hf.setZero();mpij_hf.setZero();
-      mdt_hf = 0;
-      mdt_hf_ref = 1. / 105;//60;//
+    mRij.setIdentity();
+    mvij.setZero();
+    mpij.setZero();
+    mSigmaijPRV.setZero();
+    mSigmaij.setZero();
+    mJgpij.setZero();
+    mJapij.setZero();
+    mJgvij.setZero();
+    mJavij.setZero();
+    mJgRij.setZero();
+    mRij_hf.setIdentity();
+    mvij_hf.setZero();
+    mpij_hf.setZero();
+    mdt_hf = 0;
+    mdt_hf_ref = 1. / 105;  // 60;//
   }
 };
-//when template<>: specialized definition should be defined in .cpp(avoid redefinition) or use inline/static(not good) in .h and template func. in template class can't be specialized(only fully) when its class is not fully specialized
-template<class IMUDataBase>
-int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
-						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset) {
+// when template<>: specialized definition should be defined in .cpp(avoid redefinition) or use inline/static(not good)
+// in .h and template func. in template class can't be specialized(only fully) when its class is not fully specialized
+template <class IMUDataBase>
+int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, const double &timeStampj,
+                                                      const Vector3d &bgi_bar, const Vector3d &bai_bar,
+                                                      const typename listeig(IMUDataBase)::const_iterator &iterBegin,
+                                                      const typename listeig(IMUDataBase)::const_iterator &iterEnd,
+                                                      bool breset) {
   if (iterBegin != iterEnd) {  // default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
     // Reset pre-integrator first
     if (breset) reset();
     // remember to consider the gap between the last KF and the first IMU
     // integrate each imu
     IMUDataBase imu_last;
-    double t_last;
 
     // for iterBegin!=iterEnd, here iter_stop can no init
     typename listeig(IMUDataBase)::const_iterator iter_start = iterBegin, iter_stop;
-    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi;iter_start = iterj++) {
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi; iter_start = iterj++) {
     }
     for (auto iterj = iterEnd; iterj != iterBegin;) {
       iter_stop = iterj--;
@@ -208,18 +258,24 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,c
 #endif
 #ifndef USE_PREINT_EULA
       if (iterj == iter_stop && iterjm1 != iter_start) {
-        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-        double rat = (tj - tj_1) / (t_last - tj_1);
-        if (rat < 1) {
-          // we could use imu to preintegrate [timeStampi,imu]
-          // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
-          // imu_now.mw = ang_mid.angle() * ang_mid.axis();
-          imu_now.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
-          imu_now.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+        auto dt = timeStampj - tj_1;
+        if (dt > 0) {
+          imu_now = imu;
+        } else {
+          // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
+          // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
+          double rat = dt / (imu_now.mtm - tj_1);
+          if (rat < 1) {
+            // we could use imu to preintegrate [timeStampi,imu]
+            // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
+            // imu_now.mw = ang_mid.angle() * ang_mid.axis();
+            imu_now.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
+            imu_now.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+          }
         }
-      }
-      if (iterjm1 == iter_start && iterj != iter_stop) {
-        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
+      } else if (iterjm1 == iter_start && iterj != iter_stop) {
+        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
+        // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
         double rat = (tj_1 - iterjm1->mtm) / (tj - iterjm1->mtm);
         if (rat > 0) {
           // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
@@ -309,15 +365,9 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,c
           if (!dt) continue;
         }
       }
-      if (iterj == iter_stop) {
-        if (dt > 0) {
-          imu_now = imu;
-        }
-      }
       // end speical constant process
       update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
-      imu_last = imu;
-      t_last = iterjm1->mtm;
+      imu_last = *iterjm1;
 #else
       // update pre-integrator
       update(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
@@ -326,97 +376,118 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,c
   }
   return 0;
 }
-template<class IMUDataBase>
-void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d& omega, const Vector3d& acc, const double& dt){
+template <class IMUDataBase>
+void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d &omega, const Vector3d &acc, const double &dt) {
   using namespace Sophus;
   using namespace Eigen;
-  double dt2div2=dt*dt/2;
-  Matrix3d dR=SO3calc::Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
-  Matrix3d Jr=SO3exd::JacobianR(omega*dt);//Jrj-1=Jr(dtj-1j*(w~j-1 - bgi_bar))
-  Matrix3d skewa=SO3exd::hat(acc);//(~aj-1 - bai_bar)^
+  double dt2div2 = dt * dt / 2;
+  Matrix3d dR = SO3calc::Expmap(omega * dt);    // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+  Matrix3d Jr = SO3exd::JacobianR(omega * dt);  // Jrj-1=Jr(dtj-1j*(w~j-1 - bgi_bar))
+  Matrix3d skewa = SO3exd::hat(acc);            //(~aj-1 - bai_bar)^
 
-  //see paper On-Manifold Preintegration (63), notice PRV is different from paper RVP, but the BgBa is the same(A change row&col, B just change row)
-  // err_k+1 = A*err_k + Bg*err_gyro + Ba*err_acc; or Bj-1=[Bg Ba],Aj-1=A
+  // see paper On-Manifold Preintegration (63), notice PRV is different from paper RVP, but the BgBa is the same(A
+  // change row&col, B just change row)
+  //  err_k+1 = A*err_k + Bg*err_gyro + Ba*err_acc; or Bj-1=[Bg Ba],Aj-1=A
   Matrix3d I3x3 = Matrix3d::Identity();
-  Matrix<double,9,9> A = Matrix9d::Identity();
-  A.block<3,3>(3,3) = dR.transpose();
-  A.block<3,3>(6,3) = -mRij*skewa*dt;
-  A.block<3,3>(0,3) = -mRij*skewa*dt2div2;
-  A.block<3,3>(0,6) = I3x3*dt;
-  Matrix<double,9,3> Bg = Matrix<double,9,3>::Zero();
-  Bg.block<3,3>(3,0) = Jr*dt;
-  Matrix<double,9,3> Ba = Matrix<double,9,3>::Zero();
-  Ba.block<3,3>(6,0) = mRij*dt;
-  Ba.block<3,3>(0,0) = mRij*dt2div2;
-    if (IMUDataBase::mdt_cov_noise_fixed)
-        mSigmaijPRV=A*mSigmaijPRV*A.transpose()+Bg*IMUDataBase::mSigmag*Bg.transpose()+Ba*IMUDataBase::mSigmaa*Ba.transpose();//notice using Sigma_eta_g/a_d here
-    else if (!IMUDataBase::mFreqRef || dt < 1.5 / IMUDataBase::mFreqRef)
-        mSigmaijPRV=A*mSigmaijPRV*A.transpose()+Bg*(IMUDataBase::mSigmag/dt)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa/dt)*Ba.transpose();
-    else
-        mSigmaijPRV=A*mSigmaijPRV*A.transpose()+Bg*(IMUDataBase::mSigmag*IMUDataBase::mFreqRef)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa*IMUDataBase::mFreqRef)*Ba.transpose();
-  //the order is opposite(row&col order) for A, opposite row for B
-  A = Matrix9d::Identity();
-  A.block<3,3>(6,6) = dR.transpose();
-  A.block<3,3>(3,6) = -mRij*skewa*dt;
-  A.block<3,3>(0,6) = -mRij*skewa*dt2div2;
-  A.block<3,3>(0,3) = I3x3*dt;
-  Bg = Matrix<double,9,3>::Zero();
-  Bg.block<3,3>(6,0) = Jr*dt;
-  Ba = Matrix<double,9,3>::Zero();
-  Ba.block<3,3>(3,0) = mRij*dt;
-  Ba.block<3,3>(0,0) = mRij*dt2div2;
+  Matrix<double, 9, 9> A = Matrix9d::Identity();
+  A.block<3, 3>(3, 3) = dR.transpose();
+  A.block<3, 3>(6, 3) = -mRij * skewa * dt;
+  A.block<3, 3>(0, 3) = -mRij * skewa * dt2div2;
+  A.block<3, 3>(0, 6) = I3x3 * dt;
+  Matrix<double, 9, 3> Bg = Matrix<double, 9, 3>::Zero();
+  Bg.block<3, 3>(3, 0) = Jr * dt;
+  Matrix<double, 9, 3> Ba = Matrix<double, 9, 3>::Zero();
+  Ba.block<3, 3>(6, 0) = mRij * dt;
+  Ba.block<3, 3>(0, 0) = mRij * dt2div2;
   if (IMUDataBase::mdt_cov_noise_fixed)
-    mSigmaij=A*mSigmaij*A.transpose()+Bg*IMUDataBase::mSigmag*Bg.transpose()+Ba*IMUDataBase::mSigmaa*Ba.transpose();
+    mSigmaijPRV = A * mSigmaijPRV * A.transpose() + Bg * IMUDataBase::mSigmag * Bg.transpose() +
+                  Ba * IMUDataBase::mSigmaa * Ba.transpose();  // notice using Sigma_eta_g/a_d here
   else if (!IMUDataBase::mFreqRef || dt < 1.5 / IMUDataBase::mFreqRef)
-    mSigmaij=A*mSigmaij*A.transpose()+Bg*(IMUDataBase::mSigmag/dt)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa/dt)*Ba.transpose();
+    mSigmaijPRV = A * mSigmaijPRV * A.transpose() + Bg * (IMUDataBase::mSigmag / dt) * Bg.transpose() +
+                  Ba * (IMUDataBase::mSigmaa / dt) * Ba.transpose();
   else
-    mSigmaij=A*mSigmaij*A.transpose()+Bg*(IMUDataBase::mSigmag*IMUDataBase::mFreqRef)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa*IMUDataBase::mFreqRef)*Ba.transpose();
+    mSigmaijPRV = A * mSigmaijPRV * A.transpose() +
+                  Bg * (IMUDataBase::mSigmag * IMUDataBase::mFreqRef) * Bg.transpose() +
+                  Ba * (IMUDataBase::mSigmaa * IMUDataBase::mFreqRef) * Ba.transpose();
+  // the order is opposite(row&col order) for A, opposite row for B
+  A = Matrix9d::Identity();
+  A.block<3, 3>(6, 6) = dR.transpose();
+  A.block<3, 3>(3, 6) = -mRij * skewa * dt;
+  A.block<3, 3>(0, 6) = -mRij * skewa * dt2div2;
+  A.block<3, 3>(0, 3) = I3x3 * dt;
+  Bg = Matrix<double, 9, 3>::Zero();
+  Bg.block<3, 3>(6, 0) = Jr * dt;
+  Ba = Matrix<double, 9, 3>::Zero();
+  Ba.block<3, 3>(3, 0) = mRij * dt;
+  Ba.block<3, 3>(0, 0) = mRij * dt2div2;
+  if (IMUDataBase::mdt_cov_noise_fixed)
+    mSigmaij = A * mSigmaij * A.transpose() + Bg * IMUDataBase::mSigmag * Bg.transpose() +
+               Ba * IMUDataBase::mSigmaa * Ba.transpose();
+  else if (!IMUDataBase::mFreqRef || dt < 1.5 / IMUDataBase::mFreqRef)
+    mSigmaij = A * mSigmaij * A.transpose() + Bg * (IMUDataBase::mSigmag / dt) * Bg.transpose() +
+               Ba * (IMUDataBase::mSigmaa / dt) * Ba.transpose();
+  else
+    mSigmaij = A * mSigmaij * A.transpose() + Bg * (IMUDataBase::mSigmag * IMUDataBase::mFreqRef) * Bg.transpose() +
+               Ba * (IMUDataBase::mSigmaa * IMUDataBase::mFreqRef) * Ba.transpose();
 
-  //see the same paper (69) & use similar iterative rearrange method (59)
-  // jacobian of delta measurements w.r.t bias of gyro/acc, for motion_update_with_dbi & residual error & J_error_dxi,xj calculation
-  // update P first, then V, then R for using ij as ij-1 term
-  mJapij += mJavij*dt - mRij*dt2div2;//mRij here is delta~Rij-1 before its updation
-  mJgpij += mJgvij*dt - mRij*skewa*mJgRij*dt2div2;
-  mJavij += -mRij*dt;
-  mJgvij += -mRij*skewa*mJgRij*dt;//notice except mJgRij use dR, the other Jxxij use mRij!
-  mJgRij = dR.transpose()*mJgRij - Jr*dt;//like (59): JgRij=delta~Rj-1j.t()*JgRij-1 - Jrj-1*dtj-1j, the left incremental formula is easy to get for there's no j label
+  // see the same paper (69) & use similar iterative rearrange method (59)
+  //  jacobian of delta measurements w.r.t bias of gyro/acc, for motion_update_with_dbi & residual error &
+  //  J_error_dxi,xj calculation update P first, then V, then R for using ij as ij-1 term
+  mJapij += mJavij * dt - mRij * dt2div2;  // mRij here is delta~Rij-1 before its updation
+  mJgpij += mJgvij * dt - mRij * skewa * mJgRij * dt2div2;
+  mJavij += -mRij * dt;
+  mJgvij += -mRij * skewa * mJgRij * dt;       // notice except mJgRij use dR, the other Jxxij use mRij!
+  mJgRij = dR.transpose() * mJgRij - Jr * dt;  // like (59): JgRij=delta~Rj-1j.t()*JgRij-1 - Jrj-1*dtj-1j, the left
+                                               // incremental formula is easy to get for there's no j label
 
-  //see paper On-Manifold Preintegration (35~37)
-  mpij+=mvij*dt+mRij*(acc*dt2div2);//delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
-  mvij+=mRij*(acc*dt);//here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
+  // see paper On-Manifold Preintegration (35~37)
+  mpij += mvij * dt +
+          mRij * (acc *
+                  dt2div2);   // delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
+  mvij += mRij * (acc * dt);  // here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
   // normalize rotation, in case of numerical error accumulation
-  mRij=SO3calc::normalizeRotationM(mRij*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
+  mRij = SO3calc::normalizeRotationM(
+      mRij *
+      dR);  // here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
 
-  this->mdeltatij+=dt;
+  this->mdeltatij += dt;
 }
 
-    template<class IMUDataBase>
-    void IMUPreIntegratorBase<IMUDataBase>::update_highfreq(const Vector3d& omega, const Vector3d& acc, const double& dt){
-        using namespace Sophus;
-        using namespace Eigen;
-        double dt2div2=dt*dt/2;
-        Matrix3d dR=SO3calc::Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+template <class IMUDataBase>
+void IMUPreIntegratorBase<IMUDataBase>::update_highfreq(const Vector3d &omega, const Vector3d &acc, const double &dt) {
+  using namespace Sophus;
+  using namespace Eigen;
+  double dt2div2 = dt * dt / 2;
+  Matrix3d dR = SO3calc::Expmap(omega * dt);  // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
 
-        //see paper On-Manifold Preintegration (35~37)
-        mpij_hf+=mvij_hf*dt+mRij_hf*(acc*dt2div2);//delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
-        mvij_hf+=mRij_hf*(acc*dt);//here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
-        // normalize rotation, in case of numerical error accumulation
-        mRij_hf=SO3calc::normalizeRotationM(mRij_hf*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
-    }
+  // see paper On-Manifold Preintegration (35~37)
+  mpij_hf +=
+      mvij_hf * dt +
+      mRij_hf *
+          (acc * dt2div2);  // delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
+  mvij_hf += mRij_hf * (acc * dt);  // here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
+  // normalize rotation, in case of numerical error accumulation
+  mRij_hf = SO3calc::normalizeRotationM(
+      mRij_hf *
+      dR);  // here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
+}
 
-class IMUPreIntegratorDerived:public IMUPreIntegratorBase<IMUDataDerived>{
-public:
-  Matrix3d mdelxRji;// delta~Rij.t() from qIMU PreIntegration, 3*3*float
-  Matrix3d mSigmaPhiij;// SigmaPhiij by qIMU, 3*3*float
+class IMUPreIntegratorDerived : public IMUPreIntegratorBase<IMUDataDerived> {
+ public:
+  Matrix3d mdelxRji;     // delta~Rij.t() from qIMU PreIntegration, 3*3*float
+  Matrix3d mSigmaPhiij;  // SigmaPhiij by qIMU, 3*3*float
 
-  IMUPreIntegratorDerived():mdelxRji(Matrix3d::Identity()),mSigmaPhiij(Matrix3d::Zero()){}
-  void SetPreIntegrationList(const listeig(IMUDataDerived)::const_iterator &begin,const listeig(IMUDataDerived)::const_iterator &end){//rewrite, will override the base class one
+  IMUPreIntegratorDerived() : mdelxRji(Matrix3d::Identity()), mSigmaPhiij(Matrix3d::Zero()) {}
+  void SetPreIntegrationList(
+      const listeig(IMUDataDerived)::const_iterator &begin,
+      const listeig(IMUDataDerived)::const_iterator &end) {  // rewrite, will override the base class one
     this->mlOdom.clear();
     auto pback = end;
     --pback;
-    this->mlOdom.push_front(*begin);this->mlOdom.push_back(*pback);
+    this->mlOdom.push_front(*begin);
+    this->mlOdom.push_back(*pback);
   }
-  void PreIntegration(const double &timeStampi,const double &timeStampj);//rewrite
+  void PreIntegration(const double &timeStampi, const double &timeStampj);  // rewrite
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
@@ -427,6 +498,6 @@ typedef IMUPreIntegratorDerived IMUPreintegrator;
 typedef IMUPreIntegratorBase<IMUDataBase> IMUPreintegrator;
 #endif
 
-}
+}  // namespace VIEO_SLAM
 
 #endif
