@@ -210,7 +210,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,c
       if (iterj == iter_stop && iterjm1 != iter_start) {
         // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()), ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
         double rat = (tj - tj_1) / (t_last - tj_1);
-        if (rat > 0) {
+        if (rat < 1) {
           // we could use imu to preintegrate [timeStampi,imu]
           // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
           // imu_now.mw = ang_mid.angle() * ang_mid.axis();
@@ -317,7 +317,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,c
       // end speical constant process
       update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
       imu_last = imu;
-      t_last = tj_1;
+      t_last = iterjm1->mtm;
 #else
       // update pre-integrator
       update(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
