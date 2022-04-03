@@ -209,7 +209,6 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
     if (breset) reset();
     // remember to consider the gap between the last KF and the first IMU
     // integrate each imu
-    IMUDataBase imu_last;
 
     // for iterBegin!=iterEnd, here iter_stop can no init
     typename listeig(IMUDataBase)::const_iterator iter_start = iterBegin, iter_stop;
@@ -254,34 +253,33 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       const IMUDataBase &imu = *iterjm1;
 #else
       //(interplot)
-      IMUDataBase imu = *iterjm1, imu_now = iterj != iter_stop ? *iterj : iterjm1 != iter_start ? imu_last : imu;
+      IMUDataBase imu = *iterjm1, imu_now = iterj != iterEnd ? *iterj : imu;
 #endif
 #ifndef USE_PREINT_EULA
-      if (iterj == iter_stop && iterjm1 != iter_start) {
-        auto dt = timeStampj - tj_1;
-        if (dt > 0) {
-          imu_now = imu;
-        } else {
-          // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
-          // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-          double rat = dt / (imu_now.mtm - tj_1);
-          if (rat < 1) {
-            // we could use imu to preintegrate [timeStampi,imu]
-            // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
-            // imu_now.mw = ang_mid.angle() * ang_mid.axis();
-            imu_now.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
-            imu_now.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+      // when iterj==iterEnd, iterj not exist, no interplot
+      // we could use imu to preintegrate [imu, timeStampj]/[timeStampi, timeStampj](1imu)
+      if (iterj != iterEnd) {
+        if (iterj == iter_stop) {
+          Tcalc dt_tmp = (Tcalc)(iterj->mtm - timeStampj);
+          // if dt_comple_stop > 0, then dt_tmp < 0, no interplot
+          if (dt_tmp > 0) {
+            Tcalc rat = dt_tmp / (Tcalc)(iterj->mtm - tj_1);
+            imu_now.mw = rat * imu.mw + (1 - rat) * imu_now.mw;
+            imu_now.ma = rat * imu.ma + (1 - rat) * imu_now.ma;
           }
         }
-      } else if (iterjm1 == iter_start && iterj != iter_stop) {
-        // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
-        // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-        double rat = (tj_1 - iterjm1->mtm) / (tj - iterjm1->mtm);
-        if (rat > 0) {
-          // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
-          // imu.mw = ang_mid.angle() * ang_mid.axis();
-          imu.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
-          imu.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+        if (iterjm1 == iter_start) {
+          Tcalc dt_tmp = (Tcalc)(timeStampi - iterjm1->mtm);
+          // if dt_comple > 0, then dt_tmp < 0, no interplot
+          if (dt_tmp > 0) {
+            // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
+            // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
+            Tcalc rat = dt_tmp / (tj - iterjm1->mtm);
+            // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
+            // imu.mw = ang_mid.angle() * ang_mid.axis();
+            imu.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
+            imu.ma = (1 - rat) * imu.ma + rat * imu_now.ma;
+          }
         }
       }
 #endif
@@ -365,9 +363,18 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
           if (!dt) continue;
         }
       }
+      Tcalc dt_comple_stop = 0;
+      if (iterj == iter_stop) {
+        dt_comple_stop = (Tcalc)(timeStampj - tj);
+        if (dt_comple_stop > 0) {
+          dt -= dt_comple_stop;
+        }
+      }
       // end speical constant process
       update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
-      imu_last = *iterjm1;
+      if (dt_comple_stop > 0) {
+        update(imu_now.mw - bgi_bar, imu_now.ma - bai_bar, dt_comple_stop);
+      }
 #else
       // update pre-integrator
       update(imu.mw - bgi_bar, imu.ma - bai_bar, dt);
