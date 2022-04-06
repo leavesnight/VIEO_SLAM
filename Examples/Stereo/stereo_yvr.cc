@@ -378,6 +378,7 @@ int main(int argc, char **argv) {
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectoryCamPoseIMUBias.txt", 1);
 
   return 0;
 }

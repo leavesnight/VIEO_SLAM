@@ -861,7 +861,7 @@ void System::Shutdown()
         pangolin::BindToContext("ORB-SLAM2: Map Viewer");
 }
 
-void System::SaveTrajectoryTUM(const string &filename)
+void System::SaveTrajectoryTUM(const string &filename, const bool imu_info)
 {
     PRINT_INFO_MUTEX( endl << "Saving camera trajectory to " << filename << " ..." << endl);
     /*if(mSensor==MONOCULAR)
@@ -891,32 +891,38 @@ void System::SaveTrajectoryTUM(const string &filename)
     list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
     list<bool>::iterator lbL = mpTracker->mlbLost.begin();
     for(list<cv::Mat>::iterator lit=mpTracker->mlRelativeFramePoses.begin(),
-        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++)
-    {
-        if(*lbL)
-            continue;
+        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++) {
+      if (*lbL) continue;
 
-        KeyFrame* pKF = *lRit;
-//        if (pKF->isBad()) continue;
+      KeyFrame *pKF = *lRit;
+      //        if (pKF->isBad()) continue;
 
-        cv::Mat Trw = cv::Mat::eye(4,4,CV_32F);
+      cv::Mat Trw = cv::Mat::eye(4, 4, CV_32F);
 
-        // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
-        while(pKF->isBad())
-        {
-            Trw = Trw*pKF->mTcp;
-            pKF = pKF->GetParent();
-        }
+      // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
+      while (pKF->isBad()) {
+        Trw = Trw * pKF->mTcp;
+        pKF = pKF->GetParent();
+      }
 
-        Trw = Trw*pKF->GetPose()*Two;
+      Trw = Trw * pKF->GetPose() * Two;
 
-        cv::Mat Tcw = (*lit)*Trw;
-        cv::Mat Rwc = Tcw.rowRange(0,3).colRange(0,3).t();
-        cv::Mat twc = -Rwc*Tcw.rowRange(0,3).col(3);
+      cv::Mat Tcw = (*lit) * Trw;
+      cv::Mat Rwc = Tcw.rowRange(0, 3).colRange(0, 3).t();
+      cv::Mat twc = -Rwc * Tcw.rowRange(0, 3).col(3);
 
-        vector<float> q = Converter::toQuaternion(Rwc);
+      vector<float> q = Converter::toQuaternion(Rwc);
 
-        f << setprecision(6) << *lT << " " <<  setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " " << twc.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
+      f << setprecision(6) << *lT << " " << setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " "
+        << twc.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3];
+      if (imu_info) {
+        auto ns_kf_ref = pKF->GetNavState();
+        Vector3d bg = ns_kf_ref.mbg + ns_kf_ref.mdbg;
+        f << " " << bg(0) << " " << bg(1) << " " << bg(2);
+        Vector3d ba = ns_kf_ref.mba + ns_kf_ref.mdba;
+        f << " " << ba(0) << " " << ba(1) << " " << ba(2);
+      }
+      f << endl;
     }
     f.close();
     PRINT_INFO_MUTEX( endl << "trajectory saved!" << endl);
