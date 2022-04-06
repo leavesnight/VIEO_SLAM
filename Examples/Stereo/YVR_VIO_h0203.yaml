@@ -86,22 +86,22 @@ Camera.k1: 0.213186433
 Camera.k2: -0.1629277497
 Camera.k3: 0.05754378841
 Camera.k4: -0.008671469663
-Camera2.fx: 237.5684601
-Camera2.fy: 238.3958173
-Camera2.cx: 319.0968645
-Camera2.cy: 233.8469634
-Camera2.k1: 0.2053684704
-Camera2.k2: -0.1571537097
-Camera2.k3: 0.05538060014
-Camera2.k4: -0.008568903558
-Camera3.fx: 236.5673807
-Camera3.fy: 236.7734949
-Camera3.cx: 315.4433573
-Camera3.cy: 233.8171481
-Camera3.k1: 0.2139231601
-Camera3.k2: -0.1654129519
-Camera3.k3: 0.05759914372
-Camera3.k4: -0.008638573905
+Camera2.fx: 236.5673807
+Camera2.fy: 236.7734949
+Camera2.cx: 315.4433573
+Camera2.cy: 233.8171481
+Camera2.k1: 0.2139231601
+Camera2.k2: -0.1654129519
+Camera2.k3: 0.05759914372
+Camera2.k4: -0.008638573905
+Camera3.fx: 237.5684601
+Camera3.fy: 238.3958173
+Camera3.cx: 319.0968645
+Camera3.cy: 233.8469634
+Camera3.k1: 0.2053684704
+Camera3.k2: -0.1571537097
+Camera3.k3: 0.05538060014
+Camera3.k4: -0.008568903558
 Camera4.fx: 235.2586282 
 Camera4.fy: 235.7377231
 Camera4.cx: 317.2162393 
@@ -111,14 +111,14 @@ Camera4.k2: -0.1601806788
 Camera4.k3: 0.05745422052
 Camera4.k4: -0.009171365526
 # Transformation matrix from reference camera to current camera
-Camera3.Trc: !!opencv-matrix
+Camera2.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
   data: [ -0.765412313, -0.077148614, -0.638899118, -0.024361251,
           -0.598934878, -0.277778005,  0.751076821,  0.043226684,
           -0.235416658,  0.957542412,  0.166407710, -0.039690376]
-Camera2.Trc: !!opencv-matrix
+Camera3.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
