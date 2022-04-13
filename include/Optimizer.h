@@ -522,6 +522,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float chi2Stereo[4] = {7.815, 7.815, 7.815, 7.815};
   const int its[4] = {10, 10, 10, 10};
 
+  float err = 0;
+
   int nBadIMU = 0;
   // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
   for (size_t it = 0; it < 4; it++) {
@@ -539,6 +541,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     // default edges' level is 0, so initially use all edges to optimize, after it=0, just use inlier
     // edges(_activeEdges) to optimize
     optimizer.initializeOptimization(0);
+    if (!it) {
+      optimizer.computeActiveErrors();
+      err = optimizer.activeRobustChi2();
+    }
     optimizer.optimize(its[it]);  // only call _activeEdges[k].computeError()
 
     if (bno_iter) break;
@@ -638,6 +644,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         nBad++;
     }
   }
+
+  float err_end = optimizer.activeRobustChi2();
+  PRINT_INFO_FILE("check err:" << err << ",end=" << err_end << endl, imu_tightly_debug_path,
+                  "tracking_thread_debug.txt");
 
   // Recover optimized pose and return number of inliers
   g2o::VertexNavStatePVR *vNSPVR_recov = static_cast<g2o::VertexNavStatePVR *>(optimizer.vertex(FramePVRId));

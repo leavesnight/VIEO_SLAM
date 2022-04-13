@@ -396,6 +396,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   // Initialize NavState of mCurrentFrame
   //  Map updated, optimize with last KeyFrame
   NavState& ns = mCurrentFrame.GetNavStateRef();
+  cout << "check bmapupdate=" << (int)bMapUpdated << endl;
   if (bMapUpdated) {
     // Get initial NavState&pose from Last KeyFrame
     ns = mpLastKeyFrame->GetNavState();
@@ -447,6 +448,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   ns.mdba.setZero();
   mCurrentFrame.UpdatePoseFromNS();  // for VIE, we may use a complementary filter of encoder & IMU to predict NavState
 
+  cout << "check bgba=" << ns.mbg.transpose() << "," << ns.mba.transpose() << endl;
   //   cout<<"CurF's pwb="<<ns.mpwb.transpose()<<endl;
   return true;
 }
@@ -2142,6 +2144,9 @@ bool Tracking::NeedNewKeyFrame() {
   // may we can also use &&mCurrentFrame.N>500 like StereoInitialization(), so c3 now is not for VIO Mono RECENTLY_LOST
   const bool c3 = (mState == ODOMOK) && (c1a || c1b || c1c) && nNonTrackedClose > 70;
 
+  cout << "check inliers=" << mnMatchesInliers << "<" << nRefMatches << "," << (int)bNeedToInsertClose << endl;
+  cout << "check each cond=" << (int)cTimeGap << " " << (int)c3 << " " << (int)c2 << " c1:" << int(c1a) << ","
+       << int(c1b) << "," << int(c1c) << endl;
   if ((c1a || c1b || c1c) && c2 || cTimeGap || c3)  // cTimeGap added by JingWang
   {
     // If the mapping accepts keyframes, insert keyframe.
