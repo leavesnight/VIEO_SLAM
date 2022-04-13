@@ -496,7 +496,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
   if ((mnMatchesInliers > 10) && (mState == ODOMOK)) return true;
 #endif
 
-  if (mnMatchesInliers < 30)  // 6)  // 30)//notice it's a class data member, changed by JingWang
+  if (mnMatchesInliers < 15)  // 6)  // 30)//notice it's a class data member, changed by JingWang
     return false;
   else {
     double threInliers = 30;  // 15;  // 30;//TODO: check
