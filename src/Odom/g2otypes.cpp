@@ -88,19 +88,20 @@ void EdgeNavStatePriorPVRBias::computeError() {
   const NavState& nsBiasest = vNSBias->estimate();
   // P V R bg=bg_bar+dbg ba=ba_bar+dba
   Vector15d err = Vector15d::Zero();
-  const Matrix3d Rbw_bar = _measurement.getRwb().transpose();  //_measurement.mRwb.inverse();
-  // NOTICE! VIORBSLAM paper wrong in er's sign with the left, so orb3 fix this problem, while vieoslam old version
-  // missed er.t*Omega*ep term in H/prior's Info so it seems no problem, but it'll have problem in fast motion dataset!
+  //  const Matrix3d Rbw_bar = _measurement.getRwb().transpose();
+  Sophus::SO3exd Rbw_bar = _measurement.mRwb.inverse();
+// NOTICE! VIORBSLAM paper wrong in er's sign with the left, so orb3 fix this problem, while vieoslam old version
+// missed er.t*Omega*ep term in H/prior's Info so it seems no problem, but it'll have problem in fast motion dataset!
 #ifdef USE_P_PLUS_RDP
   // Rwb.t() for twb<-twb+Rwb*dtwb, where H is for dtwb
   err.segment<3>(0) = Rbw_bar * (nsPVRest.mpwb - _measurement.mpwb);  // ep=Rbw(pwbj-pwbj_bar)
-//  err.segment<3>(0) = _measurement.mRwb.inverse() * (nsPVRest.mpwb - _measurement.mpwb);  // ep=Rbw(pwbj-pwbj_bar)
 #else
   err.segment<3>(0) = nsPVRest.mpwb - _measurement.mpwb;  // ep=pwbj-pwbj_bar
 #endif
-  err.segment<3>(6) = Sophus::SO3exd::Log(Rbw_bar * nsPVRest.getRwb());  // eR=Log(Rwbj_bar.t()*Rwbj)
-  //  err.segment<3>(6) = (_measurement.mRwb.inverse() * nsPVRest.mRwb).log();  // eR=Log(Rwbj_bar.t()*Rwbj)
-  err.segment<3>(3) = nsPVRest.mvwb - _measurement.mvwb;                                        // ev=vwbj-vwbj_bar
+  // err.segment<3>(6) = Sophus::SO3exd::Log(Rbw_bar * nsPVRest.getRwb());  // eR=Log(Rwbj_bar.t()*Rwbj)
+  // R1R2=81x+18+,q1q2=16x+12++normalize(3x+2++1sqrt+4/)
+  err.segment<3>(6) = (Rbw_bar * nsPVRest.mRwb).log();    // eR=Log(Rwbj_bar.t()*Rwbj)
+  err.segment<3>(3) = nsPVRest.mvwb - _measurement.mvwb;  // ev=vwbj-vwbj_bar
   err.segment<3>(9) = nsBiasest.mbg + nsBiasest.mdbg - (_measurement.mbg + _measurement.mdbg);  // eb=bj-bj_bar
   err.segment<3>(12) = nsBiasest.mba + nsBiasest.mdba - (_measurement.mba + _measurement.mdba);
   _error = err;

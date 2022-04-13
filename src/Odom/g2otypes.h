@@ -715,8 +715,8 @@ void EdgeNavStateI<NV>::computeError() {
   const VertexNavStateNV* vPRi = static_cast<const VertexNavStateNV*>(_vertices[0]);
   const VertexNavStateNV* vPRj = static_cast<const VertexNavStateNV*>(_vertices[1]);
   const NavState &nsPRi = vPRi->estimate(), &nsPRj = vPRj->estimate(), *pBiasi;
-  // q*p=qpq.conj(15x+15+),Rp=9x+6+,R(q)=24 and we found bad result in hard fast motion dataset for q*p here
-  //  const Sophus::SO3exd RiT = nsPRi.mRwb.inverse();
+  // q*p=qpq.conj=15x+15+,Rp=9x+6+,R(q)=24 and we found bad result in hard fast motion dataset for q*p here
+  const Sophus::SO3exd so3RiT = nsPRi.mRwb.inverse();
   const Matrix3d RiT = nsPRi.getRwb().transpose();
   // get vi,vj,dbi in PRV/PVR situation
   Vector3d vi, vj, dbgi, dbai;
@@ -744,15 +744,15 @@ void EdgeNavStateI<NV>::computeError() {
   //  (deltapij+J_g_deltap*dbgi+J_a_deltap*dbai),here deltapij=delta~pij(bi_bar)
   _error.segment<3>(0) = RiT * (nsPRj.mpwb - nsPRi.mpwb - vi * deltat - gw * (deltat * deltat / 2)) -
                          (_measurement.mpij + _measurement.mJgpij * dbgi + _measurement.mJapij * dbai);
-  int idR = (NV >= 5) ? 3 : 6;  // if NV==5 then error_PRV else ePVR
+  // if NV==5 then error_PRV else ePVR
+  int idR = (NV >= 5) ? 3 : 6;
   // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj)
-  //  _error.segment<3>(idR) =
-  //      ((Sophus::SO3exd(Sophus::SO3exd(_measurement.mRij)) * Sophus::SO3exd::exp(_measurement.mJgRij *
-  //      dbgi)).inverse() *
-  //       RiT * nsPRj.mRwb)
-  //          .log();
-  _error.segment<3>(idR) = Sophus::SO3exd::Log(
-      (_measurement.mRij * Sophus::SO3exd::Exp(_measurement.mJgRij * dbgi)).transpose() * RiT * nsPRj.getRwb());
+  _error.segment<3>(idR) =
+      ((Sophus::SO3exd(_measurement.mRij) * Sophus::SO3exd::exp(_measurement.mJgRij * dbgi)).inverse() *
+       (so3RiT * nsPRj.mRwb))
+          .log();
+  //  _error.segment<3>(idR) = Sophus::SO3exd::Log(
+  //      (_measurement.mRij * Sophus::SO3exd::Exp(_measurement.mJgRij * dbgi)).transpose() * RiT * nsPRj.getRwb());
   // ev=Rwbi.t()*(vwbj-vwbi-gw*deltatij)-(deltavij+J_g_deltav*dbgi+J_a_deltav*dbai)
   _error.segment<3>(9 - idR) =
       RiT * (vj - vi - gw * deltat) - (_measurement.mvij + _measurement.mJgvij * dbgi + _measurement.mJavij * dbai);
