@@ -533,6 +533,7 @@ std::set<std::pair<MapPoint *, size_t>> KeyFrame::GetMapPointsCami() {
 int KeyFrame::TrackedMapPoints(const int &minObs) {
   unique_lock<mutex> lock(mMutexFeatures);
 
+  int count = 0, count2 = 0;
   int nPoints = 0;
   const bool bCheckObs = minObs > 0;
   for (int i = 0; i < N; i++) {
@@ -540,12 +541,17 @@ int KeyFrame::TrackedMapPoints(const int &minObs) {
     if (pMP) {
       if (!pMP->isBad()) {
         if (bCheckObs) {
-          if (mvpMapPoints[i]->Observations() >= minObs) nPoints++;
+          if (mvpMapPoints[i]->Observations() >= minObs)
+            nPoints++;
+          else
+            count2++;
         } else
           nPoints++;
       }
+      count++;
     }
   }
+  cout << "check count=" << count << "/" << nPoints << "," << count2 << endl;
 
   return nPoints;
 }
