@@ -38,8 +38,6 @@ void MapPoint::UpdateScale(const float& scale) {
 MapPoint::MapPoint(KeyFrame* pRefKF, Map* pMap, istream& is)
     : mnFirstKFid(pRefKF->mnId),
       nObs(0),
-      mnTrackReferenceForFrame(0),
-      mnLastFrameSeen(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
       mnLoopPointForKF(0),
@@ -85,8 +83,6 @@ mutex MapPoint::mGlobalMutex;
 MapPoint::MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap)
     : mnFirstKFid(pRefKF->mnId),
       nObs(0),
-      mnTrackReferenceForFrame(0),
-      mnLastFrameSeen(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
       mnLoopPointForKF(0),
@@ -112,8 +108,6 @@ MapPoint::MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap)
 MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF)
     : mnFirstKFid(-1),
       nObs(0),
-      mnTrackReferenceForFrame(0),
-      mnLastFrameSeen(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
       mnLoopPointForKF(0),
@@ -542,6 +536,47 @@ int MapPoint::PredictScale(const float& currentDist, Frame* pF) {
     nScale = pF->mnScaleLevels - 1;
 
   return nScale;
+}
+
+void MapPoint::_TrackFastMatchInfo::Reset(Frame* pf) {
+  //  if (!pf) {
+  btrack_inview_ = false;
+  for (int i = 0; i < NUM_PROJ; ++i) {
+    vtrack_proj_[i].clear();
+  }
+  vtrack_scalelevel_.clear();
+  vtrack_viewcos_.clear();
+  vtrack_cami_.clear();
+  //  return;
+  //  }
+
+  if (pf) last_seen_frameid_ = pf->mnId;  // don't need to match it in SBP()
+
+  //  if (vtrack_cami_.empty()) return;
+  //  auto cami = pf->mapn2in_.size() <= i ? 0 : get<0>(pf->mapn2in_[i]);
+  //  //  bool berase = false;
+  //  auto iter_scale_level = vtrack_scalelevel_.begin();
+  //  auto iter_viewcos = vtrack_viewcos_.begin();
+  //  list<float>::iterator iter_proj[NUM_PROJ];
+  //  for (int k = 0; k < NUM_PROJ; ++k) iter_proj[k] = vtrack_proj_[k].begin();
+  //  auto IncIter = [&]() {
+  //    for (int k = 0; k < NUM_PROJ; ++k) ++iter_proj[k];
+  //    ++iter_scale_level;
+  //    ++iter_viewcos;
+  //  };
+  //  for (auto iter_cami = vtrack_cami_.begin(); iter_cami != vtrack_cami_.end();) {
+  //    if (cami != *iter_cami) {
+  //      ++iter_cami;
+  //      IncIter();
+  //      continue;
+  //    }
+  //    iter_cami = vtrack_cami_.erase(iter_cami);
+  //    for (int k = 0; k < NUM_PROJ; ++k) iter_proj[k] = vtrack_proj_[k].erase(iter_proj[k]);
+  //    iter_scale_level = vtrack_scalelevel_.erase(iter_scale_level);
+  //    iter_viewcos = vtrack_viewcos_.erase(iter_viewcos);
+  //    //    berase = true;
+  //    break;
+  //  }
 }
 
 }  // namespace VIEO_SLAM

@@ -64,6 +64,8 @@ class SO3ex : public SO3<Scalar, Options> {
 #endif
   // so3 will assert identity of R, but for convenience, we nomralize all R here
   SOPHUS_FUNC SO3ex(Transformation const& R) {
+    //    Eigen::JacobiSVD<Transformation> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    //    this->unit_quaternion_ = QuaternionMember(Transformation(svd.matrixU() * svd.matrixV().transpose()));
     this->unit_quaternion_ = QuaternionMember(R);
     this->unit_quaternion_.normalize();
   }
@@ -194,6 +196,7 @@ class SO3ex : public SO3<Scalar, Options> {
 
     return two_atan_nbyw_by_n * other.unit_quaternion_.vec();
   }
+  static SOPHUS_FUNC Tangent Log(const Eigen::Matrix3d& R);
 
   // Jr, right jacobian of SO(3)
   SOPHUS_FUNC static Transformation JacobianR(const Tangent& w);
@@ -210,6 +213,12 @@ class SO3ex : public SO3<Scalar, Options> {
   SOPHUS_FUNC static Transformation Expmap(const Tangent& v) {
     return exp(v).matrix();  // here is URVO
   }
+  // for no usage of quaternion
+  SOPHUS_FUNC static inline Transformation NormalizeRotation(const Eigen::Matrix3d& R) {
+    Eigen::JacobiSVD<Eigen::Matrix3d> svd(R, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    return svd.matrixU() * svd.matrixV().transpose();
+  }
+  SOPHUS_FUNC static Transformation Exp(const Tangent& v);
 
   // normalize to avoid numerical error accumulation
   SOPHUS_FUNC static inline QuaternionMember normalizeRotationQ(const QuaternionMember& r) {
@@ -263,6 +272,46 @@ typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Jacobian
   }
 
   return Jrinv;
+}
+//#define USE_EXPLOG_NOQ_MATH
+// here static Log will directly operate R to r, without using quaternion
+template <class Scalar, int Options>
+typename SO3ex<Scalar, Options>::Tangent SO3ex<Scalar, Options>::Log(const Eigen::Matrix3d& R) {
+#ifndef USE_EXPLOG_NOQ_MATH
+  return SO3ex<Scalar, Options>(R).log();
+#else
+  const double tr = R(0, 0) + R(1, 1) + R(2, 2);
+  Eigen::Vector3d w;
+  w << (R(2, 1) - R(1, 2)) / 2, (R(0, 2) - R(2, 0)) / 2, (R(1, 0) - R(0, 1)) / 2;
+  const double costheta = (tr - 1.0) * 0.5f;
+  if (costheta > 1 || costheta < -1) return w;
+  const double theta = acos(costheta);
+  const double s = sin(theta);
+  if (fabs(s) < 1e-5)
+    return w;
+  else
+    return theta * w / s;
+#endif
+}
+// here static Exp will directly operate r to R, without using quaternion
+template <class Scalar, int Options>
+typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Exp(const Tangent& v) {
+#ifndef USE_EXPLOG_NOQ_MATH
+  return Expmap(v);
+#else
+  const double x = v[0], y = v[1], z = v[2];
+  const double d2 = x * x + y * y + z * z;
+  const double d = sqrt(d2);
+  Eigen::Matrix3d W;
+  W << 0.0, -z, y, z, 0.0, -x, -y, x, 0.0;
+  if (d < 1e-5) {
+    Eigen::Matrix3d res = Eigen::Matrix3d::Identity() + W + 0.5 * W * W;
+    return NormalizeRotation(res);
+  } else {
+    Eigen::Matrix3d res = Eigen::Matrix3d::Identity() + W * sin(d) / d + W * W * (1.0 - cos(d)) / d2;
+    return NormalizeRotation(res);
+  }
+#endif
 }
 
 typedef SO3ex<double> SO3exd;

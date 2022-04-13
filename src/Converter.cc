@@ -139,6 +139,15 @@ Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Mat &cvVector)
     return v;
 }
 
+Eigen::Matrix<double,4,4> Converter::toMatrix4d(const Sophus::SE3d &se3) {
+  Eigen::Matrix<double, 4, 4> M;
+
+  M.setIdentity();
+  M.block<3, 3>(0, 0) = se3.so3().matrix();
+  M.block<3, 1>(0, 3) = se3.translation();
+  return M;
+}
+
 Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Point3f &cvPoint)
 {
     Eigen::Matrix<double,3,1> v;

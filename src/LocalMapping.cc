@@ -26,7 +26,8 @@
 
 #include <mutex>
 
-//#define NO_GBA_THREAD
+#define NO_GBA_THREAD
+#define NO_LOCALMAP_PROCESS
 
 namespace VIEO_SLAM {
 
@@ -74,6 +75,7 @@ void LocalMapping::Run() {
       PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
 
+#ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
       MapPointCulling();
 
@@ -85,6 +87,7 @@ void LocalMapping::Run() {
         // Find more matches in neighbor keyframes and fuse point duplications
         SearchInNeighbors();
       }
+#endif
 
       mbAbortBA = false;
 
@@ -104,9 +107,12 @@ void LocalMapping::Run() {
                 Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap,
                                                  mnLocalWindowSize);  // local BA
             }
-          } else {  // maybe it needs transition when initialized with a few imu edges<N
-            Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
-                                                        mpIMUInitiator->GetGravityVec());
+          } else {
+            // maybe it needs transition when initialized with a few imu edges<N
+            const bool bno_imu_lba = true;  // false; //
+            if (!bno_imu_lba)
+              Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
+                                                          mpIMUInitiator->GetGravityVec());
             // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
           }
           PRINT_INFO_MUTEX(blueSTR "Used time in localBA="
@@ -114,8 +120,10 @@ void LocalMapping::Run() {
                            << whiteSTR << endl);
         }
 
+#ifndef NO_LOCALMAP_PROCESS
         // Check redundant local Keyframes
         KeyFrameCulling();
+#endif
       }
 
 #ifndef NO_GBA_THREAD

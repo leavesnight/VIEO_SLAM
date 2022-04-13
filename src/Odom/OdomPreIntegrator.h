@@ -8,7 +8,7 @@
 
 #include <iostream>
 
-//#define USE_PREINT_EULA
+#define USE_PREINT_EULA
 
 namespace VIEO_SLAM {
 
@@ -123,7 +123,7 @@ class IMUPreIntegratorBase
     InfoijPRV = (InfoijPRV + InfoijPRV.transpose()) / 2;
     Eigen::SelfAdjointEigenSolver<Matrix9d> es(InfoijPRV);
     Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
-    for (int i = 0; i < 9; ++i) // maybe for fast speed opt.?
+    for (int i = 0; i < 9; ++i)  // maybe for fast speed opt.?
       if (eigs[i] < 1e-12) eigs[i] = 0;
     InfoijPRV = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
     return InfoijPRV;
@@ -146,7 +146,7 @@ class IMUPreIntegratorBase
   Matrix3d mJgvij;  // velocity / gyro
   Matrix3d mJavij;  // velocity / acc
   Matrix3d mJgRij;  // rotation / gyro
-  Matrix3d &Japij_ = mJapij, &Jgvij_ = mJgvij, &Javij_ = mJavij, &JgRij_ = mJgRij;
+  Matrix3d &Japij_ = mJapij, &Jgvij_ = mJgvij, &Javij_ = mJavij, &JgRij_ = mJgRij, &Jgpij_ = mJgpij;
   Matrix9d &SigmaijPRV_ = mSigmaijPRV;
 
   // Vector3d mbgij,mbaij;//bg(ti)=b_bar_gi+db_gi, bg~ij not exists, neither do ba~ij
@@ -415,7 +415,7 @@ void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d &omega, const Vect
   using namespace Sophus;
   using namespace Eigen;
   double dt2div2 = dt * dt / 2;
-  Matrix3d dR = SO3calc::Expmap(omega * dt);    // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+  Matrix3d dR = SO3calc::Exp(omega * dt);       // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
   Matrix3d Jr = SO3exd::JacobianR(omega * dt);  // Jrj-1=Jr(dtj-1j*(w~j-1 - bgi_bar))
   Matrix3d skewa = SO3exd::hat(acc);            //(~aj-1 - bai_bar)^
 
@@ -492,7 +492,7 @@ void IMUPreIntegratorBase<IMUDataBase>::update_highfreq(const Vector3d &omega, c
   using namespace Sophus;
   using namespace Eigen;
   double dt2div2 = dt * dt / 2;
-  Matrix3d dR = SO3calc::Expmap(omega * dt);  // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+  Matrix3d dR = SO3calc::Exp(omega * dt);  // Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
 
   // see paper On-Manifold Preintegration (35~37)
   mpij_hf +=

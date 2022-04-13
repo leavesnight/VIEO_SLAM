@@ -48,6 +48,7 @@ namespace VIEO_SLAM {
 //#define CHECK_JITTER
 //#define NO_LBA_THREAD
 //#define DEBUG_STRATEGY
+#define ORB3_STRATEGY
 
 cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
                             const char mode) {  // different thread from GrabImageX
@@ -124,7 +125,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
       const EncPreIntegrator& encpreint = mCurrentFrame.GetEncPreInt();
       // get To1o2:p12 R12
       Vector3d pij(encpreint.mdelxEij.segment<3>(3));
-      Matrix3d Rij = Sophus::SO3exd::Expmap(encpreint.mdelxEij.segment<3>(0));
+      Matrix3d Rij = Sophus::SO3exd::Exp(encpreint.mdelxEij.segment<3>(0));
       cv::Mat Tij = Converter::toCvSE3(Rij, pij);
       // get Tc2c1
       cv::Mat Tec = Converter::toCvMatInverse(Frame::mTce);
@@ -250,7 +251,7 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
   const EncPreIntegrator& encpreint = mCurrentFrame.GetEncPreInt();  // problem exits
   // get To1o2:p12 R12
   Vector3d pij(encpreint.mdelxEij.segment<3>(3));
-  Matrix3d Rij = Sophus::SO3exd::Expmap(encpreint.mdelxEij.segment<3>(0));
+  Matrix3d Rij = Sophus::SO3exd::Exp(encpreint.mdelxEij.segment<3>(0));
   cv::Mat Tij = Converter::toCvSE3(Rij, pij);
   // get Tc2c1
   cv::Mat Tec = Converter::toCvMatInverse(Frame::mTce);
@@ -267,6 +268,11 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
 bool Tracking::TrackWithIMU(bool bMapUpdated) {
   ORBmatcher matcher(0.9, true);  // here 0.9 is useless
 
+#ifdef ORB3_STRATEGY
+  UpdateLastFrame();
+  mLastFrame.UpdateNavStatePVRFromTcw();  // maybe useless
+#endif
+
   // Update current frame pose according to last frame or keyframe when last KF is changed by LocalMapping/LoopClosing
   // threads unadded code: Create "visual odometry" points if in Localization Mode
   if (!PredictNavStateByIMU(bMapUpdated)) {
@@ -279,6 +285,10 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     } else
       return false;  // all motion model failed
   }
+#ifdef ORB3_STRATEGY
+  else
+    return true;
+#endif
 
   // fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));//already
   // initialized in Frame constructor if this Track function is firstly called
@@ -291,6 +301,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     th = 7;
   // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
   int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR);
+  PRINT_DEBUG_INFO("math num2 imu=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -305,14 +316,15 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
 
   // Pose optimization. false: no need to compute marginalized for current Frame(motion-only), see VIORBSLAM paper
   // (4)~(8)
+  int num_inliers;
   if (bMapUpdated) {  // we call this 2 frames'(FKF/FF) motion-only BA
     // not use Hessian matrix, it's ok
     // fixing lastKF(i), optimize curF(j)
-    Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(),
+    num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(),
 #ifndef NO_TRACK_MAP
-                                false);
+                                              false);
 #else
-                                true);
+                                              true);
 #endif
   } else {
     //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
@@ -320,13 +332,14 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     // lastF(j): optimize curF(j+1)
     // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate(), save its
     // Hessian
-    Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
+    num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
 #ifndef NO_TRACK_MAP
-                                false);
+                                              false);
 #else
-                                true);
+                                              true);
 #endif
   }
+  PRINT_DEBUG_INFO("inliers2 imu=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -340,11 +353,8 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
 #ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
 #endif
-        pMP->mbTrackInView = false;
-        size_t n_cams = pMP->vbtrack_inview.size();
-        pMP->vbtrack_inview.clear();
-        pMP->vbtrack_inview.resize(n_cams, false);
-        pMP->mnLastFrameSeen = mCurrentFrame.mnId;
+        auto& trackinfo = pMP->GetTrackInfoRef();
+        trackinfo.Reset(&mCurrentFrame);
         nmatches--;
       } else if (curfmps[i]->Observations() > 0)
         nmatchesMap++;
@@ -441,15 +451,19 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     mCurrentFrame.UpdateNavStatePVRFromTcw();  // here is the imu data empty condition after imu's initialized, we must
                                                // update NavState to keep continuous right Tbw after imu's initialized
   } else {
+    mCurrentFrame.UpdatePoseFromNS();
     // 2 frames' motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
     if (bMapUpdated) {
-      Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(),
-                                  true);  // fixed last KF, save its Hessian
+      // fixed last KF, save its Hessian
+      // Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame, mpLastKeyFrame,
+      // mpIMUInitiator->GetGravityVec(), true);
+      Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), true);
     } else {
+      // Optimizer::PoseInertialOptimizationLastFrame2(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
+      // true);
       //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
-      Optimizer::PoseOptimization(
-          &mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
-          true);  // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate()
+      // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate()
+      Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), true);
       if (mLastFrame.GetIMUPreInt().mdeltatij == 0)
         cout << redSTR "LastF.deltatij==0!In TrackLocalMapWithIMU(), Check!" << whiteSTR << endl;
     }
@@ -469,21 +483,27 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
           if (curfmps[i]->Observations() > 0) mnMatchesInliers++;
         } else
           mnMatchesInliers++;
-      } else if (mSensor == System::STEREO)  // why not include System::RGBD?
-        mCurrentFrame.EraseMapPointMatch(i);
+      }  // else if (mSensor == System::STEREO)  // why not include System::RGBD?
+         //        mCurrentFrame.EraseMapPointMatch(i);
     }
   }
 
+  PRINT_DEBUG_INFO("inliers_map imu=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  //  if (mCurrentFrame.mTimeStamp > 845.064) CV_Assert(0);
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
   if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames &&
-      (mnMatchesInliers < 10 || mCurrentFrame.GetIMUPreInt().mdeltatij == 0 && mnMatchesInliers < 50))  // 50)
+      (mnMatchesInliers < 50))  // 10 || mCurrentFrame.GetIMUPreInt().mdeltatij == 0 && mnMatchesInliers < 50))  // 50)
     return false;
 
-  if (mnMatchesInliers < 6)  // 30)//notice it's a class data member, changed by JingWang
+#ifdef ORB3_STRATEGY
+  if ((mnMatchesInliers > 10) && (mState == ODOMOK)) return true;
+#endif
+
+  if (mnMatchesInliers < 30)  // 6)  // 30)//notice it's a class data member, changed by JingWang
     return false;
   else {
-    double threInliers = 15;  // 30;//TODO: check
+    double threInliers = 30;  // 15;  // 30;//TODO: check
     if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0 &&
         mnMatchesInliers < threInliers)  // if no imudata then it degenerates to TrackLocalMap()
       return false;
@@ -766,6 +786,8 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
   PRINT_INFO_MUTEX("Cam size = " << mpCameras.size() << endl);
   CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
+  CLEAR_DEBUG_INFO("start tracking debug:", imu_tightly_debug_path, "tracking_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start imu init debug:", imu_tightly_debug_path, "imu_init_thread_debug.txt");
 
   mbf = fSettings["Camera.bf"];
 
@@ -956,6 +978,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     bMapUpdated = true;
   }
 
+  PRINT_DEBUG_INFO("curf tm=" << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
       StereoInitialization(img);
@@ -1685,7 +1708,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
   int nmatches = matcher.SearchByBoW(mpReferenceKF, mCurrentFrame,
                                      vpMapPointMatches);  // match with rKF,rectify the vpMapPointMatches, SBBoW better
                                                           // than SBP for the mCurrentFrame.Tcw is unknown
-  PRINT_DEBUG_INFO_MUTEX("math num=" << nmatches << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("math num=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   if (nmatches < thMatch)  // 15)//looser than 20 in TrackWithMotionModel()
     return false;
@@ -1694,9 +1717,8 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
       vpMapPointMatches;                          // use temporary vector<MapPoint*> for not believe SBBow() so much
   mCurrentFrame.SetPose(mLastFrame.GetTcwRef());  // but use lF as the initial value for BA
 
-  PRINT_DEBUG_INFO_MUTEX("bef opt=" << nmatches << endl, imu_tightly_debug_path, "debug.txt");
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame);  // motion-only BA
-  PRINT_DEBUG_INFO_MUTEX("inliers=" << num_inliers << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("inliers=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -1710,11 +1732,8 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
 #ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
 #endif
-        pMP->mbTrackInView = false;
-        size_t n_cams = pMP->vbtrack_inview.size();
-        pMP->vbtrack_inview.clear();
-        pMP->vbtrack_inview.resize(n_cams, false);
-        pMP->mnLastFrameSeen = mCurrentFrame.mnId;
+        auto& trackinfo = pMP->GetTrackInfoRef();
+        trackinfo.Reset(&mCurrentFrame);
         nmatches--;                               // useless here
       } else if (curfmps[i]->Observations() > 0)  // where EraseObservation()/SetBadFlag()?
         nmatchesMap++;
@@ -1820,7 +1839,7 @@ bool Tracking::TrackWithMotionModel() {
       mCurrentFrame, mLastFrame, th,
       mSensor ==
           System::MONOCULAR);  // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
-  PRINT_DEBUG_INFO_MUTEX("math num2=" << nmatches << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("math num2=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -1839,7 +1858,7 @@ bool Tracking::TrackWithMotionModel() {
   // Optimize frame pose with all matches
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);  // motion-only BA
   //     Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
-  PRINT_DEBUG_INFO_MUTEX("inliers2=" << num_inliers << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("inliers2=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 #ifdef CHECK_JITTER
   using Tdata = double;
   NavStated newns = mCurrentFrame.GetNavState();
@@ -1865,11 +1884,8 @@ bool Tracking::TrackWithMotionModel() {
 #ifndef NO_TRACK_MAP
         mCurrentFrame.mvbOutlier[i] = false;
 #endif
-        pMP->mbTrackInView = false;
-        size_t n_cams = pMP->vbtrack_inview.size();
-        pMP->vbtrack_inview.clear();
-        pMP->vbtrack_inview.resize(n_cams, false);
-        pMP->mnLastFrameSeen = mCurrentFrame.mnId;
+        auto& trackinfo = pMP->GetTrackInfoRef();
+        trackinfo.Reset(&mCurrentFrame);
         nmatches--;
       } else if (curfmps[i]->Observations() > 0)
         nmatchesMap++;
@@ -1919,7 +1935,7 @@ bool Tracking::TrackLocalMap() {
 #endif
 
   mnMatchesInliers = 0;
-  PRINT_DEBUG_INFO_MUTEX("num_inliers22=" << num_inliers << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("num_inliers22=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
   // Update MapPoints Statistics
   set<MapPoint*> sMP;
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1936,12 +1952,12 @@ bool Tracking::TrackLocalMap() {
           if (pMP->Observations() > 0) mnMatchesInliers++;
         } else
           mnMatchesInliers++;
-      } else if (mSensor == System::STEREO)  // why not include System::RGBD?
-        mCurrentFrame.EraseMapPointMatch(i);
+      }  // else if (mSensor == System::STEREO)  // why not include System::RGBD?
+         //        mCurrentFrame.EraseMapPointMatch(i);
     }
   }
 
-  PRINT_DEBUG_INFO_MUTEX("inliers_map=" << mnMatchesInliers << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("inliers_map=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
   int threInlierReloc = 50, threInliers = 30;
@@ -1961,6 +1977,16 @@ bool Tracking::TrackLocalMap() {
 }
 
 bool Tracking::NeedNewKeyFrame() {
+#define ORB3_IMU_UNINIT_KF_STRATEGY
+#ifdef ORB3_IMU_UNINIT_KF_STRATEGY
+  if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
+    if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
+      return true;
+    else
+      return false;
+  }
+#endif
+
   if (mbOnlyTracking) return false;
 
   // If Local Mapping is freezed by a Loop Closure do not insert keyframes
@@ -1969,10 +1995,8 @@ bool Tracking::NeedNewKeyFrame() {
   const int nKFs = mpMap->KeyFramesInMap();
 
   // Do not insert keyframes if not enough frames have passed from last relocalisation
-  if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames &&
-      nKFs > mMaxFrames)  // the settings fps used here, if at initial step add new KF quickly while at relocalisation
-                          // step add it slowly
-    return false;
+  // the settings fps used here, if at initial step add new KF quickly while at relocalisation step add it slowly
+  if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && nKFs > mMaxFrames) return false;
 
   // Do not insert keyframes if bias is not computed in VINS mode, maybe we can change localBA to pure-vision when
   // mbRelocBiasPrepare=true and create a thread to RecomputeIMUBiasAndCurrentNavstate() like IMU Initialization!
@@ -2026,21 +2050,21 @@ bool Tracking::NeedNewKeyFrame() {
   //τt=100(enough dis)( τc=70(enough info) for stereo/RGBD to insert a new KF
   bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
 
-  // JW uses different timegap during IMU Initialization(0.1s)
-  // if (!mpIMUInitiator->GetVINSInited()) timegap=0.1;
   double timegap = 0.5;
+  // JW uses different timegap during IMU Initialization(0.1s)
+  // if (!mpIMUInitiator->GetVINSInited()) timegap = 0.25;
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
-    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
-               mnMatchesInliers > 15;
+    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap); /*&& bLocalMappingIdle &&
+               mnMatchesInliers > 15;*/
     // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
     // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
-    bNeedToInsertClose = false;
+    // bNeedToInsertClose = false;
     // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
-    if (mState == ODOMOK) {
-      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
-    }
+    //    if (mState == ODOMOK) {
+    //      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
+    //    }
     // minClose=100;
   }
 
@@ -2247,11 +2271,8 @@ void Tracking::SearchLocalPoints() {
         mCurrentFrame.EraseMapPointMatch(i);
       } else {
         pMP->IncreaseVisible();
-        pMP->mnLastFrameSeen = mCurrentFrame.mnId;
-        pMP->mbTrackInView = false;  // don't need to match it in SBP()
-        size_t n_cams = pMP->vbtrack_inview.size();
-        pMP->vbtrack_inview.clear();
-        pMP->vbtrack_inview.resize(n_cams, false);
+        auto& trackinfo = pMP->GetTrackInfoRef();
+        trackinfo.Reset(&mCurrentFrame);
         ++num_maps_ready;
       }
     }
@@ -2263,32 +2284,38 @@ void Tracking::SearchLocalPoints() {
   for (vector<MapPoint*>::iterator vit = mvpLocalMapPoints.begin(), vend = mvpLocalMapPoints.end(); vit != vend;
        vit++) {
     MapPoint* pMP = *vit;
-    if (pMP->mnLastFrameSeen == mCurrentFrame.mnId)  // jump the already in-mCurrentFrame.mvpMapPoints MapPoints
-      continue;
+    // jump the already in-mCurrentFrame.mvpMapPoints MapPoints
+    if (pMP->GetTrackInfoRef().last_seen_frameid_ == mCurrentFrame.mnId) continue;
     if (pMP->isBad()) continue;
     // Project (this fills MapPoint variables for matching,like mbTrackInView=true...)
     // judge if mCurrentFrame's centre is in the effective descriptor area(scale&&rotation invariance) of the
     // MapPoint(with best descriptor&&normalVector)
-    if (mCurrentFrame.isInFrustum(pMP, 0.5))  // no problem for mRcw,mtcw for mCurrentFrame.SetPose() in
-                                              // TrackWithMotionModel()/TrackReferenceKeyFrame()
-    {
+    // no problem for mRcw,mtcw for mCurrentFrame.SetPose() in TrackWithMotionModel()/TrackReferenceKeyFrame()
+    if (mCurrentFrame.isInFrustum(pMP, 0.5)) {
       pMP->IncreaseVisible();
       nToMatch++;
     }
   }
-  PRINT_DEBUG_INFO_MUTEX("extra init=" << nToMatch << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("extra init=" << nToMatch << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   if (nToMatch > 0) {
     ORBmatcher matcher(0.8);  // 0.8 is the threshold for mindist/mindist2(<th is nice matching)
     int th = 1;
     if (mSensor == System::RGBD) th = 3;
+    if (mpIMUInitiator->GetVINSInited()) {  // ref from ORB3
+      th = 3;
+    }
+
     // If the camera has been relocalised recently, perform a coarser search
     if (mCurrentFrame.mnId < mnLastRelocFrameId + 2) th = 5;
+
+    if (ODOMOK == mState) th = 15;  // ref from ORB3
+
     // th=10; // ORB3 use 10 here for imu_stereo
     nToMatch =
         matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th);  // rectify the mCurrentFrame.mvpMapPoints
   }
-  PRINT_DEBUG_INFO_MUTEX("befopt2 extra=" << nToMatch << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("befopt2 extra=" << nToMatch << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 }
 
 void Tracking::UpdateLocalMap() {
@@ -2311,13 +2338,12 @@ void Tracking::UpdateLocalPoints() {
     for (vector<MapPoint*>::const_iterator itMP = vpMPs.begin(), itEndMP = vpMPs.end(); itMP != itEndMP; itMP++) {
       MapPoint* pMP = *itMP;
       if (!pMP) continue;
-      if (pMP->mnTrackReferenceForFrame ==
-          mCurrentFrame.mnId)  // current F visible MapPoints initial mnTrackReferenceForFrame==0(mCurrentFrame.mnId
-                               // entering this func. cannot be 0)
-        continue;
+      // current F visible MapPoints initial mnTrackReferenceForFrame==0(mCurrentFrame.mnId entering this func. cannot
+      // be 0)
+      if (pMP->GetTrackInfoRef().track_ref_frameid_ == mCurrentFrame.mnId) continue;
       if (!pMP->isBad()) {
         mvpLocalMapPoints.push_back(pMP);
-        pMP->mnTrackReferenceForFrame = mCurrentFrame.mnId;  // so it's for avoiding redundant addition
+        pMP->GetTrackInfoRef().track_ref_frameid_ = mCurrentFrame.mnId;  // so it's for avoiding redundant addition
       }
     }
   }
@@ -2326,8 +2352,14 @@ void Tracking::UpdateLocalPoints() {
 void Tracking::UpdateLocalKeyFrames() {
   // Each map point vote for the keyframes in which it has been observed
   map<KeyFrame*, int> keyframeCounter;
-  const auto& curfmps = mCurrentFrame.GetMapPointMatches();
-  for (int i = 0; i < mCurrentFrame.N; i++) {
+  Frame* pref_f = &mCurrentFrame;
+#ifdef ORB3_STRATEGY
+  if (mpIMUInitiator->GetVINSInited() && !mbRelocBiasPrepare) {
+    pref_f = &mLastFrame;
+  }
+#endif
+  const auto& curfmps = pref_f->GetMapPointMatches();
+  for (int i = 0; i < pref_f->N; i++) {
     if (curfmps[i]) {
       MapPoint* pMP = curfmps[i];
       if (!pMP->isBad()) {
@@ -2336,7 +2368,7 @@ void Tracking::UpdateLocalKeyFrames() {
              it != itend; it++)
           keyframeCounter[it->first]++;
       } else {
-        mCurrentFrame.EraseMapPointMatch(i);
+        pref_f->EraseMapPointMatch(i);
       }
     }
   }
@@ -2383,10 +2415,8 @@ void Tracking::UpdateLocalKeyFrames() {
          itNeighKF != itEndNeighKF; itNeighKF++) {
       KeyFrame* pNeighKF = *itNeighKF;
       if (!pNeighKF->isBad()) {
-        if (pNeighKF->mnTrackReferenceForFrame !=
-            mCurrentFrame
-                .mnId)  // avoid for replicated push_back for different itKF, this cannot be mCurrentFrame(not KF now)
-        {
+        // avoid for replicated push_back for different itKF, this cannot be mCurrentFrame(not KF now)
+        if (pNeighKF->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
           mvpLocalKeyFrames.push_back(pNeighKF);
           pNeighKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;
           break;
@@ -2421,6 +2451,23 @@ void Tracking::UpdateLocalKeyFrames() {
       }
     }
   }
+
+#ifdef ORB3_STRATEGY
+  // Add 10 last temporal KFs (mainly for IMU)
+  if (mpIMUInitiator->GetSensorIMU() && mvpLocalKeyFrames.size() < 80) {
+    KeyFrame* tempKeyFrame = mpLastKeyFrame;
+
+    const int Nd = 20;
+    for (int i = 0; i < Nd; i++) {
+      if (!tempKeyFrame) break;
+      if (tempKeyFrame->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
+        mvpLocalKeyFrames.push_back(tempKeyFrame);
+        tempKeyFrame->mnTrackReferenceForFrame = mCurrentFrame.mnId;
+        tempKeyFrame = tempKeyFrame->GetPrevKeyFrame();
+      }
+    }
+  }
+#endif
 
   if (pKFmax)  // still maybe rectify this two refKF variables in CreateNewKeyFrame()
   {

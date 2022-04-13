@@ -40,11 +40,14 @@ class KeyFrame;
 class MapPoint;
 class GeometricCamera;
 
+class ConstraintPoseImu;
 class Frame : public FrameBase {
   EncPreIntegrator *ppreint_enc_kf_;
   IMUPreintegrator *ppreint_imu_kf_;
 
  public:
+  ConstraintPoseImu* mpcpi = nullptr;
+
   // For pose optimization/motion-only BA, use as prior and prior information(inverse covariance)
   Matrix<double, 15, 15> mMargCovInv;  // Sigmap in VIORBSLAM paper/prior Hessian matrix for next Frame, notice it's
                                        // unintialized(to infinity/fixedlast)

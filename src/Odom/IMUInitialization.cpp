@@ -901,7 +901,7 @@ bool IMUInitialization::TryInitVIO(
   cv::Mat vhat = gInxgwn / normgInxgwn;  // RwI=Exp(theta*^v), or we can call it vn=(gI x gw)/||gI x gw||
   double theta =
       std::atan2(normgInxgwn, gIn.dot(gwn));  // notice theta*^v belongs to [-Pi,Pi]*|^v| though theta belongs to [0,Pi]
-  Matrix3d RWIeig = Sophus::SO3exd::Expmap(Converter::toVector3d(vhat) * theta);
+  Matrix3d RWIeig = Sophus::SO3exd::Exp(Converter::toVector3d(vhat) * theta);
   Rwi = Converter::toCvMat(RWIeig);  // RwI
 
   // Solve C*x=D for x=[s,dthetaxy,ba] (1+2+3)x1 vector
@@ -960,7 +960,7 @@ bool IMUInitialization::TryInitVIO(
   cv::Mat y = vt2.t() * w2inv * u2.t() * D;                      // Then y/x = vt'*winv*u'*D
   s_ = y.at<float>(0);                                           // s*_C, C means IV-C in the paper
   Eigen::Vector3d dthetaeig(y.at<float>(1), y.at<float>(2), 0);  // small deltatheta/dtheta=[dthetaxy.t() 0].t()
-  Rwieig_ = RWIeig * Sophus::SO3exd::Expmap(dthetaeig);          // RwI*_C=RwI*_B*Exp(dtheta)
+  Rwieig_ = RWIeig * Sophus::SO3exd::Exp(dthetaeig);             // RwI*_C=RwI*_B*Exp(dtheta)
   Rwi_ = Converter::toCvMat(Rwieig_);
   //     if (k==0)
   bastareig = Converter::toVector3d(y.rowRange(3, 6));  // here bai_bar=0, so dba=ba

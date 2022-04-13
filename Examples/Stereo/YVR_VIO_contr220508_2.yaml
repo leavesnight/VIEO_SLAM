@@ -31,8 +31,8 @@ IMU.SigmaI:
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
 # [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
-# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
- [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+ [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+# [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
 # [ 7.8e-5, 1.3e-2, 1.2e-5, 3e-2 ]
 
 IMU.freq_hz: 1000.0
@@ -59,12 +59,12 @@ Camera.Tce:
 LocalMapping.LocalWindowSize: 10
 
 # the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
-ErrIMUImg: 0.03
+ErrIMUImg: 1 #0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
 IMU.InitTime: 0
-IMU.FinalTime: 2
-IMU.SleepTime: 1.0
+IMU.FinalTime: 3
+IMU.SleepTime: 0.030
 
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10

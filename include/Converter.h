@@ -38,6 +38,7 @@ namespace VIEO_SLAM {
 
 class Converter {
  public:
+  static Eigen::Matrix<double,4,4> toMatrix4d(const Sophus::SE3d &cvMat4);
   static cv::Mat toCvMatInverse(const cv::Mat &T12);  // return T21 fast using Isometry3d's property
 
   static Eigen::Isometry3d toIsometry3d(const cv::Mat &cvMat4);  // transform cv::Mat(4,4,CV_32F) to Eigen::Isometry3d

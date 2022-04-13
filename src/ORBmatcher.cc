@@ -247,30 +247,41 @@ int ORBmatcher::SearchByProjection(
     const float th)  // should use F.isInFrustum(pMP,0.5) first, it coarsely judges the scale&&rotation invariance
 {
   int nmatches = 0;
+  vector<int> nmatches_cami(F.mpCameras.size() ? F.mpCameras.size() : 1);
 
   const bool bFactor = th != 1.0;
 
   // TODO: check if ORB3 close point judge needed and in LBAInertial
   for (size_t iMP = 0; iMP < vpMapPoints.size(); ++iMP) {
     MapPoint *pMP = vpMapPoints[iMP];
-    if (!pMP->mbTrackInView)  // false when it's already in mCurrentFrame.mvpMapPoints or this local MapPoint is not in
-                              // frustum of the mCurrentFrame
-      continue;
+    auto &trackinfo = pMP->GetTrackInfoRef();
+    // false when it's already in mCurrentFrame.mvpMapPoints or this local MapPoint is not in frustum of the
+    // mCurrentFrame
+    if (!trackinfo.btrack_inview_) continue;
 
     if (pMP->isBad()) continue;
 
-    for (size_t i = 0; i < pMP->vtrack_cami.size(); ++i) {
-      size_t cami = pMP->vtrack_cami[i];
-      const int &nPredictedLevel = pMP->vtrack_scalelevel[cami];
+    auto iter_scale_level = trackinfo.vtrack_scalelevel_.begin();
+    auto iter_viewcos = trackinfo.vtrack_viewcos_.begin();
+    list<float>::iterator iter_proj[trackinfo.NUM_PROJ];
+    for (int k = 0; k < trackinfo.NUM_PROJ; ++k) iter_proj[k] = trackinfo.vtrack_proj_[k].begin();
+    auto IncIter = [&]() {
+      for (int k = 0; k < trackinfo.NUM_PROJ; ++k) ++iter_proj[k];
+      ++iter_scale_level;
+      ++iter_viewcos;
+    };
+    for (auto iter_cami = trackinfo.vtrack_cami_.begin(), iter_cami_end = trackinfo.vtrack_cami_.end();
+         iter_cami != iter_cami_end; ++iter_cami, IncIter()) {
+      size_t cami = *iter_cami;
+      const int &nPredictedLevel = *iter_scale_level;
 
       // The size of the window will depend on the viewing direction
-      float r = RadiusByViewingCos(pMP->vtrack_viewcos[cami]);
+      float r = RadiusByViewingCos(*iter_viewcos);
 
       if (bFactor) r *= th;
 
       const vector<size_t> vIndices = F.GetFeaturesInArea(
-          cami, pMP->vtrack_proj[0][cami], pMP->vtrack_proj[1][cami], r * F.mvScaleFactors[nPredictedLevel],
-          nPredictedLevel - 1,
+          cami, *iter_proj[0], *iter_proj[1], r * F.mvScaleFactors[nPredictedLevel], nPredictedLevel - 1,
           nPredictedLevel);  //-1 is for mnTrackScaleLevel uses ceil(), ceil() can also give a larger r'
 
       if (vIndices.empty()) continue;
@@ -294,7 +305,7 @@ int ORBmatcher::SearchByProjection(
           if (frame_mps[idx]->Observations() > 0) continue;
 
         if (F.mvuRight[idx] > 0) {
-          const float er = fabs(pMP->vtrack_proj[2][cami] - F.mvuRight[idx]);
+          const float er = fabs(*iter_proj[2] - F.mvuRight[idx]);
           if (er > r * F.mvScaleFactors[nPredictedLevel])  // if right virtual image's error is too large(>r')
             continue;
         }
@@ -319,18 +330,19 @@ int ORBmatcher::SearchByProjection(
 
       // Apply ratio to second match (only if best and second are in the same scale level), there are 2 possible levels
       if (bestDist <= TH_HIGH) {
-        if (bestLevel == bestLevel2 &&
-            bestDist >
-                mfNNratio *
-                    bestDist2)  // if bestDist/bestDist2 <= threshold then this bestIdx can be matched with this MP
-          continue;
+        // if bestDist/bestDist2 <= threshold then this bestIdx can be matched with this MP
+        if (bestLevel == bestLevel2 && bestDist > mfNNratio * bestDist2) continue;
 
         PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", imu_tightly_debug_path, "debug.txt");
         F.AddMapPoint(pMP, bestIdx);
         nmatches++;
+        nmatches_cami[cami]++;
       }
     }
   }
+  for (size_t cami = 0; cami < nmatches_cami.size(); ++cami)
+    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, imu_tightly_debug_path,
+                     "tracking_thread_debug.txt");
 
   return nmatches;  // this is not all the matches in mCurrentFrame.mvpMapPoints, just the addition part by local map
 }
