@@ -60,12 +60,6 @@ class LoopClosing;
 
 class Optimizer {
  public:
-  static int PoseInertialOptimizationLastKeyFrame(Frame *pFrame, KeyFrame *pLastF, const cv::Mat &gw,
-                                                  const bool bComputeMarg);
-  static int PoseInertialOptimizationLastFrame(Frame *pFrame, Frame *pLastF, const cv::Mat &gw,
-                                               const bool bComputeMarg);
-  static int PoseInertialOptimizationLastFrame2(Frame *pFrame, Frame *pLastF, const cv::Mat &gw,
-                                                const bool bComputeMarg);
   template <class MatrixNVd = MatrixXd>
   static void FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *eNSBias, g2o::EdgeEncNavStatePVR *eEnc,
                          const int8_t schur_bec, const vector<g2o::EdgeReprojectPVR *> *pvpEdgesMono,
@@ -313,7 +307,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     eNSPrior->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));
     eNSPrior->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));
     eNSPrior->setMeasurement(pLastKF->mNavStatePrior);
-    Matrix15d H = pLastKF->mMargCovInv;
+    Matrix<double,15,15> H = pLastKF->mMargCovInv;
     H = (H + H) / 2;
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 15, 15>> es(H);
     Eigen::Matrix<double, 15, 1> eigs = es.eigenvalues();
@@ -755,22 +749,6 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
                                    // pLastF->mNavState will also be optimized
     pFrame->mbPrior = true;        // let next tracking uses unfixed lastF mode!
     //     }
-  }
-
-  if (bComputeMarg) {
-    // PVRbias2RPVbias
-    Matrix15d Info = pFrame->mMargCovInv;
-    Matrix3d rr = Info.block<3, 3>(6, 6);
-    Matrix<double, 3, 6> rpv = Info.block<3, 6>(6, 0), rbias = Info.block<3, 6>(6, 9);
-    Matrix<double, 6, 3> pvr = Info.block<6, 3>(0, 6), biasr = Info.block<6, 3>(9, 6);
-    Info.block<6, 6>(3, 3) = Info.block<6, 6>(0, 0).eval();
-    Info.block<3, 3>(0, 0) = rr;
-    Info.block<3, 6>(0, 3) = rpv;
-    Info.block<6, 3>(3, 0) = pvr;
-    Info.block<3, 6>(0, 9) = rbias;
-    Info.block<6, 3>(9, 0) = biasr;
-    pFrame->mpcpi =
-        new ConstraintPoseImu(nsj.getRwb(), nsj.mpwb, nsj.mvwb, nsj.mbg + nsj.mdbg, nsj.mba + nsj.mdba, Info);
   }
 
   return nInitialCorrespondences - nBad;  // number of inliers

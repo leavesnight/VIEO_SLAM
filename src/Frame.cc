@@ -277,7 +277,6 @@ Frame::Frame() {}
 // Copy Constructor
 Frame::Frame(const Frame &frame, bool copy_shallow)
     : FrameBase(frame),  // mOdomPreIntIMU/Enc list uncopied
-      mpcpi(frame.mpcpi),
       ppreint_enc_kf_(frame.ppreint_enc_kf_),
       ppreint_imu_kf_(frame.ppreint_imu_kf_),
       mpORBvocabulary(frame.mpORBvocabulary),

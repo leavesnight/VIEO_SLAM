@@ -455,12 +455,8 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     // 2 frames' motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
     if (bMapUpdated) {
       // fixed last KF, save its Hessian
-      // Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame, mpLastKeyFrame,
-      // mpIMUInitiator->GetGravityVec(), true);
       Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), true);
     } else {
-      // Optimizer::PoseInertialOptimizationLastFrame2(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
-      // true);
       //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
       // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate()
       Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), true);
