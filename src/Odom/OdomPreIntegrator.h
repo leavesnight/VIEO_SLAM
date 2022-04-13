@@ -120,22 +120,22 @@ class IMUPreIntegratorBase
   Matrix9d mSigmaijPRV;  // Cov_p_Phi_v_ij, a bit different with paper for convenience
   Matrix9d GetProcessedInfoijPRV() const {
     Matrix9d InfoijPRV = mSigmaijPRV.inverse();
-    InfoijPRV = (InfoijPRV + InfoijPRV.transpose()) / 2;
-    Eigen::SelfAdjointEigenSolver<Matrix9d> es(InfoijPRV);
-    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
-    for (int i = 0; i < 9; ++i)  // maybe for fast speed opt.?
-      if (eigs[i] < 1e-12) eigs[i] = 0;
-    InfoijPRV = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    //    InfoijPRV = (InfoijPRV + InfoijPRV.transpose()) / 2;
+    //    Eigen::SelfAdjointEigenSolver<Matrix9d> es(InfoijPRV);
+    //    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
+    //    for (int i = 0; i < 9; ++i)  // maybe for fast speed opt.?
+    //      if (eigs[i] < 1e-12) eigs[i] = 0;
+    //    InfoijPRV = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
     return InfoijPRV;
   }
   Matrix9d GetProcessedInfoij() const {
     Matrix9d Infoij = mSigmaij.inverse();
-    Infoij = (Infoij + Infoij.transpose()) / 2;
-    Eigen::SelfAdjointEigenSolver<Matrix9d> es(Infoij);
-    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
-    for (int i = 0; i < 9; ++i)
-      if (eigs[i] < 1e-12) eigs[i] = 0;
-    Infoij = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    //    Infoij = (Infoij + Infoij.transpose()) / 2;
+    //    Eigen::SelfAdjointEigenSolver<Matrix9d> es(Infoij);
+    //    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
+    //    for (int i = 0; i < 9; ++i)
+    //      if (eigs[i] < 1e-12) eigs[i] = 0;
+    //    Infoij = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
     return Infoij;
   }
   Matrix9d mSigmaij;  // Cov_p_v_Phi_ij, opposite order with the paper

@@ -326,12 +326,12 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     eNSPrior->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));
     eNSPrior->setMeasurement(pLastKF->mNavStatePrior);
     Matrix<double, 15, 15> H = pLastKF->mMargCovInv;
-    H = (H + H) / 2;
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 15, 15>> es(H);
-    Eigen::Matrix<double, 15, 1> eigs = es.eigenvalues();
-    for (int i = 0; i < 15; i++)
-      if (eigs[i] < 1e-12) eigs[i] = 0;
-    H = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    //    H = (H + H) / 2;
+    //    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 15, 15>> es(H);
+    //    Eigen::Matrix<double, 15, 1> eigs = es.eigenvalues();
+    //    for (int i = 0; i < 15; i++)
+    //      if (eigs[i] < 1e-12) eigs[i] = 0;
+    //    H = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
     eNSPrior->setInformation(H);
     g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
     eNSPrior->setRobustKernel(rk);
@@ -707,12 +707,9 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           //          cerr << cond_num << " " << w(i) << ";";
           // too large condition is sensitive to the error of corresponding input state dimension
           //          if (cond_num <= thresh_cond) {
-          if (w(i) > 1e-6) {
-            c_inv(i, i) = 1. / w(i);
-          }  // so we try to decrease it through discarding the corresponding input state dimension info
-          else {
-            c_inv(i, i) = 0;
-          }
+          //          if (w(i) > 1e-6) {
+          c_inv(i, i) = 1. / w(i);
+          //          }  // so we try to decrease it through discarding the corresponding input state dimension info
         }
         //        cerr << endl;
         c_inv = svd_c.matrixV() * c_inv * svd_c.matrixU().transpose();  // C=USigmaVT=>C^(-1)=VSigma^(-1)UT
