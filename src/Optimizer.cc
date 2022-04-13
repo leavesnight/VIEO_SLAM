@@ -1398,7 +1398,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   Matrix3d Rcb = pFrame->meigRcb;
   Vector3d tcb = pFrame->meigtcb;
 
-  if (pLastF != NULL && pFrame->GetEncPreInt().mdeltatij > 0 && !pLastF->GetTcwRef().empty()) {
+  if (pLastF != NULL && pFrame->GetEncPreInt().mdeltatij && !pLastF->GetTcwRef().empty()) {
     // Set LastFrame vertex
     g2o::VertexNavStatePR* vnslast = new g2o::VertexNavStatePR();
     pLastF->UpdateNavStatePVRFromTcw();

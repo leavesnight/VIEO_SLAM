@@ -269,8 +269,8 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   ORBmatcher matcher(0.9, true);  // here 0.9 is useless
 
 #ifdef ORB3_STRATEGY
-  UpdateLastFrame();
-  mLastFrame.UpdateNavStatePVRFromTcw();  // maybe useless
+  // UpdateLastFrame();
+  // mLastFrame.UpdateNavStatePVRFromTcw();  // maybe useless
 #endif
 
   // Update current frame pose according to last frame or keyframe when last KF is changed by LocalMapping/LoopClosing
@@ -451,7 +451,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     mCurrentFrame.UpdateNavStatePVRFromTcw();  // here is the imu data empty condition after imu's initialized, we must
                                                // update NavState to keep continuous right Tbw after imu's initialized
   } else {
-    mCurrentFrame.UpdatePoseFromNS();
+    // mCurrentFrame.UpdatePoseFromNS();
     // 2 frames' motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
     if (bMapUpdated) {
       // fixed last KF, save its Hessian

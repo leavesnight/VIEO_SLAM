@@ -141,24 +141,34 @@ void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *
   // Notice g2o's jacobians of some vertices will be shared for all edges by allocating max vertices number needed by
   // these edges and max size(rows*cols) of jacobians of these vertices and used by starting from data of each
   // vertex jacobian; so getHessian should be done after linearizeOplus for each edge for safety!
-  eNSPVR->linearizeOplus();
+  if (eNSPVR) eNSPVR->linearizeOplus();
   if (!schur_bec) {
-    cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessian(1, robust);
+    if (eNSPVR)
+      cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessian(1, robust);
+    else
+      cov_inv.template block<9, 9>(0, 0).setZero();
     // notice On-Manifold paper puts 1st-order approximation of dbgdba to ePVR, so J_etaij_dbgdba = 0
     // but J_ePVR_dbgdba(last) != 0, J_ePVR_dbgdba(cur) = 0, J_eBias_dbgdba = I, J_eBias_PVR = 0
     cov_inv.template block<9, 6>(0, 9).setZero();
     cov_inv.template block<6, 9>(9, 0).setZero();
   } else if (2 == schur_bec) {
-    cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessian(0, robust);
-    cov_inv.template block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
-    cov_inv.template block<6, 9>(9, 0) =
-        eNSPVR->getHessianij(2, 0, exact_mode);  // cov_inv.template block<9, 6>(0, 9).template transpose();
-    cov_inv.template block<6, 6>(9, 9) = eNSPVR->getHessian(2, robust);
+    if (eNSPVR) {
+      cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessian(0, robust);
+      cov_inv.template block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
+      // eNSPVR->getHessianij(2, 0, exact_mode);  //
+      cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).template transpose();
+      cov_inv.template block<6, 6>(9, 9) = eNSPVR->getHessian(2, robust);
+    } else
+      cov_inv.setZero();
   } else {
-    cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessianij(1, 0, exact_mode);
-    cov_inv.template block<9, 6>(0, 9) = eNSPVR->getHessianij(1, 2, exact_mode);
+    if (eNSPVR) {
+      cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessianij(1, 0, exact_mode);
+      cov_inv.template block<9, 6>(0, 9) = eNSPVR->getHessianij(1, 2, exact_mode);
+    } else
+      cov_inv.template block<9, 15>(0, 0).setZero();
     cov_inv.template block<6, 9>(9, 0).setZero();  // no cur dbgdba enter ePVR edge, so J_ePVR_dbgdba(cur) = 0
   }
+  assert(eNSBias);
   eNSBias->linearizeOplus();
   if (!schur_bec) {
     cov_inv.template block<6, 6>(9, 9) = eNSBias->getHessianXj(robust);
@@ -187,8 +197,8 @@ void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *
     cov_inv.template block<6, 6>(9, 9) += eNSPrior->getHessianXj(robust);
     // fix old bug in VIORBSLAM2 old code! now H can correlate PVR with Bias, useful in hard scene!
     cov_inv.template block<9, 6>(0, 9) += eNSPrior->getHessianXij(exact_mode);
-    cov_inv.template block<6, 9>(9, 0) +=
-        eNSPrior->getHessianXji(exact_mode);  // cov_inv.template block<9, 6>(0, 9).template transpose();
+    // +=eNSPrior->getHessianXji(exact_mode);  //
+    cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).template transpose();
   } else {
     cov_inv.template block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
   }
@@ -268,23 +278,30 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   vNSKFBias->setFixed(bFixedLast);
   optimizer.addVertex(vNSKFBias);
 
+  bool bodom_edge = false;
+  g2o::EdgeNavStatePVR *eNSPVR = nullptr;
   // Set IMU_I/PVR(B) edge(ternary/multi edge) between LastKF-Frame
   const IMUPreintegrator &imupreint = pFrame->GetIMUPreInt();
-  g2o::EdgeNavStatePVR *eNSPVR = new g2o::EdgeNavStatePVR();
-  eNSPVR->setVertex(
-      0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // PVRi, i is keyframe's id
-  eNSPVR->setVertex(
-      1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(FramePVRId)));  // PVRj, j here is frame's id
-  eNSPVR->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));  // bi
-  eNSPVR->setMeasurement(imupreint);                 // set delta~PVRij/delta~pij,delta~vij,delta~Rij
-  Matrix9d Infoij = imupreint.GetProcessedInfoij();  // mSigmaij.inverse();
-  eNSPVR->setInformation(Infoij);
-  eNSPVR->SetParams(GravityVec);
-  //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-  //  eNSPVR->setRobustKernel(rk);
-  //  rk->setDelta(sqrt(16.919));  // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
-  optimizer.addEdge(eNSPVR);
-  // Set IMU_RW/Bias edge(binary edge) between LastKF-Frame
+  if (imupreint.mdeltatij) {
+    bodom_edge = true;
+    eNSPVR = new g2o::EdgeNavStatePVR();
+    eNSPVR->setVertex(
+        0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // PVRi, i is keyframe's id
+    eNSPVR->setVertex(
+        1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(FramePVRId)));  // PVRj, j here is frame's id
+    eNSPVR->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));  // bi
+    eNSPVR->setMeasurement(imupreint);                 // set delta~PVRij/delta~pij,delta~vij,delta~Rij
+    Matrix9d Infoij = imupreint.GetProcessedInfoij();  // mSigmaij.inverse();
+    eNSPVR->setInformation(Infoij);
+    eNSPVR->SetParams(GravityVec);
+    //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+    //  eNSPVR->setRobustKernel(rk);
+    // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
+    //  rk->setDelta(sqrt(16.919));
+    optimizer.addEdge(eNSPVR);
+    // Set IMU_RW/Bias edge(binary edge) between LastKF-Frame
+  }
+  // eNSBias always exists for prior H calc.
   g2o::EdgeNavStateBias *eNSBias = new g2o::EdgeNavStateBias();
   eNSBias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));  // bi
   eNSBias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(FrameBiasId)));   // bj
@@ -295,7 +312,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   InvCovBgaRW.bottomRightCorner(3, 3) =
       Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
   // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-  eNSBias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
+  double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->mTimeStamp - pLastKF->mTimeStamp;
+  eNSBias->setInformation(InvCovBgaRW / deltatij);
   //  rk = new g2o::RobustKernelHuber;
   //  eNSBias->setRobustKernel(rk);
   //  rk->setDelta(sqrt(12.592));  // chi2(0.05/0.01,6), 12.592/16.812 for 0.95/0.99 6DoF, but JW uses 16.812
@@ -307,7 +325,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     eNSPrior->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));
     eNSPrior->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));
     eNSPrior->setMeasurement(pLastKF->mNavStatePrior);
-    Matrix<double,15,15> H = pLastKF->mMargCovInv;
+    Matrix<double, 15, 15> H = pLastKF->mMargCovInv;
     H = (H + H) / 2;
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 15, 15>> es(H);
     Eigen::Matrix<double, 15, 1> eigs = es.eigenvalues();
@@ -322,7 +340,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   }
   // Set Enc edge(binary) between LastKF-Frame
   g2o::EdgeEncNavStatePVR *eEnc = nullptr;
-  if (pFrame->GetEncPreInt().mdeltatij > 0) {
+  if (pFrame->GetEncPreInt().mdeltatij) {
+    bodom_edge = true;
     // Set Enc edge(binary edge) between LastF-Frame
     const EncPreIntegrator &encpreint = pFrame->GetEncPreInt();
     eEnc = new g2o::EdgeEncNavStatePVR();
@@ -464,19 +483,43 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   }
   // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
-  if (nInitialCorrespondences < 3 && !bNoMPs)  // at least P3P（well posed equation） EPnP(n>3) (overdetermined
-                                               // equation)
-    return 0;
+  // at least P3P（well posed equation） EPnP(n>3) (overdetermined equation)
+  int nBad = 0;
+  bool bno_iter = false;
+  bodom_edge = false;
+  if ((nInitialCorrespondences < 3 && !bNoMPs)) {
+    if (!bodom_edge) {
+      return 0;
+    } else {
+      // no P3P limit when odom edge exist, where we need to update H
+      for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+        g2o::EdgeReprojectPVR *e = vpEdgesMono[i];
+        const size_t idx = vnIndexEdgeMono[i];
+        pFrame->mvbOutlier[idx] = true;
+        e->setLevel(1);
+        ++nBad;
+      }
+      for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
+        g2o::EdgeReprojectPVRStereo *e = vpEdgesStereo[i];
+        const size_t idx = vnIndexEdgeStereo[i];
+        pFrame->mvbOutlier[idx] = true;
+        e->setLevel(1);
+        ++nBad;
+      }
+      vpEdgesMono.clear();
+      vpEdgesStereo.clear();
+    }
+    bno_iter = true;
+  }
 
   // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
   // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
   const float chi2Mono[4] = {5.991, 5.991, 5.991, 5.991};
-  const float chi2Stereo[4] = {7.815, 7.815, 7.815,
-                               7.815};  // chi2(0.05,3), error_block limit(over will be outliers,here also lead to
-                                        // turning point in RobustKernelHuber)
+  // chi2(0.05,3), error_block limit(over will be outliers,here also lead to
+  // turning point in RobustKernelHuber)
+  const float chi2Stereo[4] = {7.815, 7.815, 7.815, 7.815};
   const int its[4] = {10, 10, 10, 10};
 
-  int nBad = 0;
   int nBadIMU = 0;
   // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
   for (size_t it = 0; it < 4; it++) {
@@ -493,6 +536,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     // edges(_activeEdges) to optimize
     optimizer.initializeOptimization(0);
     optimizer.optimize(its[it]);  // only call _activeEdges[k].computeError()
+
+    if (bno_iter) break;
 
     float chi2close = 1.5 * chi2Mono[it];  // ref from ORB3, can help process hard fast motion & close scene
     nBad = 0;
@@ -561,7 +606,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
   // ref from ORB3, can help process hard fast motion scene
   int nInliers = nInitialCorrespondences - nBad;
-  if (nInliers < 30) {
+  if (!bno_iter && nInliers < 30) {
     nBad = 0;
     // about 3x
     const float chi2MonoOut = 18.f;
@@ -612,7 +657,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       using Vector15d = Matrix<double, 15, 1>;
       Matrix15d cov_inv;  // PVR BgBa, order is from update vector
       if ((int8_t)g2o::kNotExact > exact_mode) {
-        eNSPVR->computeError();
+        if (eNSPVR) eNSPVR->computeError();
         eNSBias->computeError();
         if (eEnc) {
           eEnc->computeError();
@@ -630,13 +675,20 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         if ((int8_t)g2o::kNotExact <= exact_mode) {
           cov_inv_last.block<9, 9>(0, 0) = dynamic_cast<g2o::BaseVertex<9, NavState> *>(vNSKFPVR)->A();
           cov_inv_last.block<6, 6>(9, 9) = dynamic_cast<g2o::BaseVertex<6, NavState> *>(vNSKFBias)->A();
-          cov_inv_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
+          if (eNSPVR)
+            cov_inv_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
+          else
+            cov_inv_last.block<9, 6>(0, 9).setZero();
           cov_inv_last.block<6, 9>(9, 0) = cov_inv_last.block<9, 6>(0, 9).transpose();
 
-          cov_inv_cur_last.block<9, 9>(0, 0) = eNSPVR->getHessianij(1, 0, exact_mode);
-          cov_inv_cur_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(1, 2, exact_mode);
+          if (eNSPVR) {
+            cov_inv_cur_last.block<9, 9>(0, 0) = eNSPVR->getHessianij(1, 0, exact_mode);
+            cov_inv_cur_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(1, 2, exact_mode);
+          } else
+            cov_inv_cur_last.block<9, 15>(0, 0).setZero();
           cov_inv_cur_last.block<6, 9>(9, 0).setZero();
           cov_inv_cur_last.block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
+          if (eEnc) cov_inv_cur_last.block<9, 9>(0, 0) += eEnc->getHessianXji(exact_mode);
         } else {
           eNSPrior->computeError();
           FillCovInv(eNSPVR, eNSBias, eEnc, 2, &vpEdgesMono, &vpEdgesStereo, cov_inv_last, eNSPrior, exact_mode);
