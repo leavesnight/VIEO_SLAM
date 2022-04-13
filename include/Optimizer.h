@@ -443,7 +443,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           // record the edge recording feature index
           vpEdgesMono.push_back(e);
           vnIndexEdgeMono.push_back(i);
-          e->computeError();
+          //e->computeError();
           // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
           // imu_tightly_debug_path,"tracking_thread_debug.txt");
         } else  // Stereo observation

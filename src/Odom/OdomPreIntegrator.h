@@ -8,7 +8,7 @@
 
 #include <iostream>
 
-#define USE_PREINT_EULA
+//#define USE_PREINT_EULA
 
 namespace VIEO_SLAM {
 
