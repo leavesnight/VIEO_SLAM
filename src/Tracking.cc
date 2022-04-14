@@ -198,6 +198,7 @@ void Tracking::PreIntegration(const int8_t type) {
       brecompute_kf2kfpreint_[0] = false;
     //   cout<<"!"<<mlOdomIMU.size()<<endl;
     //   cout<<"encdata over"<<endl;
+    // TODO(zzh): put it before lock MapUpdate!
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[1])
       bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, nullptr);
     else
@@ -784,6 +785,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
   CLEAR_DEBUG_INFO("start tracking debug:", imu_tightly_debug_path, "tracking_thread_debug.txt");
   CLEAR_DEBUG_INFO("start imu init debug:", imu_tightly_debug_path, "imu_init_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start localmapping debug:", imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   mbf = fSettings["Camera.bf"];
 

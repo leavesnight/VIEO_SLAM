@@ -43,6 +43,19 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
+#define ORB3_STRATEGY
+  int optit = 5;
+#ifdef ORB3_STRATEGY
+  const int maxFixKF = 200;  // limit fixed vertex size to ensure speed
+  bool bLarge = false;
+  if (bLarge) {
+    Nlocal *= 2.5;
+    optit = 4;
+  } else {
+    optit = 10;
+  }
+#endif
+
   // strategy refering the VIORBSLAM paper Fig.3.
   list<KeyFrame*> lLocalKeyFrames;
   // All KeyFrames in Local window are optimized, get N last KFs as Local Window
@@ -94,6 +107,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
         pKFi->mnBAFixedForKF = pKF->mnId;
         if (!pKFi->isBad()) lFixedCameras.push_back(pKFi);
       }
+#ifdef ORB3_STRATEGY
+      if (lFixedCameras.size() >= maxFixKF) break;
+#endif
     }
   }
   PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
@@ -118,10 +134,19 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   g2o::OptimizationAlgorithmLevenberg* solver =
       new g2o::OptimizationAlgorithmLevenberg(solver_ptr);  // LM descending method
 #endif
+#ifdef ORB3_STRATEGY
+  if (bLarge) {
+    solver->setUserLambdaInit(1e-2);  // to avoid iterating for finding optimal lambda
+  } else {
+    solver->setUserLambdaInit(1e0);
+  }
+#endif
   optimizer.setAlgorithm(solver);
 
+#ifndef ORB3_STRATEGY
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
+#endif
 
   unsigned long maxKFid = 0;
 
@@ -217,6 +242,21 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
       eprv->setMeasurement(imupreint);
       Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
+#ifdef ORB3_STRATEGY
+      bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
+      bool bRecInit = false;  // true;//
+      if (bfixedkf || bRecInit) {
+        if (bfixedkf) {
+          eprv->setInformation(InfoijPRV * 1e-2);
+        } else
+          eprv->setInformation(InfoijPRV);
+
+        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+        eprv->setRobustKernel(rk);
+        rk->setDelta(thHuberNavStatePRV);
+      } else
+        eprv->setInformation(InfoijPRV);
+#else
       if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed()) {
         eprv->setInformation(InfoijPRV * 1e-2);
       } else
@@ -224,6 +264,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
       eprv->setRobustKernel(rk);
       rk->setDelta(thHuberNavStatePRV);
+#endif
       eprv->SetParams(GravityVec);
       optimizer.addEdge(eprv);
       vpEdgesNavStatePRV.push_back(eprv);  // for robust processing/ erroneous edges' culling
@@ -234,6 +275,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
     double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
+#ifdef ORB3_STRATEGY
+    ebias->setInformation(InvCovBgaRW / deltatij);
+#else
     // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
     if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed()) {
       ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
@@ -242,6 +286,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
     ebias->setRobustKernel(rk);
     rk->setDelta(thHuberNavStateBias);
+#endif
     optimizer.addEdge(ebias);
     vpEdgesNavStateBias.push_back(ebias);
 
@@ -259,9 +304,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     else
       // no vbgba problem(camera could not give enough restriction on vbgba) but
       eEnc->setInformation(encpreint.mSigmaEij.inverse());
-    // calibration for enc is worse so we add robust kernel here
-    // g2o::RobustKernelHuber*;
+      // calibration for enc is worse so we add robust kernel here
+#ifdef ORB3_STRATEGY
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+#else
     rk = new g2o::RobustKernelHuber;
+#endif
     eEnc->setRobustKernel(rk);
     rk->setDelta(sqrt(12.592));  // chi2(0.05,6)=12.592//chi2(0.05,3)=7.815
     eEnc->qRbe = qRbe;
@@ -291,8 +339,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   vector<MapPoint*> vpMapPointEdgeStereo;
   vpMapPointEdgeStereo.reserve(nExpectedSize);
 
-  const float thHuberMono = sqrt(5.991);    // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block),
-  const float thHuberStereo = sqrt(7.815);  // chi2(0.05,3)
+  const float chi2Mono = 5.991;
+  const float thHuberMono = sqrt(chi2Mono);  // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block),
+  const float thHuberStereo = sqrt(7.815);   // chi2(0.05,3)
   Pinhole CamInst;
   bool binitcaminst = false;
   // Extrinsics
@@ -316,6 +365,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     for (map<KeyFrame*, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend;
          ++mit) {
       KeyFrame* pKFi = mit->first;
+
+#ifdef ORB3_STRATEGY
+      if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) continue;
+#endif
 
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
@@ -407,14 +460,21 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
   PRINT_INFO_MUTEX("factor_visual num=" << vpEdgesMono.size() << endl);
 
+#ifndef ORB3_STRATEGY
   if (pbStopFlag)     // true in LocalMapping
     if (*pbStopFlag)  // if mbAbortBA
       return;
+#endif
 
   optimizer.initializeOptimization();
-  optimizer.optimize(5);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
-
+#ifdef ORB3_STRATEGY
+  optimizer.computeActiveErrors();
+  float err = optimizer.activeRobustChi2();
+  bool bDoMore = false;
+#else
   bool bDoMore = true;
+#endif
+  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
 
   if (pbStopFlag)
     if (*pbStopFlag)  // judge mbAbortBA again
@@ -425,12 +485,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
       g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
+      // ref from ORB3
+      bool bClose = pMP->GetTrackInfoRef().track_depth_ < 10.f;
 
       if (pMP->isBad())  // why this can be true?
         continue;
 
-      if (e->chi2() > 5.991 || !e->isDepthPositive())  // if chi2 error too big(5% wrong) or Zc<=0 then outlier
-      {
+      // if chi2 error too big(5% wrong) or Zc<=0 then outlier
+      if (e->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e->isDepthPositive()) {
         e->setLevel(1);
       }
 
@@ -462,10 +524,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
     const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
+    // ref from ORB3
+    bool bClose = pMP->GetTrackInfoRef().track_depth_ < 10.f;
 
     if (pMP->isBad()) continue;
 
-    if (e.pedge->chi2() > 5.991 || !e.pedge->isDepthPositive()) {
+    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
       vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
     }
@@ -503,6 +567,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
                                imu_tightly_debug_path, "debug.txt");
       }
     }
+  }
+#endif
+
+#ifdef ORB3_STRATEGY
+  float err_end = optimizer.activeRobustChi2();
+  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
+    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    return;
   }
 #endif
 
