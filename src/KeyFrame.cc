@@ -561,10 +561,13 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", imu_tightly_debug_path, "debug.txt");
+  // not wise to search replaced too deep if this replace is outlier or max_depth too large
+  int depth = 0, depth_thresh = 5;
   while (pMP && pMP->isBad()) {
     pMP = pMP->GetReplaced();
+    if (++depth >= depth_thresh) break;
   }
-  if (!pMP) return;
+  if (!pMP || pMP->isBad()) return;
 
   // If there is already a MapPoint replace otherwise add new measurement
   MapPoint *pMPinKF = GetMapPoint(idx);

@@ -143,10 +143,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 #endif
   optimizer.setAlgorithm(solver);
 
-#ifndef ORB3_STRATEGY
+  //#ifndef ORB3_STRATEGY
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
-#endif
+  //#endif
 
   unsigned long maxKFid = 0;
 
@@ -460,16 +460,16 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
   PRINT_INFO_MUTEX("factor_visual num=" << vpEdgesMono.size() << endl);
 
-#ifndef ORB3_STRATEGY
+  //#ifndef ORB3_STRATEGY
   if (pbStopFlag)     // true in LocalMapping
     if (*pbStopFlag)  // if mbAbortBA
       return;
-#endif
+  //#endif
 
   optimizer.initializeOptimization();
 #ifdef ORB3_STRATEGY
-  optimizer.computeActiveErrors();
-  float err = optimizer.activeRobustChi2();
+  //  optimizer.computeActiveErrors();
+  //  float err = optimizer.activeRobustChi2();
   bool bDoMore = false;
 #else
   bool bDoMore = true;
@@ -570,13 +570,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
 #endif
 
-#ifdef ORB3_STRATEGY
-  float err_end = optimizer.activeRobustChi2();
-  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
-    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
-    return;
-  }
-#endif
+  //#ifdef ORB3_STRATEGY
+  //  float err_end = optimizer.activeRobustChi2();
+  //  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
+  //    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  //    return;
+  //  }
+  //#endif
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
@@ -2855,7 +2855,7 @@ int Optimizer::PoseInertialOptimizationLastFrame2(Frame* pFrame, Frame* pLastKF,
 
     H = Marginalize(H, 0, 14);
 
-    pFrame->mMargCovInv = H.block<15, 15>(15, 15);//cov_inv;//
+    pFrame->mMargCovInv = H.block<15, 15>(15, 15);  // cov_inv;//
     pFrame->mNavStatePrior = nsj;  // pLastF->mNavStatePrior is needed for this func. will be called twice and
     // pLastF->mNavState will also be optimized
     pFrame->mbPrior = true;  // let next tracking uses unfixed lastF mode!

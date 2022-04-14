@@ -456,15 +456,16 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     // 2 frames' motion-only BA, for added matching MP&&KeyPoints in SearchLocalPoints();
     if (bMapUpdated) {
       // fixed last KF, save its Hessian
-      Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame, mpLastKeyFrame,
-       mpIMUInitiator->GetGravityVec(), true);
-      //Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), true);
+      // Optimizer::PoseInertialOptimizationLastKeyFrame(&mCurrentFrame, mpLastKeyFrame,
+      // mpIMUInitiator->GetGravityVec(),
+      //                                                true);
+      Optimizer::PoseOptimization(&mCurrentFrame, mpLastKeyFrame, mpIMUInitiator->GetGravityVec(), true);
     } else {
-      Optimizer::PoseInertialOptimizationLastFrame(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
-       true);
+      // Optimizer::PoseInertialOptimizationLastFrame(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(),
+      // true);
       //       assert(mLastFrame.mbPrior==true||mLastFrame.mbPrior==false&&(mCurrentFrame.mnId==mnLastRelocFrameId+20||mnLastRelocFrameId==0));
       // last F unfixed/fixed when lastF.mOdomPreIntIMU.deltatij==0 or RecomputeIMUBiasAndCurrentNavstate()
-      //Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), true);
+      Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame, mpIMUInitiator->GetGravityVec(), true);
       if (mLastFrame.GetIMUPreInt().mdeltatij == 0)
         cout << redSTR "LastF.deltatij==0!In TrackLocalMapWithIMU(), Check!" << whiteSTR << endl;
     }
@@ -1649,6 +1650,8 @@ void Tracking::CheckReplacedInLastFrame() {
       if (pRep) {
         size_t cami = mLastFrame.mapn2in_.size() <= i ? 0 : get<0>(mLastFrame.mapn2in_[i]);
         CV_Assert(pMP->isBad());
+        // not wise to search replaced too deep if this replace is outlier or max_depth too large
+        int depth = 0, depth_thresh = 5;
         while (pRep && pRep->isBad()) {
 #ifndef CHECK_REPLACE_ALL
           // solve0: lastframe seen mp-1->mp0->mp1, mp0->mp1, (mp0 seen in lastframe), then mp-1 should be directly
@@ -1656,10 +1659,12 @@ void Tracking::CheckReplacedInLastFrame() {
           if (spAlreadyFound.end() != spAlreadyFound.find(make_pair(pRep, cami))) break;
 #endif
           pRep = pRep->GetReplaced();
+          if (++depth >= depth_thresh) break;
         }
         // notice that 2features in the same frame could see the same mp, caused by replace op.
         bool bcontinue = false;
-        if (!pRep  // solve1: lastframe seen mp-1->mp0->mp1->null, (mp1 bad), then mp-1 should be directly erased
+        // solve1: lastframe seen mp-1->mp0->mp1->null, (mp1 bad), then mp-1 should be directly erased
+        if (!pRep || pRep->isBad()
 #ifndef CHECK_REPLACE_ALL
             || spAlreadyFound.end() != spAlreadyFound.find(make_pair(pRep, cami))  // solve0
 #endif
@@ -1684,11 +1689,12 @@ void Tracking::CheckReplacedInLastFrame() {
           mLastFrame.mvbOutlier[i] = false;
           continue;
         }
-        PRINT_DEBUG_INFO_MUTEX(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), imu_tightly_debug_path,
-                               "debug.txt");
+        // cannot lock1 then lock2 while other thread lock2 then lock1!
+        PRINT_DEBUG_INFO(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), imu_tightly_debug_path,
+                         "tracking_thread_debug.txt");
 #ifndef CHECK_REPLACE_ALL
         if (spAlreadyFound.end() != spAlreadyFound.find(make_pair(pRep, cami)))
-          PRINT_DEBUG_INFO_MUTEX(endl, imu_tightly_debug_path, "debug.txt");
+          PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
           //        CV_Assert(spAlreadyFound.end() == spAlreadyFound.find(pRep));
 #endif
         mLastFrame.ReplaceMapPointMatch(i, pRep);  // if it's replaced by localMapper, use the replaced one
