@@ -1703,6 +1703,1167 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   return nInitialCorrespondences - nBad;  // number of inliers
 }
 
+Eigen::MatrixXd Marginalize(const Eigen::MatrixXd& H, const int& start, const int& end) {
+  // Goal
+  // a  | ab | ac       a*  | 0 | ac*
+  // ba | b  | bc  -->  0   | 0 | 0
+  // ca | cb | c        ca* | 0 | c*
+
+  // Size of block before block to marginalize
+  const int a = start;
+  // Size of block to marginalize
+  const int b = end - start + 1;
+  // Size of block after block to marginalize
+  const int c = H.cols() - (end + 1);
+
+  // Reorder as follows:
+  // a  | ab | ac       a  | ac | ab
+  // ba | b  | bc  -->  ca | c  | cb
+  // ca | cb | c        ba | bc | b
+
+  Eigen::MatrixXd Hn = Eigen::MatrixXd::Zero(H.rows(), H.cols());
+  if (a > 0) {
+    Hn.block(0, 0, a, a) = H.block(0, 0, a, a);
+    Hn.block(0, a + c, a, b) = H.block(0, a, a, b);
+    Hn.block(a + c, 0, b, a) = H.block(a, 0, b, a);
+  }
+  if (a > 0 && c > 0) {
+    Hn.block(0, a, a, c) = H.block(0, a + b, a, c);
+    Hn.block(a, 0, c, a) = H.block(a + b, 0, c, a);
+  }
+  if (c > 0) {
+    Hn.block(a, a, c, c) = H.block(a + b, a + b, c, c);
+    Hn.block(a, a + c, c, b) = H.block(a + b, a, c, b);
+    Hn.block(a + c, a, b, c) = H.block(a, a + b, b, c);
+  }
+  Hn.block(a + c, a + c, b, b) = H.block(a, a, b, b);
+
+  // Perform marginalization (Schur complement)
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(Hn.block(a + c, a + c, b, b), Eigen::ComputeThinU | Eigen::ComputeThinV);
+  Eigen::JacobiSVD<Eigen::MatrixXd>::SingularValuesType singularValues_inv = svd.singularValues();
+  for (int i = 0; i < b; ++i) {
+    if (singularValues_inv(i) > 1e-6)
+      singularValues_inv(i) = 1.0 / singularValues_inv(i);
+    else
+      singularValues_inv(i) = 0;
+  }
+  Eigen::MatrixXd invHb = svd.matrixV() * singularValues_inv.asDiagonal() * svd.matrixU().transpose();
+  Hn.block(0, 0, a + c, a + c) =
+      Hn.block(0, 0, a + c, a + c) - Hn.block(0, a + c, a + c, b) * invHb * Hn.block(a + c, 0, b, a + c);
+  Hn.block(a + c, a + c, b, b) = Eigen::MatrixXd::Zero(b, b);
+  Hn.block(0, a + c, a + c, b) = Eigen::MatrixXd::Zero(a + c, b);
+  Hn.block(a + c, 0, b, a + c) = Eigen::MatrixXd::Zero(b, a + c);
+
+  // Inverse reorder
+  // a*  | ac* | 0       a*  | 0 | ac*
+  // ca* | c*  | 0  -->  0   | 0 | 0
+  // 0   | 0   | 0       ca* | 0 | c*
+  Eigen::MatrixXd res = Eigen::MatrixXd::Zero(H.rows(), H.cols());
+  if (a > 0) {
+    res.block(0, 0, a, a) = Hn.block(0, 0, a, a);
+    res.block(0, a, a, b) = Hn.block(0, a + c, a, b);
+    res.block(a, 0, b, a) = Hn.block(a + c, 0, b, a);
+  }
+  if (a > 0 && c > 0) {
+    res.block(0, a + b, a, c) = Hn.block(0, a, a, c);
+    res.block(a + b, 0, c, a) = Hn.block(a, 0, c, a);
+  }
+  if (c > 0) {
+    res.block(a + b, a + b, c, c) = Hn.block(a, a, c, c);
+    res.block(a + b, a, c, b) = Hn.block(a, a + c, c, b);
+    res.block(a, a + b, b, c) = Hn.block(a + c, a, b, c);
+  }
+
+  res.block(a, a, b, b) = Hn.block(a + c, a + c, b, b);
+
+  return res;
+}
+int Optimizer::PoseInertialOptimizationLastKeyFrame(Frame* pFrame, KeyFrame* pLastF, const cv::Mat& gw,
+                                                    const bool bComputeMarg) {
+  g2o::SparseOptimizer optimizer;
+  g2o::BlockSolverX::LinearSolverType* linearSolver;
+
+  linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
+
+  g2o::BlockSolverX* solver_ptr = new g2o::BlockSolverX(linearSolver);
+
+  g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);
+  optimizer.setVerbose(false);
+  optimizer.setAlgorithm(solver);
+
+  int nInitialMonoCorrespondences = 0;
+  int nInitialStereoCorrespondences = 0;
+  int nInitialCorrespondences = 0;
+
+  // Set Frame vertex
+  auto& nsj = pFrame->GetNavStateRef();
+  VertexPose* VP = new VertexPose(pFrame);
+  VP->setId(0);
+  VP->setFixed(false);
+  optimizer.addVertex(VP);
+  VertexVelocity* VV = new VertexVelocity(pFrame);
+  VV->setId(1);
+  VV->setFixed(false);
+  optimizer.addVertex(VV);
+  g2o::VertexGyrBias* VG = new g2o::VertexGyrBias();
+  VG->setEstimate(nsj.mbg + nsj.mdbg);
+  VG->setId(2);
+  VG->setFixed(false);
+  optimizer.addVertex(VG);
+  g2o::VertexGyrBias* VA = new g2o::VertexGyrBias();
+  VA->setEstimate(nsj.mba + nsj.mdba);
+  VA->setId(3);
+  VA->setFixed(false);
+  optimizer.addVertex(VA);
+
+  // Set MapPoint vertices
+  const int N = pFrame->N;
+
+  vector<EdgeMonoOnlyPose*> vpEdgesMono;
+  vector<size_t> vnIndexEdgeMono;
+  vector<size_t> vnIndexEdgeStereo;
+  vpEdgesMono.reserve(N);
+  vnIndexEdgeMono.reserve(N);
+
+  const float thHuberMono = sqrt(5.991);
+  const float thHuberStereo = sqrt(7.815);
+
+  const auto& frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
+  {
+    unique_lock<mutex> lock(MapPoint::mGlobalMutex);
+
+    for (int i = 0; i < N; i++) {
+      MapPoint* pMP = frame_mps[i];
+      if (pMP) {
+        cv::KeyPoint kpUn;
+
+        // Left monocular observation
+        if (1) {
+          kpUn = pFrame->mvKeys[i];
+
+          nInitialMonoCorrespondences++;
+          pFrame->mvbOutlier[i] = false;
+
+          Eigen::Matrix<double, 2, 1> obs;
+          obs << kpUn.pt.x, kpUn.pt.y;
+
+          auto cami = get<0>(pFrame->mapn2in_[i]);
+          EdgeMonoOnlyPose* e = new EdgeMonoOnlyPose(pMP->GetWorldPos(), cami);
+
+          e->setVertex(0, VP);
+          e->setMeasurement(obs);
+
+          // Add here uncerteinty
+          const float unc2 = 1;  // pFrame->mpCamera->uncertainty2(obs);
+
+          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave] / unc2;
+          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+          e->setRobustKernel(rk);
+          rk->setDelta(thHuberMono);
+
+          optimizer.addEdge(e);
+
+          vpEdgesMono.push_back(e);
+          vnIndexEdgeMono.push_back(i);
+          e->computeError();
+          // PRINT_DEBUG_INFO(cami << "e chi2=" << e->chi2() << " ", imu_tightly_debug_path,
+          // "tracking_thread_debug.txt");
+        }
+      }
+    }
+  }
+  // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  nInitialCorrespondences = nInitialMonoCorrespondences + nInitialStereoCorrespondences;
+
+  KeyFrame* pKF = pLastF;
+  auto nsi = pKF->GetNavState();
+  VertexPose* VPk = new VertexPose(pKF);
+  VPk->setId(4);
+  VPk->setFixed(true);
+  optimizer.addVertex(VPk);
+  VertexVelocity* VVk = new VertexVelocity(pKF);
+  VVk->setId(5);
+  VVk->setFixed(true);
+  optimizer.addVertex(VVk);
+  g2o::VertexGyrBias* VGk = new g2o::VertexGyrBias();
+  VGk->setEstimate(nsi.mbg + nsi.mdbg);
+  VGk->setId(6);
+  VGk->setFixed(true);
+  optimizer.addVertex(VGk);
+  g2o::VertexGyrBias* VAk = new g2o::VertexGyrBias();
+  VAk->setEstimate(nsi.mba + nsi.mdba);
+  VAk->setId(7);
+  VAk->setFixed(true);
+  optimizer.addVertex(VAk);
+
+  IMUPreintegrator imupreint = pFrame->GetIMUPreInt();
+  //  cout << fixed<<setprecision(9);
+  //  cout << "check SigmaPRV raw=" << pFrame->GetIMUPreInt().mSigmaij << endl;
+  EdgeInertial* ei = new EdgeInertial(&imupreint, Converter::toVector3d(gw), nsi.mbg, nsi.mba);
+
+  ei->setVertex(0, VPk);
+  ei->setVertex(1, VVk);
+  ei->setVertex(2, VGk);
+  ei->setVertex(3, VAk);
+  ei->setVertex(4, VP);
+  ei->setVertex(5, VV);
+  optimizer.addEdge(ei);
+
+  EdgeGyroRW* egr = new EdgeGyroRW();
+  egr->setVertex(0, VGk);
+  egr->setVertex(1, VG);
+  Matrix<double, 6, 6> InvCovBgaRW = Matrix<double, 6, 6>::Identity();
+  InvCovBgaRW.topLeftCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmabg2;  // Gyroscope bias random walk, covariance INVERSE
+  InvCovBgaRW.bottomRightCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
+  // pFrame->mpImuPreintegratedFrame->C.rowRange(9, 12).colRange(9, 12).inv(cv::DECOMP_SVD);
+  Eigen::Matrix3d InfoG = InvCovBgaRW.topLeftCorner(3, 3) / imupreint.mdeltatij;
+  egr->setInformation(InfoG);
+  optimizer.addEdge(egr);
+
+  EdgeAccRW* ear = new EdgeAccRW();
+  ear->setVertex(0, VAk);
+  ear->setVertex(1, VA);
+  Eigen::Matrix3d InfoA = InvCovBgaRW.bottomRightCorner(3, 3) / imupreint.mdeltatij;
+  ear->setInformation(InfoA);
+  optimizer.addEdge(ear);
+
+  // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
+  // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
+  float chi2Mono[4] = {12, 7.5, 5.991, 5.991};
+  //  float chi2Stereo[4]={15.6,9.8,7.815,7.815};
+
+  int its[4] = {10, 10, 10, 10};
+
+  int nBad = 0;
+  int nBadMono = 0;
+  int nBadStereo = 0;
+  int nInliersMono = 0;
+  int nInliersStereo = 0;
+  int nInliers = 0;
+  bool bOut = false;
+  for (size_t it = 0; it < 4; it++) {
+    // PRINT_DEBUG_INFO(it << ":" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    optimizer.initializeOptimization(0);
+    optimizer.optimize(its[it]);
+
+    nBad = 0;
+    nBadMono = 0;
+    nBadStereo = 0;
+    nInliers = 0;
+    nInliersMono = 0;
+    nInliersStereo = 0;
+    float chi2close = 1.5 * chi2Mono[it];
+
+    // For monocular observations
+    for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+      EdgeMonoOnlyPose* e = vpEdgesMono[i];
+
+      const size_t idx = vnIndexEdgeMono[i];
+
+      if (1 || pFrame->mvbOutlier[idx]) {
+        e->computeError();
+      }
+
+      const float chi2 = e->chi2();
+      bool bClose = frame_mps[idx]->GetTrackInfoRef().track_depth_ < 10.f;
+
+      if ((chi2 > chi2Mono[it] && !bClose) || (bClose && chi2 > chi2close) || !e->isDepthPositive()) {
+        pFrame->mvbOutlier[idx] = true;
+        e->setLevel(1);
+        nBadMono++;
+      } else {
+        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", imu_tightly_debug_path, "tracking_thread_debug.txt");
+        pFrame->mvbOutlier[idx] = false;
+        e->setLevel(0);
+        nInliersMono++;
+      }
+
+      if (it == 2) e->setRobustKernel(0);
+    }
+
+    nInliers = nInliersMono + nInliersStereo;
+    nBad = nBadMono + nBadStereo;
+
+    // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    if (optimizer.edges().size() < 10) {
+      cout << "PIOLKF: NOT ENOUGH EDGES" << endl;
+      break;
+    }
+  }
+
+  // If not too much tracks, recover not too bad points
+  if ((nInliers < 30)) {
+    nBad = 0;
+    const float chi2MonoOut = 18.f;
+    const float chi2StereoOut = 24.f;
+    EdgeMonoOnlyPose* e1;
+    for (size_t i = 0, iend = vnIndexEdgeMono.size(); i < iend; i++) {
+      const size_t idx = vnIndexEdgeMono[i];
+      e1 = vpEdgesMono[i];
+      e1->computeError();
+      if (e1->chi2() < chi2MonoOut)
+        pFrame->mvbOutlier[idx] = false;
+      else
+        nBad++;
+    }
+  }
+
+  // Recover optimized pose, velocity and biases
+  nsj.mRwb = VP->estimate().Rwb;
+  nsj.mpwb = VP->estimate().twb;
+  nsj.mvwb = VV->estimate();
+  nsj.mdbg = VG->estimate() - nsj.mbg;
+  nsj.mdba = VA->estimate() - nsj.mba;
+  pFrame->UpdatePoseFromNS();
+
+  // Recover Hessian, marginalize keyFframe states and generate new prior for frame
+  Eigen::Matrix<double, 15, 15> H;
+  H.setZero();
+
+  H.block<9, 9>(0, 0) += ei->GetHessian2();
+  H.block<3, 3>(9, 9) += egr->GetHessian2();
+  H.block<3, 3>(12, 12) += ear->GetHessian2();
+
+  int tot_in = 0, tot_out = 0;
+  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+    EdgeMonoOnlyPose* e = vpEdgesMono[i];
+
+    const size_t idx = vnIndexEdgeMono[i];
+
+    if (!pFrame->mvbOutlier[idx]) {
+      H.block<6, 6>(0, 0) += e->GetHessian();
+      tot_in++;
+    } else
+      tot_out++;
+  }
+
+  pFrame->mpcpi =
+      new ConstraintPoseImu(VP->estimate().Rwb, VP->estimate().twb, VV->estimate(), VG->estimate(), VA->estimate(), H);
+
+  return nInitialCorrespondences - nBad;
+}
+int Optimizer::PoseInertialOptimizationLastFrame(Frame* pFrame, Frame* pLastF, const cv::Mat& gw,
+                                                 const bool bComputeMarg) {
+  g2o::SparseOptimizer optimizer;
+  g2o::BlockSolverX::LinearSolverType* linearSolver;
+
+  linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
+
+  g2o::BlockSolverX* solver_ptr = new g2o::BlockSolverX(linearSolver);
+
+  g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);
+  optimizer.setAlgorithm(solver);
+  optimizer.setVerbose(false);
+
+  int nInitialMonoCorrespondences = 0;
+  int nInitialStereoCorrespondences = 0;
+  int nInitialCorrespondences = 0;
+
+  // Set Current Frame vertex
+  auto& nsj = pFrame->GetNavStateRef();
+  VertexPose* VP = new VertexPose(pFrame);
+  VP->setId(0);
+  VP->setFixed(false);
+  optimizer.addVertex(VP);
+  VertexVelocity* VV = new VertexVelocity(pFrame);
+  VV->setId(1);
+  VV->setFixed(false);
+  optimizer.addVertex(VV);
+  g2o::VertexGyrBias* VG = new g2o::VertexGyrBias();
+  VG->setEstimate(nsj.mbg + nsj.mdbg);
+  VG->setId(2);
+  VG->setFixed(false);
+  optimizer.addVertex(VG);
+  g2o::VertexGyrBias* VA = new g2o::VertexGyrBias();
+  VA->setEstimate(nsj.mba + nsj.mdba);
+  VA->setId(3);
+  VA->setFixed(false);
+  optimizer.addVertex(VA);
+
+  // Set MapPoint vertices
+  const int N = pFrame->N;
+
+  vector<EdgeMonoOnlyPose*> vpEdgesMono;
+  // vector<EdgeStereoOnlyPose*> vpEdgesStereo;
+  vector<size_t> vnIndexEdgeMono;
+  // vector<size_t> vnIndexEdgeStereo;
+  vpEdgesMono.reserve(N);
+  // vpEdgesStereo.reserve(N);
+  vnIndexEdgeMono.reserve(N);
+  // vnIndexEdgeStereo.reserve(N);
+
+  const float thHuberMono = sqrt(5.991);
+  // const float thHuberStereo = sqrt(7.815);
+
+  const auto& frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
+  {
+    unique_lock<mutex> lock(MapPoint::mGlobalMutex);
+
+    for (int i = 0; i < N; i++) {
+      MapPoint* pMP = frame_mps[i];
+      if (pMP) {
+        cv::KeyPoint kpUn;
+        // Left monocular observation
+        if (1) {
+          kpUn = pFrame->mvKeys[i];
+
+          nInitialMonoCorrespondences++;
+          pFrame->mvbOutlier[i] = false;
+
+          Eigen::Matrix<double, 2, 1> obs;
+          obs << kpUn.pt.x, kpUn.pt.y;
+
+          auto cami = get<0>(pFrame->mapn2in_[i]);
+          EdgeMonoOnlyPose* e = new EdgeMonoOnlyPose(pMP->GetWorldPos(), cami);
+
+          e->setVertex(0, VP);
+          e->setMeasurement(obs);
+
+          // Add here uncerteinty
+          const float unc2 = 1;  // pFrame->mpCameras[cami]->uncertainty2(obs);
+
+          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave] / unc2;
+          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+          e->setRobustKernel(rk);
+          rk->setDelta(thHuberMono);
+
+          optimizer.addEdge(e);
+
+          vpEdgesMono.push_back(e);
+          vnIndexEdgeMono.push_back(i);
+          e->computeError();
+          // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ", imu_tightly_debug_path,
+          // "tracking_thread_debug.txt");
+        }
+      }
+    }
+  }
+  // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+
+  nInitialCorrespondences = nInitialMonoCorrespondences + nInitialStereoCorrespondences;
+
+  // Set Previous Frame Vertex
+  Frame* pFp = pLastF;
+  auto& nsi = pLastF->GetNavStateRef();
+
+  VertexPose* VPk = new VertexPose(pFp);
+  VPk->setId(4);
+  bool blastfix = false;
+  VPk->setFixed(blastfix);
+  optimizer.addVertex(VPk);
+  VertexVelocity* VVk = new VertexVelocity(pFp);
+  VVk->setId(5);
+  VVk->setFixed(blastfix);
+  optimizer.addVertex(VVk);
+  g2o::VertexGyrBias* VGk = new g2o::VertexGyrBias();
+  VGk->setEstimate(nsi.mbg + nsi.mdbg);
+  VGk->setId(6);
+  VGk->setFixed(blastfix);
+  optimizer.addVertex(VGk);
+  g2o::VertexGyrBias* VAk = new g2o::VertexGyrBias();
+  VAk->setEstimate(nsi.mba + nsi.mdba);
+  VAk->setId(7);
+  VAk->setFixed(blastfix);
+  optimizer.addVertex(VAk);
+
+  IMUPreintegrator imupreint = pFrame->GetIMUPreInt();
+  EdgeInertial* ei = new EdgeInertial(&imupreint, Converter::toVector3d(gw), nsi.mbg, nsi.mba);
+
+  CV_Assert(VP == optimizer.vertex(0));
+  CV_Assert(VV == optimizer.vertex(1));
+  CV_Assert(VPk == optimizer.vertex(4));
+  CV_Assert(VVk == optimizer.vertex(5));
+  CV_Assert(VGk == optimizer.vertex(6));
+  CV_Assert(VAk == optimizer.vertex(7));
+  ei->setVertex(0, VPk);
+  ei->setVertex(1, VVk);
+  ei->setVertex(2, VGk);
+  ei->setVertex(3, VAk);
+  ei->setVertex(4, VP);
+  ei->setVertex(5, VV);
+  optimizer.addEdge(ei);
+
+  //  g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+  //  ei->setRobustKernel(rk);
+  //  rk->setDelta(sqrt(16.919));
+
+  CV_Assert(VG == optimizer.vertex(2));
+  CV_Assert(VA == optimizer.vertex(3));
+  EdgeGyroRW* egr = new EdgeGyroRW();
+  egr->setVertex(0, VGk);
+  egr->setVertex(1, VG);
+  Matrix<double, 6, 6> InvCovBgaRW = Matrix<double, 6, 6>::Identity();
+  InvCovBgaRW.topLeftCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmabg2;  // Gyroscope bias random walk, covariance INVERSE
+  InvCovBgaRW.bottomRightCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
+  // pFrame->mpImuPreintegratedFrame->C.rowRange(9, 12).colRange(9, 12).inv(cv::DECOMP_SVD);
+  Eigen::Matrix3d InfoG = InvCovBgaRW.topLeftCorner(3, 3) / imupreint.mdeltatij;
+  egr->setInformation(InfoG);
+  optimizer.addEdge(egr);
+
+  EdgeAccRW* ear = new EdgeAccRW();
+  ear->setVertex(0, VAk);
+  ear->setVertex(1, VA);
+  Eigen::Matrix3d InfoA = InvCovBgaRW.bottomRightCorner(3, 3) / imupreint.mdeltatij;
+  ear->setInformation(InfoA);
+  optimizer.addEdge(ear);
+
+  CV_Assert(pFp->mpcpi);
+  EdgePriorPoseImu* ep = new EdgePriorPoseImu(pFp->mpcpi);
+
+  ep->setVertex(0, VPk);
+  ep->setVertex(1, VVk);
+  ep->setVertex(2, VGk);
+  ep->setVertex(3, VAk);
+  g2o::RobustKernelHuber* rkp = new g2o::RobustKernelHuber;
+  ep->setRobustKernel(rkp);
+  rkp->setDelta(5);
+  optimizer.addEdge(ep);
+
+  // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
+  // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
+
+  const float chi2Mono[4] = {5.991, 5.991, 5.991, 5.991};
+  // const float chi2Stereo[4] = {15.6f, 9.8f, 7.815f, 7.815f};
+  const int its[4] = {10, 10, 10, 10};
+
+  int nBad = 0;
+  int nBadMono = 0;
+  int nBadStereo = 0;
+  int nInliersMono = 0;
+  int nInliersStereo = 0;
+  int nInliers = 0;
+  for (size_t it = 0; it < 4; it++) {
+    // PRINT_DEBUG_INFO(it << ":" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    optimizer.initializeOptimization(0);
+    optimizer.optimize(its[it]);
+
+    nBad = 0;
+    nBadMono = 0;
+    nBadStereo = 0;
+    nInliers = 0;
+    nInliersMono = 0;
+    nInliersStereo = 0;
+    float chi2close = 1.5 * chi2Mono[it];
+
+    for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+      EdgeMonoOnlyPose* e = vpEdgesMono[i];
+
+      const size_t idx = vnIndexEdgeMono[i];
+      bool bClose = frame_mps[idx]->GetTrackInfoRef().track_depth_ < 10.f;
+
+      if (1 || pFrame->mvbOutlier[idx]) {
+        e->computeError();
+      }
+
+      const float chi2 = e->chi2();
+
+      if ((chi2 > chi2Mono[it] && !bClose) || (bClose && chi2 > chi2close) || !e->isDepthPositive()) {
+        pFrame->mvbOutlier[idx] = true;
+        e->setLevel(1);
+        nBadMono++;
+      } else {
+        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", imu_tightly_debug_path, "tracking_thread_debug.txt");
+        pFrame->mvbOutlier[idx] = false;
+        e->setLevel(0);
+        nInliersMono++;
+      }
+
+      if (it == 2) e->setRobustKernel(0);
+    }
+
+    nInliers = nInliersMono + nInliersStereo;
+    nBad = nBadMono + nBadStereo;
+
+    // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    if (optimizer.edges().size() < 10) {
+      cout << "PIOLF: NOT ENOUGH EDGES" << endl;
+      break;
+    }
+  }
+
+  if ((nInliers < 30)) {
+    nBad = 0;
+    const float chi2MonoOut = 18.f;
+    // const float chi2StereoOut = 24.f;
+    EdgeMonoOnlyPose* e1;
+    for (size_t i = 0, iend = vnIndexEdgeMono.size(); i < iend; i++) {
+      const size_t idx = vnIndexEdgeMono[i];
+      e1 = vpEdgesMono[i];
+      e1->computeError();
+      if (e1->chi2() < chi2MonoOut)
+        pFrame->mvbOutlier[idx] = false;
+      else
+        nBad++;
+    }
+  }
+
+  nInliers = nInliersMono + nInliersStereo;
+
+  // Recover optimized pose, velocity and biases
+  nsj.mRwb = VP->estimate().Rwb;
+  nsj.mpwb = VP->estimate().twb;
+  nsj.mvwb = VV->estimate();
+  nsj.mdbg = VG->estimate() - nsj.mbg;
+  nsj.mdba = VA->estimate() - nsj.mba;
+  pFrame->UpdatePoseFromNS();
+
+  // Recover Hessian, marginalize previous frame states and generate new prior for frame
+  Eigen::Matrix<double, 30, 30> H;
+  H.setZero();
+
+  H.block<24, 24>(0, 0) += ei->GetHessian();
+
+  Eigen::Matrix<double, 6, 6> Hgr = egr->GetHessian();
+  H.block<3, 3>(9, 9) += Hgr.block<3, 3>(0, 0);
+  H.block<3, 3>(9, 24) += Hgr.block<3, 3>(0, 3);
+  H.block<3, 3>(24, 9) += Hgr.block<3, 3>(3, 0);
+  H.block<3, 3>(24, 24) += Hgr.block<3, 3>(3, 3);
+
+  Eigen::Matrix<double, 6, 6> Har = ear->GetHessian();
+  H.block<3, 3>(12, 12) += Har.block<3, 3>(0, 0);
+  H.block<3, 3>(12, 27) += Har.block<3, 3>(0, 3);
+  H.block<3, 3>(27, 12) += Har.block<3, 3>(3, 0);
+  H.block<3, 3>(27, 27) += Har.block<3, 3>(3, 3);
+
+  H.block<15, 15>(0, 0) += ep->GetHessian();
+
+  int tot_in = 0, tot_out = 0;
+  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+    EdgeMonoOnlyPose* e = vpEdgesMono[i];
+
+    const size_t idx = vnIndexEdgeMono[i];
+
+    if (!pFrame->mvbOutlier[idx]) {
+      H.block<6, 6>(15, 15) += e->GetHessian();
+      tot_in++;
+    } else
+      tot_out++;
+  }
+
+  H = Marginalize(H, 0, 14);
+
+  pFrame->mpcpi = new ConstraintPoseImu(VP->estimate().Rwb, VP->estimate().twb, VV->estimate(), VG->estimate(),
+                                        VA->estimate(), H.block<15, 15>(15, 15));
+  delete pFp->mpcpi;
+  pFp->mpcpi = NULL;
+
+  return nInitialCorrespondences - nBad;
+}
+int Optimizer::PoseInertialOptimizationLastFrame2(Frame* pFrame, Frame* pLastKF, const cv::Mat& gw,
+                                                  const bool bComputeMarg) {
+  // automatically judge if fix lastF/KF(always fixed)
+  //  bool bFixedLast = true;
+  //  if (pLastKF->mbPrior) ;
+  bool bFixedLast = false;
+  // Extrinsics
+  Matrix3d Rcb = pFrame->meigRcb;
+  Vector3d tcb = pFrame->meigtcb;
+  // Gravity vector in world frame
+  Vector3d GravityVec = Converter::toVector3d(gw);
+
+  g2o::SparseOptimizer optimizer;
+  g2o::BlockSolverX::LinearSolverType*
+      linearSolver;  // 9*1 is Log(R),t,v/P/pvR, 6*1 bgi,bai/bi/Bias, (3*1 is location of landmark,) 3 types of
+  // vertices so using BlockSolverX, though here 9_6 is also OK for unary edge in BA
+
+  // linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
+  // sparse Cholesky factorization.
+  linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
+  //      new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>();  // linear equation solver changed by
+  //      JingWang
+
+  g2o::BlockSolverX* solver_ptr = new g2o::BlockSolverX(linearSolver);
+
+  g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);
+  // descending/optimization strategy is still LM
+  // g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+  // g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);//try this!
+  optimizer.setAlgorithm(solver);
+
+  // Set Frame & fixed KeyFrame's vertices, see VIORBSLAM paper (4)~(8)
+  const int FramePVRId = 0, FrameBiasId = 1, LastKFPVRId = 2, LastKFBiasId = 3;
+  NavState& nsj = pFrame->GetNavStateRef();
+  // Set Frame vertex PVR/Bias
+  g2o::VertexNavStatePVR* vNSFPVR = new g2o::VertexNavStatePVR();
+  vNSFPVR->setEstimate(nsj);
+  vNSFPVR->setId(FramePVRId);
+  vNSFPVR->setFixed(false);
+  optimizer.addVertex(vNSFPVR);
+  g2o::VertexNavStateBias* vNSFBias = new g2o::VertexNavStateBias();
+  vNSFBias->setEstimate(nsj);
+  vNSFBias->setId(FrameBiasId);
+  vNSFBias->setFixed(false);
+  optimizer.addVertex(vNSFBias);
+  // Set KeyFrame vertex PVR/Bias
+  g2o::VertexNavStatePVR* vNSKFPVR = new g2o::VertexNavStatePVR();
+  vNSKFPVR->setEstimate(pLastKF->GetNavState());
+  vNSKFPVR->setId(LastKFPVRId);
+  vNSKFPVR->setFixed(bFixedLast);
+  optimizer.addVertex(vNSKFPVR);
+  g2o::VertexNavStateBias* vNSKFBias = new g2o::VertexNavStateBias();
+  vNSKFBias->setEstimate(pLastKF->GetNavState());
+  vNSKFBias->setId(LastKFBiasId);
+  vNSKFBias->setFixed(bFixedLast);
+  optimizer.addVertex(vNSKFBias);
+
+  // Set IMU_I/PVR(B) edge(ternary/multi edge) between LastKF-Frame
+  const IMUPreintegrator& imupreint = pFrame->GetIMUPreInt();
+  g2o::EdgeNavStatePVR* eNSPVR = new g2o::EdgeNavStatePVR();
+  eNSPVR->setVertex(
+      0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFPVRId)));  // PVRi, i is keyframe's id
+  eNSPVR->setVertex(
+      1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FramePVRId)));  // PVRj, j here is frame's id
+  eNSPVR->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFBiasId)));  // bi
+  eNSPVR->setMeasurement(imupreint);                 // set delta~PVRij/delta~pij,delta~vij,delta~Rij
+  Matrix9d Infoij = imupreint.GetProcessedInfoij();  // mSigmaij.inverse();
+  eNSPVR->setInformation(Infoij);
+  eNSPVR->SetParams(GravityVec);
+  //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+  //  eNSPVR->setRobustKernel(rk);
+  //  rk->setDelta(sqrt(16.919));  // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
+  optimizer.addEdge(eNSPVR);
+  // Set IMU_RW/Bias edge(binary edge) between LastKF-Frame
+  g2o::EdgeNavStateBias* eNSBias = new g2o::EdgeNavStateBias();
+  eNSBias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFBiasId)));  // bi
+  eNSBias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FrameBiasId)));   // bj
+  eNSBias->setMeasurement(imupreint);
+  Matrix<double, 6, 6> InvCovBgaRW = Matrix<double, 6, 6>::Identity();
+  InvCovBgaRW.topLeftCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmabg2;  // Gyroscope bias random walk, covariance INVERSE
+  InvCovBgaRW.bottomRightCorner(3, 3) =
+      Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
+  // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
+  eNSBias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
+  //  rk = new g2o::RobustKernelHuber;
+  //  eNSBias->setRobustKernel(rk);
+  //  rk->setDelta(sqrt(12.592));  // chi2(0.05/0.01,6), 12.592/16.812 for 0.95/0.99 6DoF, but JW uses 16.812
+  optimizer.addEdge(eNSBias);
+  // Set Prior edge(binary edge) for Last Frame, from mMargCovInv
+  g2o::EdgeNavStatePriorPVRBias* eNSPrior = NULL;
+  if (!bFixedLast) {
+    eNSPrior = new g2o::EdgeNavStatePriorPVRBias();
+    eNSPrior->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFPVRId)));
+    eNSPrior->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFBiasId)));
+    eNSPrior->setMeasurement(pLastKF->mNavStatePrior);
+    Matrix15d H = pLastKF->mMargCovInv;
+    H = (H + H) / 2;  // TODO(zzh):check t()
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 15, 15>> es(H);
+    Eigen::Matrix<double, 15, 1> eigs = es.eigenvalues();
+    for (int i = 0; i < 15; i++)
+      if (eigs[i] < 1e-12) eigs[i] = 0;
+    H = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    eNSPrior->setInformation(H);
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    eNSPrior->setRobustKernel(rk);
+    rk->setDelta(sqrt(25));  // thHuberNavState:chi2(0.05,15)=25 or chi2(0.01,15)=30.5779
+    optimizer.addEdge(eNSPrior);
+  }
+  // Set Enc edge(binary) between LastKF-Frame
+  g2o::EdgeEncNavStatePVR* eEnc = nullptr;
+  if (pFrame->GetEncPreInt().mdeltatij > 0) {
+    // Set Enc edge(binary edge) between LastF-Frame
+    const EncPreIntegrator& encpreint = pFrame->GetEncPreInt();
+    eEnc = new g2o::EdgeEncNavStatePVR();
+    eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(LastKFPVRId)));  // lastF,i
+    eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FramePVRId)));   // curF,j
+    eEnc->setMeasurement(encpreint.mdelxEij);
+    eEnc->setInformation(encpreint.mSigmaEij.inverse());
+    cv::Mat Tbe = Frame::mTbc * Frame::mTce;  // for Enc
+    eEnc->qRbe = Quaterniond(Converter::toMatrix3d(Tbe.rowRange(0, 3).colRange(0, 3)));
+    eEnc->pbe = Converter::toVector3d(Tbe.rowRange(0, 3).col(3));  // for Enc SetParams
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    eEnc->setRobustKernel(rk);
+    rk->setDelta(sqrt(12.592));  // chi2(0.05,6)=12.592//chi2(0.05,3)=7.815
+    optimizer.addEdge(eEnc);
+  }
+
+  int nInitialCorrespondences = 0;
+
+  // Set MapPoint Unary edges/Set MapPoint vertices
+  const int N = pFrame->N;  // for LastFrame JingWang use Nlast while the VIORBSLAM paper hasn't done this see its
+  // Fig.2.! let's try his method!
+
+  vector<g2o::EdgeReprojectPVR*> vpEdgesMono;  // 2*1(_measurement) binary edge<VertexSBAPointXYZ,VertexNavStatePVR>
+  vector<size_t> vnIndexEdgeMono;
+  vpEdgesMono.reserve(N);
+  vnIndexEdgeMono.reserve(N);  // this can be optimized in RGBD mode
+
+  vector<g2o::EdgeReprojectPVRStereo*> vpEdgesStereo;  // 3*1(ul vl ur) binary edge
+  vector<size_t> vnIndexEdgeStereo;
+  vpEdgesStereo.reserve(N);
+  vnIndexEdgeStereo.reserve(N);
+
+  const float deltaMono = sqrt(5.991);  // chi2(0.05,2)
+
+  // configs for Prior Hessian
+  const bool calc_cov_explicit = true;  // false;
+  const int8_t exact_mode =
+      calc_cov_explicit ? (int8_t)g2o::kExactNoRobust : (int8_t)g2o::kNotExact;  //(int8_t)g2o::kExactRobust
+  const bool calc_cond_jac = false;                   // calculate conditional cov for only PVR or only Bias
+  const auto& frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
+  {
+    unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
+    int id_mp_beg = 4;
+
+    for (int i = 0; i < N; i++) {
+      MapPoint* pMP = frame_mps[i];
+      if (pMP) {
+        // add fixed mp vertices for motion_only BA
+        g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
+        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        int id = i + id_mp_beg;  //>=maxKFid+1
+        vPoint->setId(id);
+        vPoint->setFixed(true);
+        optimizer.addVertex(vPoint);
+
+        nInitialCorrespondences++;
+        pFrame->mvbOutlier[i] = false;
+
+        {
+          g2o::EdgeReprojectPVR* e = new g2o::EdgeReprojectPVR();
+          {
+            CV_Assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
+          }
+
+          // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
+          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+          // 1 Tbw, VertexNavStatePR* corresponding to pFB->mNavState
+          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FramePVRId)));
+
+          Eigen::Matrix<double, 2, 1> obs;
+          const cv::KeyPoint& kpUn = pFrame->mvKeys[i];
+          obs << kpUn.pt.x, kpUn.pt.y;
+          e->setMeasurement(obs);
+          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          // diagonal matrix means independece between x and y pixel noise 2*2 matrix
+          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+
+          g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+          e->setRobustKernel(rk);
+          rk->setDelta(deltaMono);
+
+          optimizer.addEdge(e);
+
+          // record the edge recording feature index
+          vpEdgesMono.push_back(e);
+          vnIndexEdgeMono.push_back(i);
+          // e->computeError();
+          // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
+          // imu_tightly_debug_path,"tracking_thread_debug.txt");
+        }
+      }
+    }
+  }
+  // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+
+  // at least P3P（well posed equation） EPnP(n>3) (overdetermined equation)
+  //  if (nInitialCorrespondences < 3) return 0;
+
+  // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
+  // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
+  const float chi2Mono[4] = {5.991, 5.991, 5.991, 5.991};
+  // turning point in RobustKernelHuber)
+  const int its[4] = {10, 10, 10, 10};
+
+  int nBad = 0;
+  int nBadIMU = 0;
+  int nInliers = 0;
+  // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
+  for (size_t it = 0; it < 4; it++) {
+    optimizer.initializeOptimization(0);
+    optimizer.optimize(its[it]);  // only call _activeEdges[k].computeError()
+
+    nInliers = 0;
+    float chi2close = 1.5 * chi2Mono[it];  // ref from ORB3, can help process hard fast motion & close scene
+    nBad = 0;
+    for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++)  // for 3D-monocular 2D matches, may entered in RGBD!
+    {
+      g2o::EdgeReprojectPVR* e = vpEdgesMono[i];
+
+      const size_t idx = vnIndexEdgeMono[i];
+
+      // exact_mode here will compute _error again for g2o wont' pop _error if final step's robust_chi2 is larger
+      if ((int8_t)g2o::kNotExact > exact_mode || pFrame->mvbOutlier[idx]) {
+        e->computeError();
+      }
+
+      const float chi2 = e->chi2();
+      bool bClose = frame_mps[idx]->GetTrackInfoRef().track_depth_ < 10.f;
+
+      if (chi2 > (bClose ? chi2close : chi2Mono[it]) || !e->isDepthPositive()) {  // here e positive added for safety
+        pFrame->mvbOutlier[idx] = true;
+        e->setLevel(1);
+        nBad++;
+      } else {
+        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", imu_tightly_debug_path, "tracking_thread_debug.txt");
+        pFrame->mvbOutlier[idx] = false;
+        e->setLevel(0);
+        nInliers++;
+      }
+
+      if (it == 2) e->setRobustKernel(0);
+    }
+
+    // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    // it outliers+inliers(/_edges) number<10 only optimize once with RobustKernelHuber
+    if (optimizer.edges().size() < 10) break;
+    // we tested erasing erroneous IMU edge through chi2 error strategy, but not better, so we abandoned it
+  }
+
+  // ref from ORB3, can help process hard fast motion scene
+  if (nInliers < 30) {
+    nBad = 0;
+    // about 3x
+    const float chi2MonoOut = 18.f;
+    g2o::EdgeReprojectPVR* e1;
+    for (size_t i = 0, iend = vnIndexEdgeMono.size(); i < iend; i++) {
+      const size_t idx = vnIndexEdgeMono[i];
+      e1 = vpEdgesMono[i];
+      e1->computeError();
+      if (e1->chi2() < chi2MonoOut) {
+        e1->setLevel(0);  // for H later
+        pFrame->mvbOutlier[idx] = false;
+      } else
+        nBad++;
+    }
+  }
+
+  // Recover optimized pose and return number of inliers
+  g2o::VertexNavStatePVR* vNSPVR_recov = static_cast<g2o::VertexNavStatePVR*>(optimizer.vertex(FramePVRId));
+  //   cout<<"recovered pwb="<<vNSPVR_recov->estimate().mpwb.transpose()<<" & matches by motion-only
+  //   BA:"<<nInitialCorrespondences-nBad<<", before Optimized:"<<nInitialCorrespondences<<endl;
+  nsj = vNSPVR_recov->estimate();
+  g2o::VertexNavStateBias* vNSBias_recov = static_cast<g2o::VertexNavStateBias*>(optimizer.vertex(FrameBiasId));
+  const NavState& nsBias_recov = vNSBias_recov->estimate();
+  nsj.mdbg = nsBias_recov.mdbg;
+  nsj.mdba = nsBias_recov.mdba;
+  pFrame->UpdatePoseFromNS();  // update posematrices of pFrame
+
+  // Compute marginalized Hessian H and B, H*x=B, H/B can be used as prior for next optimization in PoseOptimization,
+  // dx'Hdx should be small then next optimized result is appropriate for former BA
+  if (0 && bComputeMarg) {
+    //     if (nBadIMU>0){}else{
+    // get the joint marginalized covariance of PVR&Bias
+    if (calc_cov_explicit) {  // explicit will be about 7times faster than g2o's computeMarginals()
+      //      std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+      using Matrix15d = Matrix<double, 15, 15>;
+      using Vector15d = Matrix<double, 15, 1>;
+      Matrix15d cov_inv;  // PVR BgBa, order is from update vector
+      if ((int8_t)g2o::kNotExact > exact_mode) {
+        eNSPVR->computeError();
+        eNSBias->computeError();
+        if (eEnc) {
+          eEnc->computeError();
+        }
+      }
+      if ((int8_t)g2o::kNotExact <= exact_mode) {
+        cov_inv.block<9, 9>(0, 0) = dynamic_cast<g2o::BaseVertex<9, NavState>*>(vNSFPVR)->A();
+        cov_inv.block<6, 6>(9, 9) = dynamic_cast<g2o::BaseVertex<6, NavState>*>(vNSFBias)->A();
+        cov_inv.block<9, 6>(0, 9).setZero();
+        cov_inv.block<6, 9>(9, 0).setZero();
+      } else
+        FillCovInv(eNSPVR, eNSBias, eEnc, 0, &vpEdgesMono, &vpEdgesStereo, cov_inv, nullptr, exact_mode);
+      if (!bFixedLast) {  // schur complement to get marginalized(lastf) cov_inv(curf)
+        Matrix15d cov_inv_last, cov_inv_cur_last;
+        if ((int8_t)g2o::kNotExact <= exact_mode) {
+          cov_inv_last.block<9, 9>(0, 0) = dynamic_cast<g2o::BaseVertex<9, NavState>*>(vNSKFPVR)->A();
+          cov_inv_last.block<6, 6>(9, 9) = dynamic_cast<g2o::BaseVertex<6, NavState>*>(vNSKFBias)->A();
+          cov_inv_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
+          cov_inv_last.block<6, 9>(9, 0) = cov_inv_last.block<9, 6>(0, 9).transpose();
+
+          cov_inv_cur_last.block<9, 9>(0, 0) = eNSPVR->getHessianij(1, 0, exact_mode);
+          cov_inv_cur_last.block<9, 6>(0, 9) = eNSPVR->getHessianij(1, 2, exact_mode);
+          cov_inv_cur_last.block<6, 9>(9, 0).setZero();
+          cov_inv_cur_last.block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
+        } else {
+          eNSPrior->computeError();
+          FillCovInv(eNSPVR, eNSBias, eEnc, 2, &vpEdgesMono, &vpEdgesStereo, cov_inv_last, eNSPrior, exact_mode);
+          FillCovInv(eNSPVR, eNSBias, eEnc, 1, &vpEdgesMono, &vpEdgesStereo, cov_inv_cur_last, nullptr, exact_mode);
+        }
+        //[B|E;E^T|C]->[B-EC^(-1)E^T|0;ET|C] => margH = B-EC^(-1)E^T
+        Eigen::JacobiSVD<Matrix<double, 15, Eigen::Dynamic>> svd_c(cov_inv_last,
+                                                                   Eigen::ComputeThinU | Eigen::ComputeThinV);
+        Vector15d w = svd_c.singularValues();
+        Matrix15d c_inv = Matrix15d::Zero();
+        const int thresh_cond = 1e6;
+        const double w_max = w(0);
+        //        cerr << "check cond_num=";
+        for (int i = 0; i < w.size(); ++i) {
+          double cond_num = w_max / w(i);
+          //          cerr << cond_num << " " << w(i) << ";";
+          // too large condition is sensitive to the error of corresponding input state dimension
+          //          if (cond_num <= thresh_cond) {
+          if (w(i) > 1e-6) {
+            c_inv(i, i) = 1. / w(i);
+          }  // so we try to decrease it through discarding the corresponding input state dimension info
+          else {
+            c_inv(i, i) = 0;
+          }
+        }
+        //        cerr << endl;
+        c_inv = svd_c.matrixV() * c_inv * svd_c.matrixU().transpose();  // C=USigmaVT=>C^(-1)=VSigma^(-1)UT
+        cov_inv -= cov_inv_cur_last * c_inv * cov_inv_cur_last.transpose();
+        if (calc_cond_jac) {
+          Eigen::JacobiSVD<Matrix<double, 6, Eigen::Dynamic>> svd_c2(cov_inv.block<6, 6>(9, 9),
+                                                                     Eigen::ComputeThinU | Eigen::ComputeThinV);
+          Vector6d w2 = svd_c2.singularValues();
+          Matrix6d c2_inv = Matrix6d::Zero();
+          const double w2_max = w2(0);
+          for (int i = 0; i < w2.size(); ++i) {
+            c2_inv(i, i) = 1. / w2(i);
+          }
+          c2_inv = svd_c2.matrixV() * c2_inv * svd_c2.matrixU().transpose();
+          Eigen::JacobiSVD<Matrix<double, 9, Eigen::Dynamic>> svd_c3(cov_inv.block<9, 9>(0, 0),
+                                                                     Eigen::ComputeThinU | Eigen::ComputeThinV);
+          cov_inv.block<9, 9>(0, 0) -= cov_inv.block<9, 6>(0, 9) * c2_inv * cov_inv.block<6, 9>(9, 0);
+
+          Vector9d w3 = svd_c3.singularValues();
+          Matrix9d c3_inv = Matrix9d::Zero();
+          const double w3_max = w3(0);
+          for (int i = 0; i < w3.size(); ++i) {
+            c3_inv(i, i) = 1. / w3(i);
+          }
+          c3_inv = svd_c3.matrixV() * c3_inv * svd_c3.matrixU().transpose();
+          cov_inv.block<6, 6>(9, 9) -= cov_inv.block<6, 9>(9, 0) * c3_inv * cov_inv.block<9, 6>(0, 9);
+          cov_inv.block<9, 6>(0, 9).setZero();
+          cov_inv.block<6, 9>(9, 0).setZero();
+        }
+      }
+      pFrame->mMargCovInv = cov_inv;
+      //      std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+    } else {
+      // we could use computeMarginals where margVertices only push back curF's vertices
+#ifdef USE_G2O_NEWEST
+      g2o::SparseBlockMatrixX spinv;
+#else
+      g2o::SparseBlockMatrixXd spinv;
+#endif
+      std::vector<g2o::OptimizableGraph::Vertex*> margVertices;
+      margVertices.push_back(optimizer.vertex(FramePVRId));
+      margVertices.push_back(optimizer.vertex(FrameBiasId));
+      if (!calc_cond_jac) {
+        std::vector<std::pair<int, int>> indices;
+        for (g2o::OptimizableGraph::VertexContainer::const_iterator it = margVertices.begin(); it != margVertices.end();
+             ++it) {
+          for (g2o::OptimizableGraph::VertexContainer::const_iterator it2 = it; it2 != margVertices.end(); ++it2)
+            indices.push_back(std::pair<int, int>((*it)->hessianIndex(), (*it2)->hessianIndex()));
+        }
+        optimizer.computeMarginals(spinv, indices);
+      } else {
+        // each vertexi in margVertices will be marginalized by cholmod linearsolver
+        optimizer.computeMarginals(spinv, margVertices);
+      }
+      // spinv include 2 blocks, 9x9-(0,0) for PVR, 6x6-(1,1) for Bias
+      //      cerr<<"check before:"<<pFrame->mMargCovInv<<";fixedlast="<<(int)(bFixedLast)<<endl;
+      if (bFixedLast) {
+        // here it's already marginalized for lastKF is fixed and SigmaI ind. with
+        // SigmaB then H(0,1)=0,H(1,0)=0
+        Matrix<double, 15, 15> margCovInv = Matrix<double, 15, 15>::Zero();
+        margCovInv.topLeftCorner(9, 9) =
+            spinv.block(0,
+                        0)
+                ->inverse();  // 0 corresponding to the FramePVRId & fixed LastKFPVRId's hessianidx=-1
+        margCovInv.bottomRightCorner(6, 6) = spinv.block(1, 1)->inverse();  // 1 corresponding to the FrameBiasId
+        pFrame->mMargCovInv = margCovInv;
+      } else {
+        Matrix<double, 15, 15> margCov = Matrix<double, 15, 15>::Zero();
+        margCov.topLeftCorner(9, 9) =
+            spinv.block(0,
+                        0)
+                ->eval();  // I think eval() is useless for there's no confusion here/.noalias()=
+        if (!calc_cond_jac) {
+          margCov.topRightCorner(9, 6) = spinv.block(0, 1)->eval();
+          margCov.bottomLeftCorner(6, 9) = margCov.topRightCorner(9, 6).transpose();
+        }
+        margCov.bottomRightCorner(6, 6) = spinv.block(1, 1)->eval();
+        pFrame->mMargCovInv = margCov.inverse();
+      }
+      //      std::chrono::steady_clock::time_point t3 = std::chrono::steady_clock::now();
+      //      double ttrack = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+      //      double ttrack2 = std::chrono::duration_cast<std::chrono::duration<double> >(t3 - t2).count();
+      //      cerr<<"check after:"<<pFrame->mMargCovInv<<";cost explicit:"<<ttrack<<"s, g2o:"<<ttrack2<<endl;
+    }
+    pFrame->mNavStatePrior = nsj;  // pLastF->mNavStatePrior is needed for this func. will be called twice and
+    // pLastF->mNavState will also be optimized
+    pFrame->mbPrior = true;  // let next tracking uses unfixed lastF mode!
+    //     }
+  } else {
+    bool brobust = exact_mode == g2o::kExactRobust;
+    Eigen::Matrix<double, 30, 30> H;
+    H.setZero();
+
+    eNSPVR->computeError();
+    eNSBias->computeError();
+    eNSPrior->computeError();
+
+    // H.block<24, 24>(0, 0) += eNSPVR->GetHessian();
+    eNSPVR->linearizeOplus();
+    H.block<9, 9>(0, 0) += eNSPVR->getHessian(0, brobust);
+    H.block<6, 6>(9, 9) += eNSPVR->getHessian(2, brobust);
+    H.block<9, 9>(15, 15) += eNSPVR->getHessian(1, brobust);
+    H.block<9, 6>(0, 9) += eNSPVR->getHessianij(0, 2, exact_mode);
+    H.block<6, 9>(9, 0) += eNSPVR->getHessianij(2, 0, exact_mode);
+    H.block<9, 9>(0, 15) += eNSPVR->getHessianij(0, 1, exact_mode);
+    H.block<9, 9>(15, 0) += eNSPVR->getHessianij(1, 0, exact_mode);
+    H.block<6, 9>(9, 15) += eNSPVR->getHessianij(2, 1, exact_mode);
+    H.block<9, 6>(15, 9) += eNSPVR->getHessianij(1, 2, exact_mode);
+
+    eNSBias->linearizeOplus();
+    //    H.block<6, 6>(9, 9) += eNSBias->getHessianXi(brobust);
+    //    H.block<6, 6>(9, 24) += eNSBias->getHessianXij(exact_mode);
+    //    H.block<6, 6>(24, 9) += eNSBias->getHessianXji(exact_mode);
+    //    H.block<6, 6>(24, 24) += eNSBias->getHessianXj(brobust);
+    H.block<3, 3>(9, 9) += eNSBias->getHessianXi(brobust).block<3, 3>(0, 0);
+    H.block<3, 3>(9, 24) += eNSBias->getHessianXij(exact_mode).block<3, 3>(0, 0);
+    H.block<3, 3>(24, 9) += eNSBias->getHessianXji(exact_mode).block<3, 3>(0, 0);
+    H.block<3, 3>(24, 24) += eNSBias->getHessianXj(brobust).block<3, 3>(0, 0);
+
+    H.block<3, 3>(12, 12) += eNSBias->getHessianXi(brobust).block<3, 3>(3, 3);
+    H.block<3, 3>(12, 27) += eNSBias->getHessianXij(exact_mode).block<3, 3>(3, 3);
+    H.block<3, 3>(27, 12) += eNSBias->getHessianXji(exact_mode).block<3, 3>(3, 3);
+    H.block<3, 3>(27, 27) += eNSBias->getHessianXj(brobust).block<3, 3>(3, 3);
+
+    // H.block<15, 15>(0, 0) += eNSPrior->GetHessian();
+    eNSPrior->linearizeOplus();
+    H.block<9, 9>(0, 0) += eNSPrior->getHessianXi(brobust);
+    H.block<6, 6>(9, 9) += eNSPrior->getHessianXj(brobust);
+    H.block<9, 6>(0, 9) += eNSPrior->getHessianXij(exact_mode);
+    H.block<6, 9>(9, 0) += eNSPrior->getHessianXji(exact_mode);
+
+    int tot_in = 0, tot_out = 0;
+    for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+      g2o::EdgeReprojectPVR* e = vpEdgesMono[i];
+
+      const size_t idx = vnIndexEdgeMono[i];
+
+      if (!pFrame->mvbOutlier[idx]) {
+        e->linearizeOplus();
+        H.block<9, 9>(15, 15) += e->getHessian(1, brobust);
+        tot_in++;
+      } else
+        tot_out++;
+    }
+
+    H = Marginalize(H, 0, 14);
+
+    pFrame->mMargCovInv = H.block<15, 15>(15, 15);//cov_inv;//
+    pFrame->mNavStatePrior = nsj;  // pLastF->mNavStatePrior is needed for this func. will be called twice and
+    // pLastF->mNavState will also be optimized
+    pFrame->mbPrior = true;  // let next tracking uses unfixed lastF mode!
+  }
+
+  return nInitialCorrespondences - nBad;  // number of inliers
+}
+
 void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap, int Nlocal) {
   KeyFrame* pKFlocal = NULL;  // for Nlocal
   // Local KeyFrames: First Breath Search from Current Keyframe

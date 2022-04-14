@@ -273,8 +273,8 @@ typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Jacobian
 
   return Jrinv;
 }
-// when USE_EXPLOG_NOQ_MATH: here static Log/Exp will directly operate R2r/r2R, without using quaternion
 //#define USE_EXPLOG_NOQ_MATH
+// here static Log will directly operate R to r, without using quaternion
 template <class Scalar, int Options>
 typename SO3ex<Scalar, Options>::Tangent SO3ex<Scalar, Options>::Log(const Eigen::Matrix3d& R) {
 #ifndef USE_EXPLOG_NOQ_MATH
@@ -293,6 +293,7 @@ typename SO3ex<Scalar, Options>::Tangent SO3ex<Scalar, Options>::Log(const Eigen
     return theta * w / s;
 #endif
 }
+// here static Exp will directly operate r to R, without using quaternion
 template <class Scalar, int Options>
 typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Exp(const Tangent& v) {
 #ifndef USE_EXPLOG_NOQ_MATH
