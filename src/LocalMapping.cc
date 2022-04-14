@@ -26,8 +26,8 @@
 
 #include <mutex>
 
-#define NO_GBA_THREAD
-#define NO_LOCALMAP_PROCESS
+//#define NO_GBA_THREAD
+//#define NO_LOCALMAP_PROCESS
 
 namespace VIEO_SLAM {
 
@@ -109,7 +109,7 @@ void LocalMapping::Run() {
             }
           } else {
             // maybe it needs transition when initialized with a few imu edges<N
-            const bool bno_imu_lba = true;  // false; //
+            const bool bno_imu_lba = false; // true;  //
             if (!bno_imu_lba)
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec());
