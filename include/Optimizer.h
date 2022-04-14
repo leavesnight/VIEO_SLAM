@@ -30,6 +30,7 @@
 #include "g2o/core/optimization_algorithm_gauss_newton.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
 #include "g2o/solvers/cholmod/linear_solver_cholmod.h"
+#include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/core/robust_kernel_impl.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
 #else
@@ -233,21 +234,19 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>()))));  // descending/optimization strategy is
                                                                                   // still LM
 #else
-  g2o::BlockSolverX::LinearSolverType
-      *linearSolver;  // 9*1 is Log(R),t,v/P/pvR, 6*1 bgi,bai/bi/Bias, (3*1 is location of landmark,) 3 types of
-                      // vertices so using BlockSolverX, though here 9_6 is also OK for unary edge in BA
+  // 9*1 is Log(R),t,v/P/pvR, 6*1 bgi,bai/bi/Bias, (3*1 is location of landmark,) 3 types of
+  // vertices so using BlockSolverX, though here 9_6 is also OK for unary edge in BA
+  g2o::BlockSolverX::LinearSolverType *linearSolver;
 
-  // linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
-  // sparse Cholesky factorization.
   linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
-  //      new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>();  // linear equation solver changed by
-  //      JingWang
+  // sparse Cholesky factorization. linear equation solver changed by JingWang
+  //  linearSolver = new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>();
 
   g2o::BlockSolverX *solver_ptr = new g2o::BlockSolverX(linearSolver);
 
-  g2o::OptimizationAlgorithmGaussNewton *solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);
+  //g2o::OptimizationAlgorithmGaussNewton *solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);
   // descending/optimization strategy is still LM
-  // g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+  g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
 #endif
   // g2o::OptimizationAlgorithmGaussNewton* solver = new g2o::OptimizationAlgorithmGaussNewton(solver_ptr);//try this!
   optimizer.setAlgorithm(solver);
@@ -294,10 +293,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     Matrix9d Infoij = imupreint.GetProcessedInfoij();  // mSigmaij.inverse();
     eNSPVR->setInformation(Infoij);
     eNSPVR->SetParams(GravityVec);
-    //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-    //  eNSPVR->setRobustKernel(rk);
+    //    g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+    //    eNSPVR->setRobustKernel(rk);
     // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
-    //  rk->setDelta(sqrt(16.919));
+    //    rk->setDelta(sqrt(16.919));
     optimizer.addEdge(eNSPVR);
     // Set IMU_RW/Bias edge(binary edge) between LastKF-Frame
   }
@@ -314,7 +313,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
   double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->mTimeStamp - pLastKF->mTimeStamp;
   eNSBias->setInformation(InvCovBgaRW / deltatij);
-  //  rk = new g2o::RobustKernelHuber;
+  //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
   //  eNSBias->setRobustKernel(rk);
   //  rk->setDelta(sqrt(12.592));  // chi2(0.05/0.01,6), 12.592/16.812 for 0.95/0.99 6DoF, but JW uses 16.812
   optimizer.addEdge(eNSBias);
@@ -443,7 +442,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           // record the edge recording feature index
           vpEdgesMono.push_back(e);
           vnIndexEdgeMono.push_back(i);
-          //e->computeError();
+          // e->computeError();
           // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
           // imu_tightly_debug_path,"tracking_thread_debug.txt");
         } else  // Stereo observation
@@ -486,8 +485,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   // at least P3P（well posed equation） EPnP(n>3) (overdetermined equation)
   int nBad = 0;
   bool bno_iter = false;
-  bodom_edge = false;
   if ((nInitialCorrespondences < 3 && !bNoMPs)) {
+    bodom_edge = false;
     if (!bodom_edge) {
       return 0;
     } else {
@@ -525,12 +524,14 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   for (size_t it = 0; it < 4; it++) {
     // PRINT_DEBUG_INFO(it << ":" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
     // Reset estimate for vertexj
-    //    vNSFPVR->setEstimate(nsj);
-    //    vNSFBias->setEstimate(nsj);
-    //    if (!bFixedLast) {
-    //      vNSKFPVR->setEstimate(pLastKF->GetNavState());
-    //      vNSKFBias->setEstimate(pLastKF->GetNavState());
-    //    }
+    if (!bodom_edge) {
+      vNSFPVR->setEstimate(nsj);
+      vNSFBias->setEstimate(nsj);
+      if (!bFixedLast) {
+        vNSKFPVR->setEstimate(pLastKF->GetNavState());
+        vNSKFBias->setEstimate(pLastKF->GetNavState());
+      }
+    }
 
     // default edges' level is 0, so initially use all edges to optimize, after it=0, just use inlier
     // edges(_activeEdges) to optimize
