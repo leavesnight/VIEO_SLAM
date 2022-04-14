@@ -1156,7 +1156,8 @@ int IMUInitialization::InitIMU(vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
       }
       if (bVIOInited > 0)
         SetIMUInited(last_imu_inited, id_cams2);  // we've to put it after lock for maybe reset happens
-      if (kLBANone <= mode_lba) mpMap->InformNewChange();
+      // though lba may Informed, if no fast_init, still may happen 1st IMUInited but map unchanged situation!
+      mpMap->InformNewChange();
       lock.unlock();
       mpLocalMapper->Release();
     }
