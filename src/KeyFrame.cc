@@ -905,6 +905,15 @@ void KeyFrame::SetBadFlag(
       mpNextKeyFrame->AppendFrontPreIntegrationList<EncData>(lodom, lodom.begin(), lodom.end());
     }
     // ComputePreInt
+    auto ns_next_new = mpNextKeyFrame->GetNavState();
+    {
+      unique_lock<mutex> lock(mMutexNavState);
+      ns_next_new.mbg = mNavState.mbg + mNavState.mdbg;
+      ns_next_new.mba = mNavState.mba + mNavState.mdba;
+    }
+    ns_next_new.mdbg.setZero();
+    ns_next_new.mdba.setZero();
+    mpNextKeyFrame->SetNavState(ns_next_new);
     mpNextKeyFrame->PreIntegration<IMUData>(mpPrevKeyFrame);
     mpNextKeyFrame->PreIntegration<EncData>(mpPrevKeyFrame);
     mpPrevKeyFrame = mpNextKeyFrame = NULL;  // clear this KF's pointer, to check if its prev/next is deleted
