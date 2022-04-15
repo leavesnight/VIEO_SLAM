@@ -414,7 +414,20 @@ void LocalMapping::CreateNewMapPoints() {
   // Retrieve neighbor keyframes in covisibility graph
   int nn = 10;
   if (mbMonocular) nn = 20;
-  const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+  vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+  if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+    KeyFrame *pKF = mpCurrentKeyFrame;
+    int count = 0;
+    while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
+      vector<KeyFrame *>::iterator it = std::find(vpNeighKFs.begin(), vpNeighKFs.end(), pKF->GetPrevKeyFrame());
+      if (it == vpNeighKFs.end()) vpNeighKFs.push_back(pKF->GetPrevKeyFrame());
+      pKF = pKF->GetPrevKeyFrame();
+    }
+  }
+#endif
 
   ORBmatcher matcher(0.6, false);
 
@@ -612,7 +625,6 @@ void LocalMapping::SearchInNeighbors() {
 #endif
   }
 
-#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
   // Extend to temporal neighbors
   if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
