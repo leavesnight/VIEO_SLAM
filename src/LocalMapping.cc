@@ -76,23 +76,23 @@ void LocalMapping::Run() {
       PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
-          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
-          << whiteSTR << endl,
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
                       imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
 #ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
       MapPointCulling();
       PRINT_INFO_FILE(blueSTR "Used time in MapCulling()="
-          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
-          << whiteSTR << endl,
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
                       imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       // Triangulate new MapPoints
       CreateNewMapPoints();
       PRINT_INFO_FILE(blueSTR "Used time in CreateNewMP()="
-          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
-          << whiteSTR << endl,
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
                       imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
@@ -100,8 +100,8 @@ void LocalMapping::Run() {
         // Find more matches in neighbor keyframes and fuse point duplications
         SearchInNeighbors();
         PRINT_INFO_FILE(blueSTR "Used time in SBP()="
-            << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
-            << whiteSTR << endl,
+                            << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                            << whiteSTR << endl,
                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
 #endif
@@ -194,6 +194,8 @@ void LocalMapping::ProcessNewKeyFrame() {
   }
 
   // added by zzh, it can also be put in InsertKeyFrame()
+  PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << mpCurrentKeyFrame->mTimeStamp << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
@@ -776,7 +778,8 @@ void LocalMapping::KeyFrameCulling() {
           // solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in
           // other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
-            PRINT_INFO_MUTEX(pKF->mnId << " " << (int)pKF->isBad() << endl);
+            int bkfbad = (int)pKF->isBad();
+            PRINT_INFO_MUTEX(pKF->mnId << " " << bkfbad << endl);
             vbEntered[vi] = true;
             continue;
           }
@@ -802,7 +805,8 @@ void LocalMapping::KeyFrameCulling() {
       // cannot erase last ODOMOK & first ODOMOK's parent!
       KeyFrame *pNextKF = pKF->GetNextKeyFrame();
       if (pNextKF == NULL) {
-        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl);
+        int bkfbad = (int)pKF->isBad();
+        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << bkfbad << endl);
         continue;
       }
       // solved old bug

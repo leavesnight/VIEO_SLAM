@@ -465,8 +465,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   optimizer.initializeOptimization();
 #ifdef ORB3_STRATEGY
-  //  optimizer.computeActiveErrors();
-  //  float err = optimizer.activeRobustChi2();
+  optimizer.computeActiveErrors();
+  float err = optimizer.activeRobustChi2();
   bool bDoMore = false;
 #else
   bool bDoMore = true;
@@ -571,13 +571,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
 #endif
 
-  //#ifdef ORB3_STRATEGY
-  //  float err_end = optimizer.activeRobustChi2();
-  //  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
-  //    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
-  //    return;
-  //  }
-  //#endif
+#ifdef ORB3_STRATEGY
+  float err_end = optimizer.activeRobustChi2();
+  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
+    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    return;
+  }
+#endif
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
