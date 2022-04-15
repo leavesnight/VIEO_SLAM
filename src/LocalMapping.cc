@@ -615,7 +615,7 @@ void LocalMapping::SearchInNeighbors() {
 #define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
   // Extend to temporal neighbors
-  if (mpIMUInitiator->GetSensorIMU() || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
     KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
     while (vpTargetKFs.size() < 20 && pKFi) {
       if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {

@@ -480,8 +480,14 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
           if (curfmps[i]->Observations() > 0) mnMatchesInliers++;
         } else
           mnMatchesInliers++;
-      }  // else if (mSensor == System::STEREO)  // why not include System::RGBD?
-         //        mCurrentFrame.EraseMapPointMatch(i);
+      } else {
+        // why not include System::RGBD?maybe or RGBD lba thread can do faster.
+#ifdef ORB3_STRATEGY
+        if (mSensor == System::STEREO && !mpIMUInitiator->GetSensorIMU()) mCurrentFrame.EraseMapPointMatch(i);
+#else
+        if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
+#endif
+      }
     }
   }
 
@@ -1959,8 +1965,14 @@ bool Tracking::TrackLocalMap() {
           if (pMP->Observations() > 0) mnMatchesInliers++;
         } else
           mnMatchesInliers++;
-      }  // else if (mSensor == System::STEREO)  // why not include System::RGBD?
-         //        mCurrentFrame.EraseMapPointMatch(i);
+      } else {
+        // why not include System::RGBD?maybe or RGBD lba thread can do faster.
+#ifdef ORB3_STRATEGY
+        if (mSensor == System::STEREO && !mpIMUInitiator->GetSensorIMU()) mCurrentFrame.EraseMapPointMatch(i);
+#else
+        if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
+#endif
+      }
     }
   }
 
@@ -1984,8 +1996,7 @@ bool Tracking::TrackLocalMap() {
 }
 
 bool Tracking::NeedNewKeyFrame() {
-#define ORB3_IMU_UNINIT_KF_STRATEGY
-#ifdef ORB3_IMU_UNINIT_KF_STRATEGY
+#ifdef ORB3_STRATEGY
   if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
     if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
       return true;
@@ -2063,16 +2074,20 @@ bool Tracking::NeedNewKeyFrame() {
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
-    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap); /*&& bLocalMappingIdle &&
-               mnMatchesInliers > 15;*/
+#ifdef ORB3_STRATEGY
+    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
+#else
+    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
+               mnMatchesInliers > 15;
     // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
     // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
-    // bNeedToInsertClose = false;
+    bNeedToInsertClose = false;
     // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
-    //    if (mState == ODOMOK) {
-    //      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
-    //    }
+    if (mState == ODOMOK) {
+      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
+    }
     // minClose=100;
+#endif
   }
 
   // Thresholds
@@ -2090,7 +2105,14 @@ bool Tracking::NeedNewKeyFrame() {
   const bool c1b = (mCurrentFrame.mnId >= mnLastKeyFrameId + mMinFrames && bLocalMappingIdle);
   // Condition 1c: tracking is weak
   // rgbd/stereo tracking weak outside(large part are far points)
+#ifdef ORB3_STRATEGY
+  // for Mono/IMU_STREREO won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
+  const bool c1c = mSensor != System::MONOCULAR && !mpIMUInitiator->GetSensorIMU() &&
+                   (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
+#else
+  // for Mono won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
   const bool c1c = mSensor != System::MONOCULAR && (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
+#endif
   // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
   // not too close && not too far
   const bool c2 = ((mnMatchesInliers < nRefMatches * thRefRatio || bNeedToInsertClose) && mnMatchesInliers > 15);
