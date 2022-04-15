@@ -69,23 +69,40 @@ void LocalMapping::Run() {
 
     // Check if there are keyframes in the queue
     if (CheckNewKeyFrames()) {
+      chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
       // BoW conversion and insertion in Map
       PRINT_DEBUG_INFO_MUTEX("Processing New KF...", imu_tightly_debug_path, "debug.txt");
       ProcessNewKeyFrame();
       PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
+      PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
+          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
 #ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
       MapPointCulling();
+      PRINT_INFO_FILE(blueSTR "Used time in MapCulling()="
+          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       // Triangulate new MapPoints
       CreateNewMapPoints();
+      PRINT_INFO_FILE(blueSTR "Used time in CreateNewMP()="
+          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
         // Find more matches in neighbor keyframes and fuse point duplications
         SearchInNeighbors();
+        PRINT_INFO_FILE(blueSTR "Used time in SBP()="
+            << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+            << whiteSTR << endl,
+                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
 #endif
 
@@ -109,15 +126,17 @@ void LocalMapping::Run() {
             }
           } else {
             // maybe it needs transition when initialized with a few imu edges<N
-            const bool bno_imu_lba = false; // true;  //
+            const bool bno_imu_lba = false;  // true;  //
             if (!bno_imu_lba)
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec());
             // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
           }
-          PRINT_INFO_MUTEX(blueSTR "Used time in localBA="
-                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count()
-                           << whiteSTR << endl);
+          PRINT_INFO_FILE(
+              blueSTR "Used time in localBA="
+                  << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count()
+                  << whiteSTR << endl,
+              imu_tightly_debug_path, "localmapping_thread_debug.txt");
         }
 
 #ifndef NO_LOCALMAP_PROCESS
@@ -129,6 +148,10 @@ void LocalMapping::Run() {
 #ifndef NO_GBA_THREAD
       mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 #endif
+      PRINT_INFO_FILE(blueSTR "Used time in localmapping="
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
       while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction

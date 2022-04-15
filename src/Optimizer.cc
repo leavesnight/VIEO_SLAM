@@ -112,9 +112,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 #endif
     }
   }
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
-                                               << "fixedkfs = " << lFixedCameras.size()
-                                               << ", mps=" << lLocalMapPoints.size() << whiteSTR << endl);
+  PRINT_INFO_FILE(blueSTR "Enter OLBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                          << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
+                                          << whiteSTR << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -458,7 +459,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       }
     }
   }
-  PRINT_INFO_MUTEX("factor_visual num=" << vpEdgesMono.size() << endl);
+  PRINT_INFO_FILE("factor_visual num=" << vpEdgesMono.size() << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
 
   //#ifndef ORB3_STRATEGY
   if (pbStopFlag)     // true in LocalMapping
@@ -554,8 +556,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                               imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
     }
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
@@ -563,8 +565,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                               imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
     }
   }
@@ -1775,9 +1777,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       }
     }
   }
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
-                                               << "fixedkfs = " << lFixedCameras.size()
-                                               << ", mps=" << lLocalMapPoints.size() << whiteSTR << endl);
+  PRINT_INFO_FILE(blueSTR "Enter LBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                         << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
+                                         << whiteSTR << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
