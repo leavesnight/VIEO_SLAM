@@ -63,6 +63,10 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
     MapPoint *pMP = vpMapPoints1[i1];
 
     if (!pMP || pMP->isBad()) continue;
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+    if (!fuselater && pMP->IsInKeyFrame(pKF)) continue;
+#endif
 
     // Get 3D Coords.
     cv::Mat p3Dw = pMP->GetWorldPos();
@@ -76,7 +80,9 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
     for (size_t cami = 0; cami < n_cams; ++cami) {
       // if pKF1->mvpMapPoints[i1] exists and hasn't been matched to pKF2 before(in vpMatches12) then go on
       if (pvbAlreadyMatched1 && (*pvbAlreadyMatched1)[i1][cami]) continue;
+#ifndef ORB3_STRATEGY
       if (!fuselater && pMP->IsInKeyFrame(pKF, -1, cami)) continue;
+#endif
 
       Vector3d Pc = Converter::toVector3d(Pcr);
       GeometricCamera *pcam1 = nullptr;

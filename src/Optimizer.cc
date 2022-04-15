@@ -589,7 +589,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       auto idx = get<2>(vToErase[i]);
 
       // here may erase pMP in mpMap
-      ErasePairObs(pKFi, pMPi, -1);  // idx);
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+      ErasePairObs(pKFi, pMPi, -1);
+#else
+      ErasePairObs(pKFi, pMPi, idx);
+#endif
     }
   }
 
@@ -2108,7 +2113,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       auto idx = get<2>(vToErase[i]);
 
       // here may erase pMP in mpMap
+#ifdef ORB3_STRATEGY
+      ErasePairObs(pKFi, pMPi, -1);  // idx);
+#else
       ErasePairObs(pKFi, pMPi, idx);
+#endif
     }
   }
 

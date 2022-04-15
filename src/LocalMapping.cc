@@ -99,7 +99,7 @@ void LocalMapping::Run() {
       {
         // Find more matches in neighbor keyframes and fuse point duplications
         SearchInNeighbors();
-        PRINT_INFO_FILE(blueSTR "Used time in SBP()="
+        PRINT_INFO_FILE(blueSTR "Used time in SIN()="
                             << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                             << whiteSTR << endl,
                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
@@ -591,19 +591,43 @@ void LocalMapping::SearchInNeighbors() {
       continue;
     vpTargetKFs.push_back(pKFi);
     pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+  }
 
-    // Extend to some second neighbors
-    const vector<KeyFrame *> vpSecondNeighKFs = pKFi->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
+  // Add some covisible of covisible
+  // Extend to some second neighbors
+  for (int i = 0, imax = vpTargetKFs.size(); i < imax; i++) {
+    const vector<KeyFrame *> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
     for (vector<KeyFrame *>::const_iterator vit2 = vpSecondNeighKFs.begin(), vend2 = vpSecondNeighKFs.end();
          vit2 != vend2; vit2++) {
       KeyFrame *pKFi2 = *vit2;
+      // avoid bad,duplications && itself(KF now)
       if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->mnId ||
-          pKFi2->mnId == mpCurrentKeyFrame->mnId)  // avoid bad,duplications && itself(KF now)
+          pKFi2->mnId == mpCurrentKeyFrame->mnId)
         continue;
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
+#ifdef ORB3_STRATEGY
+    //  if (mbAbortBA) return;
+#endif
   }
+
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+  // Extend to temporal neighbors
+  if (mpIMUInitiator->GetSensorIMU() || mpIMUInitiator->GetSensorEnc()) {
+    KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
+    while (vpTargetKFs.size() < 20 && pKFi) {
+      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {
+        pKFi = pKFi->GetPrevKeyFrame();
+        continue;
+      }
+      vpTargetKFs.push_back(pKFi);
+      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+      pKFi = pKFi->GetPrevKeyFrame();
+    }
+  }
+#endif
 
   // bijection search matches
   //  Search matches by projection from current KF in target KFs
@@ -615,6 +639,10 @@ void LocalMapping::SearchInNeighbors() {
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
   PRINT_DEBUG_INFO_MUTEX("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "debug.txt");
+
+#ifdef ORB3_STRATEGY
+//  if (mbAbortBA) return;
+#endif
 
   // Search matches by projection from target KFs in current KF
   vector<MapPoint *> vpFuseCandidates;
