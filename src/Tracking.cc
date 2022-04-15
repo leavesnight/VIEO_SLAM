@@ -2332,7 +2332,7 @@ void Tracking::SearchLocalPoints() {
     int th = 1;
     if (mSensor == System::RGBD) th = 3;
     if (mpIMUInitiator->GetVINSInited()) {  // ref from ORB3
-      th = 3;
+      th = 2;  // th = 3;
     }
 
     // If the camera has been relocalised recently, perform a coarser search
