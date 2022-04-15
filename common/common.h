@@ -13,6 +13,7 @@ namespace VIEO_SLAM {
 #endif
 
 //#define CHECK_REPLACE_ALL
+//#define USE_SIMPLE_REPLACE
 
 // Draw related params
 //#define DRAW_ALL_KPS

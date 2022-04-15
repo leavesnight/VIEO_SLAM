@@ -23,6 +23,7 @@
 #include "ORBmatcher.h"
 #include <mutex>
 #include "common/log.h"
+#include "common/common.h"
 
 namespace VIEO_SLAM {
 
@@ -562,12 +563,16 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", imu_tightly_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
+#ifdef USE_SIMPLE_REPLACE
+  if (!pMP || pMP->isBad()) return;
+#else
   int depth = 0, depth_thresh = 5;
   while (pMP && pMP->isBad()) {
     pMP = pMP->GetReplaced();
     if (++depth >= depth_thresh) break;
   }
   if (!pMP || pMP->isBad()) return;
+#endif
 
   // If there is already a MapPoint replace otherwise add new measurement
   MapPoint *pMPinKF = GetMapPoint(idx);
