@@ -880,7 +880,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
 
       g2o::EdgeNavStateBias* epb = new g2o::EdgeNavStateBias();
       epb->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(maxKFid + 3 + i)));
-      int idFB = pFBtmp->mnId;  // mapfb2i[pFBtmp];
+      int idFB = 3 * pFBtmp->mnId;  // mapfb2i[pFBtmp];
       epb->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idFB + 2)));
       Matrix6d InfoBias;
       InfoBias.setZero();
