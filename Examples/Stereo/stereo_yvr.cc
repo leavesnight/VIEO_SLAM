@@ -207,7 +207,6 @@ int main(int argc, char **argv) {
   auto &vstrimg = vstrImages[seq];
   auto &vtmcam = vTimestampsCam[seq];
   LoadImages(pathCam0, vstrimg[0], vtmcam[0]);
-  AlignImgs(vtmcam, vstrimg);
   if (vtmcam[0].empty()) {
     dataset_type = 1;
     int n_cams_max = 4;
@@ -223,6 +222,7 @@ int main(int argc, char **argv) {
       }
     }
   }
+  AlignImgs(vtmcam, vstrimg);
   PRINT_INFO_MUTEX("Img size=" << vtmcam[0].size() << endl);
 
   if (vstrImages[0].empty()) {

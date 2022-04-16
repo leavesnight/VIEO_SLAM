@@ -344,6 +344,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
 
+  float thresh_depth_close = 10;
   for (list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; ++lit) {
     // Set MP vertices
     MapPoint* pMP = *lit;
@@ -368,6 +369,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
+        if (thresh_depth_close < pKFi->mThDepth) thresh_depth_close = pKFi->mThDepth;
         bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
         auto idxs = mit->second;
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
@@ -487,7 +489,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
       // ref from ORB3
-      bool bClose = pMP->GetTrackInfoRef().track_depth_ < 10.f;
+      bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
 
       if (pMP->isBad())  // why this can be true?
         continue;
@@ -526,7 +528,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
     // ref from ORB3
-    bool bClose = pMP->GetTrackInfoRef().track_depth_ < 10.f;
+    bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
 
     if (pMP->isBad()) continue;
 

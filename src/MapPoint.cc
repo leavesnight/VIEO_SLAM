@@ -482,6 +482,8 @@ void MapPoint::UpdateNormalAndDepth() {
   cv::Mat PC = Pos - pRefKF->GetCameraCenter();
   const float dist =
       cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
+  auto& trackinfo = GetTrackInfoRef();
+  if (INFINITY == trackinfo.track_depth_) trackinfo.track_depth_ = dist;
   CV_Assert(observations.find(pRefKF) != observations.end());
   const int level = pRefKF->mvKeys[*observations[pRefKF].begin()].octave;  // Un
   const float levelScaleFactor = pRefKF->mvScaleFactors[level];
