@@ -939,7 +939,8 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     optimizer.addEdge(eEnc);
   }
   if (init_prior) {
-    const double coeff_deltat_prior = 1, coeff_deltat_priorg = 1;
+    const double coeff_deltat_prior = pimu_initiator->GetInitGBAPriorCoeff(),
+                 coeff_deltat_priorg = pimu_initiator->GetInitGBAPriorCoeff();
     for (int i = 0; i < pvvnsbias_beg.size(); ++i) {
       auto pFBtmp = pvvnsbias_beg[i];
       if (pFBtmp && i != pFBtmp->id_cam_) {

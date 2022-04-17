@@ -58,8 +58,8 @@ ErrIMUImg: 0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
 IMU.InitTime: 0
-IMU.FinalTime: 15
-IMU.SleepTime: 1
+IMU.FinalTime: 3
+IMU.SleepTime: 0.03
 
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10

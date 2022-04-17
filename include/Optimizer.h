@@ -896,7 +896,7 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
     g2o::EdgeGyrBiasPrior *epb = new g2o::EdgeGyrBiasPrior();
     epb->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(1)));
     epb->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
-#define ORB3_STRATEGY
+//#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
     Matrix3d InfoBias = 1e2 * Matrix3d::Identity();
 #else

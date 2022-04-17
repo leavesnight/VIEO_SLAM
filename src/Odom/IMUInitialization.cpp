@@ -87,6 +87,7 @@ void IMUInitialization::Run() {
             NavStated ns2 = prefkf->GetNavState(), ns1 = pKFlocal->GetNavState();
             Vector3d rb1b2 = (ns1.mRwb.inverse() * ns2.mRwb).log();
             if (rb1b2.norm() > 0.1) {
+              SetInitGBAPriorCoeff(1 > n_imu_extra_init ? 10 : 1);
               SetInitGBAOver(false);
               SetInitGBA(true);
               if (2 == ++n_imu_extra_init) SetInitGBA2(true);
@@ -893,7 +894,7 @@ int IMUInitialization::InitIMU(vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
       Tcalc_sgba info_ba = sqrt(IMUData::mInvSigmaba2);  //[id_cams2[h]]);
 
       // add priorA limit like ORB3 to make ba not far away from 0
-#define ORB3_STRATEGY
+//#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
       C.block<3, 3>(3 * (num_eq2_ref + h), num_var_opt2 - 3 + h * 3) = sqrt(1e5) * Matrix3calc::Identity();
 #else
