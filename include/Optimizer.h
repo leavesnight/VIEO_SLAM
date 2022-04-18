@@ -554,7 +554,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       }
 
       const float chi2 = e->chi2();
-      bool bClose = frame_mps[idx]->GetTrackInfoRef().track_depth_ < (10 < pFrame->mThDepth ? pFrame->mThDepth: 10);
+      bool bClose = frame_mps[idx]->GetTrackInfoRef().track_depth_ < (10 < pFrame->mThDepth ? pFrame->mThDepth : 10);
 
       if (chi2 > (bClose ? chi2close : chi2Mono[it]) || !e->isDepthPositive()) {  // here e positive added for safety
         pFrame->mvbOutlier[idx] = true;

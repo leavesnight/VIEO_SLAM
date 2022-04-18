@@ -1094,17 +1094,21 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   if (pimu_initiator) {
     g2o::VertexGThetaXYRwI* vG = static_cast<g2o::VertexGThetaXYRwI*>(optimizer.vertex(id_g));
     bool verbose = true;
-    if (verbose) cout << "before gw=" << wg.transpose() << endl;
+    if (verbose) {
+      PRINT_INFO_FILE("before gw=" << wg.transpose() << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+    }
     pimu_initiator->SetGravityVec(Converter::toCvMat(vG->estimate() * GI));
     if (verbose) {
-      cout << "after gw=" << pimu_initiator->GetGravityVec().t() << endl;
+      PRINT_INFO_FILE("after gw=" << pimu_initiator->GetGravityVec().t() << endl, imu_tightly_debug_path,
+                      "gba_thread_debug.txt");
     }
   }
   // Scale for Xw
   double scale = 1.;
   if (bScaleOpt) {
     scale = static_cast<g2o::VertexScale*>(optimizer.vertex(id_scale))->estimate();
-    PRINT_INFO_MUTEX(azureSTR "Recovered scale is " << scale << whiteSTR << endl);
+    PRINT_INFO_FILE(azureSTR "Recovered scale is " << scale << whiteSTR << endl, imu_tightly_debug_path,
+                    "gba_thread_debug.txt");
   }
 
   // Keyframes
@@ -1142,6 +1146,11 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
       pKFi->mTcwGBA = Converter::toCvMatInverse(Twc_);
 
       pKFi->mnBAGlobalForKF = nLoopKF;
+    }
+    if (!pKFi->mnId) {
+      PRINT_INFO_FILE("recovered kf0 bgba=" << (ns_recov.mbg + ns_recov.mdbg).transpose()
+                                            << (ns_recov.mba + ns_recov.mdba).transpose() << endl,
+                      imu_tightly_debug_path, "gba_thread_debug.txt");
     }
   }
 
