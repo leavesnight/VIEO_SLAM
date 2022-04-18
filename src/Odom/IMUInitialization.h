@@ -96,7 +96,82 @@ class IMUInitialization {  // designed for multi threads
   LocalMapping *mpLocalMapper;  // for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
 
   bool TryInitVIO(void);
-  bool TryInitVIO_zzh(void);
+
+  // for fast imu init
+  typedef Eigen::Matrix<Tcalc_sgba, Eigen::Dynamic, Eigen::Dynamic> MatrixXXcalc;
+  typedef Eigen::Matrix<Tcalc_sgba, Eigen::Dynamic, 1> VectorXcalc;
+  typedef Eigen::Matrix<Tcalc_sgba, 3, 3> Matrix3calc;
+  typedef Eigen::Matrix<Tcalc_sgba, 3, 1> Vector3calc;
+  typedef Sophus::SO3ex<Tcalc_sgba> SO3calc;
+
+  typedef enum FixMode {
+    kFixNone,
+    kFixS = 0x1,       // fix all imus' s
+    kFixV = 0x1 << 1,  // fix inited imus' v
+    // now inited ones have to has kFixBgBa flag for bg init doesn't implement this flag op.
+    kFixBgBa = 0x1 << 2,  // fix inited imus' bgba
+    kFixG = 0x1 << 3,     // fix all imus' g
+    kFixSVBgBa = kFixS | kFixV | kFixBgBa,
+    kFixAll = 0xF
+  } eFixMode;
+  typedef enum LBAMode {
+    kLBAAll,
+    kLBAFixPR = 0x1,
+    kLBAFixGS = 0x1 << 1,
+    kLBAFixBias = 0x1 << 2,
+    kLBANone = 0xF
+  } eLBAMode;
+
+  int num_imus_ = 1;
+  CREATOR_VAR_MULTITHREADS_INIT(InitedIMUs, vector<bool>, b, private, vector<bool>(num_imus_, false))
+  CREATOR_VAR_MULTITHREADS_INIT(HasInitedIMU, bool, b, private, false)  // if >=num_imus_ IMU initialization is over
+  int TryInitVIO_zzh(void);
+  int8_t mode_init_ = kIMUInitLBA;
+  static int8_t fopened;
+  bool abortBA_ = false;  // now imu init first
+  bool tot_imu_inited_ = false;
+  // first time enter LBA, which will become Inertial-Only BA
+  vector<bool> vfirst_time_ = vector<bool>(num_imus_, true);
+  size_t local_window_size_ = 10;
+
+  // parts for fast imu init
+  int deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit);
+  int reduceKFs(const vector<int8_t> &reduced_hids, vector<Vector3d> &bgs_est, vector<Vector3d> &bas_est,
+                vector<vector<IMUKeyFrameInit *> *> &vKFsInit, vector<vector<IMUKeyFrameInit *> *> &vKFsInit2,
+                vector<int> &Ns, int &num_handlers, vector<int8_t> &id_cams, vector<int8_t> *id_cams_ref);
+  // pzeta!=nullptr means step 4 in VIORBSLAM paper IV-C; =nullptr means step 3
+  void ConstructAxeqb(const IMUPreintegrator &imupreint12, const IMUPreintegrator &imupreint23,
+                      const IMUKeyFrameInit *pKF1, const IMUKeyFrameInit *pKF2, const IMUKeyFrameInit *pKF3,
+                      const Matrix3calc &Rcb1, const Matrix3calc &Rcb2, const Vector3calc &pcb1,
+                      const Vector3calc &pcb2, const Vector3calc &pcb3, Matrix3calc &phi, Vector3calc &psi,
+                      Vector3calc &lambda, bool bcalc_cov_dp = false, Matrix3calc *pzeta = nullptr,
+                      const SO3calc *pRwI = nullptr, const Vector3calc *pGI = nullptr, int fixMode = (int)kFixNone);
+  // if bcalc_ba=true, add ba term, vice versa; preduced_hids!=nullptr, use fast pid_Tcbs, if preduced_hids=nullptr &&
+  // pid_Tcbs, create fast pid_Tcbs
+  template <class _FrameBase>
+  void FillAxeqb(const vector<_FrameBase *> &fbs_init, int num_var_opt2, int h, MatrixXXcalc *pC, VectorXcalc *pD,
+                 int &num_eq2, int fixMode, const double *pscale, bool bcalc_ba, bool bcalc_gdir,
+                 int *pnum_eq_h = nullptr, vector<int8_t> *preduced_hids = nullptr,
+                 vector<vector<size_t>> *pid_Tcbs = nullptr,
+                 Eigen::aligned_vector<Eigen::aligned_vector<SO3calc>> *pRcbs = nullptr,
+                 Eigen::aligned_vector<Eigen::aligned_vector<Vector3calc>> *ppcbs = nullptr, int *plast_h = nullptr,
+                 const SO3calc *pRwI = nullptr, const Vector3calc *pGI = nullptr, double *psum_dt = nullptr,
+                 bool bcalc_cov = true, bool verbose = false);
+  // step4: calculate vwbi and scale recover(TODO), lbags means local sliding windows ba optimizes gravity and scale
+  void SetIMUInited(vector<bool> &initedIMUs, const vector<int8_t> &id_cams2);
+  template <class OdomData>
+  int InitIMUv_lbags(const vector<FrameBase *> &vfb_scale_v_b, vector<FrameBase *> &pcurfbs,
+                     const vector<unsigned long> &fixed_ref_ids, const vector<int8_t> &id_cams2,
+                     vector<bool> &last_imu_inited, const int fixMode, const vector<Vector3d> &bgs_est,
+                     const vector<Vector3d> &bas_star, const Eigen::Vector3f &gw, double scale, Map *pMap,
+                     unique_lock<mutex> &lock, int8_t mode_lba = (int8_t)kLBAAll, bool bfast_init = false,
+                     const vector<typename aligned_list<OdomData>::const_iterator> *pviterbeg = nullptr);
+  int InitIMU(vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
+              Eigen::aligned_vector<Eigen::aligned_vector<IMUKeyFrameInitFix>> &vKFsFixed, vector<int8_t> &id_cams2,
+              vector<bool> &last_imu_inited, const int fixMode, int8_t mode_lba = (int8_t)kLBAAll,
+              const vector<Vector6d> &vbgba_init = vector<Vector6d>(),
+              const vector<bool> *pdebug_benough_id_cam = nullptr);
+
   cv::Mat SkewSymmetricMatrix(const cv::Mat &v) {
     return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
             -v.at<float>(1), v.at<float>(0), 0);
@@ -112,6 +187,15 @@ class IMUInitialization {  // designed for multi threads
       SetInitGBAPriorCoeff(1);
       SetInitGBA2(false);
 
+      SetInitedIMUs(vector<bool>(num_imus_, false));
+      SetHasInitedIMU(false);
+      vfirst_time_.clear();  // resize won't change < old_size element!
+      vfirst_time_.resize(num_imus_, true);
+
+      tot_imu_inited_ = false;
+
+      if (fopened) fopened = 1;
+
       SetReset(false);
     }
   }
@@ -121,7 +205,7 @@ class IMUInitialization {  // designed for multi threads
   bool mbUsePureVision;  // for pure-vision+IMU Initialization mode!
 
   IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath)
-      : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false), verbose(0) {
+      : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false) {
     mbSensorEnc = false;
     mdStartTime = -1;
     mbSensorIMU = false;
@@ -160,6 +244,10 @@ class IMUInitialization {  // designed for multi threads
       mnSleepTime = (double)fnTime[1] * 1e6;
       mdFinalTime = fnTime[2];
     }
+
+    if (!mbMonocular) {
+      mode_init_ |= kIMUInitFixScale;
+    }
   }
 
   void Run();
@@ -177,10 +265,6 @@ class IMUInitialization {  // designed for multi threads
     }
   }
   void SetLocalMapper(LocalMapping *pLocalMapper) { mpLocalMapper = pLocalMapper; }
-  static int deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit);
-  static int reduceKFs(const vector<char> &reduced_hids, vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
-                       vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
-                       vector<char> &id_cams, vector<char> *id_cams_ref);
 
   char verbose = kVerbDeb;  // kVerbRel; //
 };
