@@ -7,26 +7,35 @@ namespace VIEO_SLAM {
 
 using namespace std;
 using namespace Eigen;
+using Sophus::SO3ex;
+using Sophus::SO3exd;
+typedef Sophus::SE3<IMUInitialization::Tcalc_sgba> SE3calc;
+
+int8_t kCoeffPriorDefault = 1;  // 0 will make coeff_priora/g:1->5e4 */1e6 *
 
 IMUKeyFrameInit::IMUKeyFrameInit(KeyFrame &kf)
-    : mTimeStamp(kf.mTimeStamp),
+    : timestamp_(kf.timestamp_),
       mTwc(kf.GetPoseInverse()),
       mTcw(kf.GetPose()),
       mpPrevKeyFrame(NULL),                // GetPose() already return .clone()
       mOdomPreIntIMU(kf.GetIMUPreInt()) {  // this func. for IMU Initialization cache of KFs, so need deep copy
-  mbg_ = mba_ = Vector3d::Zero();          // as stated in IV-A in VIORBSLAM paper
+  bg_ = ba_ = Vector3d::Zero();            // as stated in IV-A in VIORBSLAM paper
   const listeig(IMUData) limu = kf.GetListIMUData();
   mOdomPreIntIMU.SetPreIntegrationList(limu.begin(), limu.end());
 }
+IMUKeyFrameInitFix::IMUKeyFrameInitFix(KeyFrame &kf) : IMUKeyFrameInit(kf) {
+  NavStated ns = kf.GetNavState();
+  dbg_ = ns.mdbg;
+  dba_ = ns.mdba;
+}
 
 cv::Mat IMUInitialization::GetGravityVec(void) {
-  // unique_lock<mutex> lock(mMutexInitIMU);//now we don't need mutex for it 1stly calculated only in this thread and
-  // then it will be a const!
-  return mGravityVec;  //.clone();//avoid simultaneous operation
+  // may need mutex for it 1stly calculated in this or gba thread and then it will be a const!
+  unique_lock<mutex> lock(mMutexInitIMU);
+  return mGravityVec.clone();  // avoid simultaneous operation
 }
 void IMUInitialization::SetGravityVec(const cv::Mat &mat) {
-  // unique_lock<mutex> lock(mMutexInitIMU);//now we don't need mutex for it 1stly calculated only in this thread and
-  // then it will be a const!
+  unique_lock<mutex> lock(mMutexInitIMU);
   mGravityVec = mat.clone();  // avoid simultaneous operation
 }
 
@@ -35,19 +44,29 @@ void IMUInitialization::Run() {
   cout << "start VINSInitThread" << endl;
   mbFinish = false;
   while (1) {
-    if (GetSensorIMU()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
-      KeyFrame *pCurKF = GetCurrentKeyFrame();
+    if (GetSensorIMU() && !GetVINSInited()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
       if (mdStartTime == -1) {
         initedid = 0;
         mdStartTime = -2;
       }
-      if (mdStartTime < 0 || mdStartTime >= 0 && pCurKF->mTimeStamp - mdStartTime >= mdInitTime)
-        if (!GetVINSInited() && pCurKF != NULL && pCurKF->mnId > initedid) {
-          initedid = pCurKF->mnId;
-          if (TryInitVIO())
-            break;  // if succeed in IMU Initialization, this thread will finish, when u want the users' pushing reset
-                    // button be effective, delete break!
+
+      KeyFrame *pCurKF = GetCurrentKeyFrame();
+      if (pCurKF) {
+//#define USE_FAST_IMU_INIT
+        if (mdStartTime < 0 && !mpMap->mvpKeyFrameOrigins.empty()) {
+          mdStartTime = mpMap->mvpKeyFrameOrigins.front()->timestamp_;
         }
+        if (mdStartTime >= 0 && pCurKF->timestamp_ - mdStartTime >= mdInitTime)
+          if (pCurKF->mnId > initedid) {
+            // if succeed in IMU Initialization, this thread will finish, when u want the users' pushing reset button be
+            // effective, delete break!
+#ifndef USE_FAST_IMU_INIT
+            initedid = pCurKF->mnId;
+            if (TryInitVIO()) break;
+#else
+#endif
+          }
+      }
     }
 
     ResetIfRequested();
@@ -243,7 +262,7 @@ bool IMUInitialization::TryInitVIO_zzh(
   // Update biasg and pre-integration in LocalWindow(here all KFs).
   int num_eq = 0, num_eq2_ref = 0;
   for (int h = 0; h < num_handlers; ++h) {
-    for (int i = 0; i < Ns[h]; ++i) (*vKFsInit2[h])[i]->mbg_ = bgs_est[h];
+    for (int i = 0; i < Ns[h]; ++i) (*vKFsInit2[h])[i]->bg_ = bgs_est[h];
     num_eq += Ns[h] - 2;
   }
   for (int h = 0; h < num_handlers; ++h)
@@ -284,7 +303,7 @@ bool IMUInitialization::TryInitVIO_zzh(
       double dt12 = pKF2->mOdomPreIntIMU.mdeltatij;  // deltat12
       double dt23 = pKF3->mOdomPreIntIMU.mdeltatij;
       if (dt12 == 0 || dt23 == 0) {
-        PRINT_INFO_MUTEX(redSTR << "Tm=" << fixed << setprecision(9) << pKF2->mTimeStamp << " lack IMU data!" << dt12
+        PRINT_INFO_MUTEX(redSTR << "Tm=" << fixed << setprecision(9) << pKF2->timestamp_ << " lack IMU data!" << dt12
                                 << "," << dt23 << whiteSTR << defaultfloat << endl);
         continue;
       }
@@ -759,7 +778,7 @@ bool IMUInitialization::TryInitVIO(
 
   for (int i = 0; i < NvSGKF; ++i) {
     KeyFrame *pKF = vScaleGravityKF[i];
-    //     if (pKF->mTimeStamp<pNewestKF->mTimeStamp-15) continue;//15s as the VIORBSLAM paper
+    //     if (pKF->timestamp_<pNewestKF->timestamp_-15) continue;//15s as the VIORBSLAM paper
     IMUKeyFrameInit *pkfi = new IMUKeyFrameInit(*pKF);
     if (N > 0) pkfi->mpPrevKeyFrame = vKFInit[N - 1];
     vKFInit.push_back(pkfi);
@@ -770,13 +789,13 @@ bool IMUInitialization::TryInitVIO(
 
   // Step 1. / see VIORBSLAM paper IV-A
   // Try to compute initial gyro bias, using optimization with Gauss-Newton
-  Vector3d bgest;
+  Vector3d bgest = Vector3d::Zero();
   Optimizer::OptimizeInitialGyroBias<IMUKeyFrameInit>(vKFInit,
                                                       bgest);  // nothing changed, just return the optimized result bg*
   cout << "bgest: " << bgest << endl;
 
   // Update biasg and pre-integration in LocalWindow(here all KFs).
-  for (int i = 0; i < N; ++i) vKFInit[i]->mbg_ = bgest;
+  for (int i = 0; i < N; ++i) vKFInit[i]->bg_ = bgest;
   for (int i = 1; i < N; ++i)
     vKFInit[i]->ComputePreInt();  // so vKFInit[i].mOdomPreIntIMU is based on bg_bar=bgest,ba_bar=0; dbg=0 but dba/ba
                                   // waits to be optimized
@@ -793,7 +812,7 @@ bool IMUInitialization::TryInitVIO(
     double dt12 = pKF2->mOdomPreIntIMU.mdeltatij;  // deltat12
     double dt23 = pKF3->mOdomPreIntIMU.mdeltatij;
     if (dt12 == 0 || dt23 == 0) {
-      cout << redSTR << "Tm=" << pKF2->mTimeStamp << " lack IMU data!" << whiteSTR << endl;
+      cout << redSTR << "Tm=" << pKF2->timestamp_ << " lack IMU data!" << whiteSTR << endl;
       continue;
     }
     ++numEquations;
@@ -802,8 +821,8 @@ bool IMUInitialization::TryInitVIO(
     cv::Mat dv12 = Converter::toCvMat(pKF2->mOdomPreIntIMU.mvij);
     cv::Mat dp23 = Converter::toCvMat(pKF3->mOdomPreIntIMU.mpij);
     //     cout<<fixed<<setprecision(6);
-    //     cout<<"dt12:"<<dt12<<" KF1:"<<vKFInit[i]->mTimeStamp<<" KF2:"<<pKF2->mTimeStamp<<" dt23:"<<dt23<<"
-    //     KF3:"<<pKF3->mTimeStamp<<endl; cout<<dp12.t()<<" 1id:"<<vScaleGravityKF[i]->mnId<<"
+    //     cout<<"dt12:"<<dt12<<" KF1:"<<vKFInit[i]->timestamp_<<" KF2:"<<pKF2->timestamp_<<" dt23:"<<dt23<<"
+    //     KF3:"<<pKF3->timestamp_<<endl; cout<<dp12.t()<<" 1id:"<<vScaleGravityKF[i]->mnId<<"
     //     2id:"<<vScaleGravityKF[i+1]->mnId<<" 3id:"<<vScaleGravityKF[i+2]->mnId<<endl; cout<<"
     //     Size12="<<pKF2->mOdomPreIntIMU.getlOdom().size()<<" Size23="<<pKF3->mOdomPreIntIMU.getlOdom().size()<<endl;
     // Pose of camera in world frame
@@ -872,7 +891,7 @@ bool IMUInitialization::TryInitVIO(
   //   for (int k=0;k<2;++k){//we prefer 1 iteration
   //     if (k==1){
   //       gwstar=Rwi_*GI;
-  //       for(int i=0;i<N;++i) vKFInit[i]->mba_=bastareig;
+  //       for(int i=0;i<N;++i) vKFInit[i]->ba_=bastareig;
   //       for(int i=1;i<N;++i) vKFInit[i]->ComputePreInt();
   //     }
 
@@ -953,10 +972,10 @@ bool IMUInitialization::TryInitVIO(
           gwafter = Rwi_ * GI;  // direction of gwbefore is the same as gwstar, but value is different!
   cout << "gwbefore=" << gwbefore << ", gwafter=" << gwafter << endl;
 
-  cout << "Time: " << pNewestKF->mTimeStamp - mdStartTime << ", sstar: " << sstar << ", s: " << s_
+  cout << "Time: " << pNewestKF->timestamp_ - mdStartTime << ", sstar: " << sstar << ", s: " << s_
        << endl;  // Debug the frequency & sstar2&sstar
   //<<" bgest: "<<bgest.transpose()<<", gw*(gwafter)="<<gwafter.t()<<", |gw*|="<<cv::norm(gwafter)<<",
-  //norm(gwbefore,gwstar)"<<cv::norm(gwbefore.t())<<" "<<cv::norm(gwstar.t())<<endl;
+  // norm(gwbefore,gwstar)"<<cv::norm(gwbefore.t())<<" "<<cv::norm(gwstar.t())<<endl;
   if (mTmpfilepath.length() > 0) {  // Debug the Rwistar2
     ofstream fRwi(mTmpfilepath + "Rwi.txt");
     fRwi << Rwieig_(0, 0) << " " << Rwieig_(0, 1) << " " << Rwieig_(0, 2) << " " << Rwieig_(1, 0) << " "
@@ -964,20 +983,20 @@ bool IMUInitialization::TryInitVIO(
          << Rwieig_(2, 2) << endl;
     fRwi.close();
   }
-  fbiasg << pNewestKF->mTimeStamp << " " << bgest(0) << " " << bgest(1) << " " << bgest(2) << " " << endl;
-  fgw << pNewestKF->mTimeStamp << " " << gwafter.at<float>(0) << " " << gwafter.at<float>(1) << " "
+  fbiasg << pNewestKF->timestamp_ << " " << bgest(0) << " " << bgest(1) << " " << bgest(2) << " " << endl;
+  fgw << pNewestKF->timestamp_ << " " << gwafter.at<float>(0) << " " << gwafter.at<float>(1) << " "
       << gwafter.at<float>(2) << " " << gwbefore.at<float>(0) << " " << gwbefore.at<float>(1) << " "
       << gwbefore.at<float>(2) << " " << endl;
-  fscale << pNewestKF->mTimeStamp << " " << s_ << " " << sstar << " " << endl;  // if (mbMonocular)
-  fbiasa << pNewestKF->mTimeStamp << " " << bastareig[0] << " " << bastareig[1] << " " << bastareig[2] << " " << endl;
-  fcondnum << pNewestKF->mTimeStamp << " " << w2.at<float>(0) << " " << w2.at<float>(1) << " " << w2.at<float>(2) << " "
+  fscale << pNewestKF->timestamp_ << " " << s_ << " " << sstar << " " << endl;  // if (mbMonocular)
+  fbiasa << pNewestKF->timestamp_ << " " << bastareig[0] << " " << bastareig[1] << " " << bastareig[2] << " " << endl;
+  fcondnum << pNewestKF->timestamp_ << " " << w2.at<float>(0) << " " << w2.at<float>(1) << " " << w2.at<float>(2) << " "
            << w2.at<float>(3) << " " << w2.at<float>(4) << " " << w2.at<float>(5) << " " << endl;
 
   // ********************************
   // Todo: Add some logic or strategy to confirm init status, VIORBSLAM paper just uses 15 seconds to confirm
   bool bVIOInited = false;
-  if (mdStartTime < 0) mdStartTime = pNewestKF->mTimeStamp;
-  if (pNewestKF->mTimeStamp - mdStartTime >= mdFinalTime) {  // 15s in the paper V-A
+  if (mdStartTime < 0) mdStartTime = pNewestKF->timestamp_;
+  if (pNewestKF->timestamp_ - mdStartTime >= mdFinalTime) {  // 15s in the paper V-A
     cout << yellowSTR "condnum=" << w2.at<float>(0) << ";" << w2.at<float>(5) << whiteSTR << endl;
     //     if (w2.at<float>(0)/w2.at<float>(5)<700)
     bVIOInited = true;
@@ -1066,7 +1085,7 @@ bool IMUInitialization::TryInitVIO(
           cv::Mat vwbi = -1. / dt *
                          (scale * (wPc - wPcnext) + (Rwc - Rwcnext) * pcb + dt * dt / 2 * gw +
                           Rwc * Rcb * (dp));  //-1/dt*(pwbi-pwbj+1/2*gw*dt^2+Rwbi*(dp+Japij*dbai)), pwbi=s*pwc+Rwc*pcb,
-                                              //s=sw=swRightScaled_wNow
+                                              // s=sw=swRightScaled_wNow
           ns.mvwb = Converter::toVector3d(vwbi);
         } else {
           // If this is the last KeyFrame, no 'next' KeyFrame exists, use (3) in VOIRBSLAM paper with
@@ -1081,7 +1100,8 @@ bool IMUInitialization::TryInitVIO(
               pKF->GetIMUPreInt();  // notice it's based on bi_bar=[bg* ba*], so dbgi=dbai=0
           double dt = imupreint.mdeltatij;
           NavState nsprev = pKFprev->GetNavState();
-          ns.mvwb = nsprev.mvwb + gweig * dt + nsprev.mRwb * (imupreint.mvij);  // vwbj=vwbi+gw*dt+Rwbi*(dvij+Javij*dbai)
+          ns.mvwb =
+              nsprev.mvwb + gweig * dt + nsprev.mRwb * (imupreint.mvij);  // vwbj=vwbi+gw*dt+Rwbi*(dvij+Javij*dbai)
         }
         pKF->SetNavStateOnly(ns);  // now ns also has the right mvwb
       }

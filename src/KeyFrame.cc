@@ -162,7 +162,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mpParent(NULL),
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
-      mbBad(false),
       mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mbPrior(false)  //,mbPNChanging(false)//zzh
@@ -326,7 +325,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mpParent(NULL),
       mbNotErase(false),
       mbToBeErased(false),
-      mbBad(false),
       mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mState(state),
@@ -924,7 +922,7 @@ void KeyFrame::SetBadFlag(
 
 bool KeyFrame::isBad() {
   unique_lock<mutex> lock(mMutexConnections);
-  return mbBad;
+  return FrameBase::isBad();
 }
 
 void KeyFrame::EraseConnection(KeyFrame *pKF) {

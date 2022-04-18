@@ -83,6 +83,85 @@ void Map::SetReferenceMapPoints(const vector<MapPoint *> &vpMPs) {
   mvpReferenceMapPoints = vpMPs;
 }
 
+vector<KeyFrame *> Map::GetLastKFs(double time_span, vector<bool> &benough_id_cam, double time_span_max,
+                                   double max_delta_tij, const int8_t fix_mode, const size_t min_num) {
+  unique_lock<mutex> lock(mMutexMap);
+  auto iter = mspKeyFrames.end();
+  auto iter_1 = iter--;
+  double time_start = (*mspKeyFrames.begin())->timestamp_;
+  int num_cam = fix_mode ? max_id_cam_ + 1 : max_id_cam_unfixed_ + 1;
+  vector<double> time_end(num_cam, time_start);
+  if (2 == fix_mode && (*iter)->timestamp_ - time_start <= time_span_max && !min_num) {
+    benough_id_cam.clear();
+    set<int8_t> judgeds;
+    benough_id_cam.resize(num_cam, false);
+    for (; iter_1 != mspKeyFrames.begin(); iter_1 = iter--) {
+      KeyFrame *pKF = *iter;
+      int8_t id_cam = pKF->id_cam_;
+      assert(id_cam < num_cam);
+      if (judgeds.end() == judgeds.find(id_cam)) {
+        judgeds.emplace(id_cam);
+        time_end[id_cam] = pKF->timestamp_;
+      } else if (judgeds.size() == num_cam)
+        break;
+    }
+    judgeds.clear();
+    for (iter = mspKeyFrames.begin(); iter != mspKeyFrames.end(); ++iter) {
+      KeyFrame *pKF = *iter;
+      int8_t id_cam = pKF->id_cam_;
+      assert(id_cam < num_cam);
+      if (judgeds.end() == judgeds.find(id_cam)) {
+        judgeds.emplace(id_cam);
+        if (time_end[id_cam] - pKF->timestamp_ >= time_span) {
+          benough_id_cam[id_cam] = true;
+        }
+      } else if (judgeds.size() == num_cam)
+        break;
+    }
+    return vector<KeyFrame *>(mspKeyFrames.begin(), mspKeyFrames.end());
+  }
+
+  vector<KeyFrame *> vKFs;
+  vector<double> time_last = time_end;
+  vector<bool> bfinished(num_cam, false);
+  vector<size_t> num_kf(num_cam, 0);
+  int enough_cam_num = 0, finished_cam_num = 0;
+  benough_id_cam.clear();
+  benough_id_cam.resize(num_cam, false);
+  for (; iter_1 != mspKeyFrames.begin(); iter_1 = iter--) {
+    KeyFrame *pKF = *iter;
+    if ((!fix_mode && pKF->bcam_fixed_) || (1 == fix_mode && !pKF->bcam_fixed_)) continue;
+    double time_ref = pKF->timestamp_;
+    int8_t id_cam = pKF->id_cam_;
+    assert(id_cam < num_cam);
+    if (time_end[id_cam] < time_ref) {
+      time_end[id_cam] = time_ref;
+      time_last[id_cam] = time_ref;
+    }
+    if (!bfinished[id_cam]) {
+      if (time_end[id_cam] - time_ref <= time_span_max && time_last[id_cam] - time_ref <= max_delta_tij) {
+        vKFs.insert(vKFs.begin(), *iter);
+        ++num_kf[id_cam];
+
+        if (time_end[id_cam] - time_ref >= time_span && num_kf[id_cam] >= min_num) {
+          bfinished[id_cam] = true;
+          ++finished_cam_num;
+
+          ++enough_cam_num;
+          benough_id_cam[id_cam] = true;
+        }
+      } else {
+        bfinished[id_cam] = true;
+        ++finished_cam_num;
+      }
+    }
+    if (enough_cam_num == num_cam || finished_cam_num == num_cam) break;
+
+    time_last[id_cam] = time_ref;
+  }
+  return vKFs;
+}
+
 void Map::InformNewBigChange() {
   unique_lock<mutex> lock(mMutexMap);
   ++mnBigChangeIdx;

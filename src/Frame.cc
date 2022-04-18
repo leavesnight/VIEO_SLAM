@@ -27,11 +27,6 @@
 #include "common/common.h"
 
 namespace VIEO_SLAM {
-
-cv::Mat Frame::mTbc, Frame::mTce;
-Eigen::Matrix3d Frame::meigRcb;
-Eigen::Vector3d Frame::meigtcb;
-
 // For stereo fisheye matching
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
 bool Frame::usedistort_ = false;
@@ -307,7 +302,6 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
       mBowVec(frame.mBowVec),
       mFeatVec(frame.mFeatVec),
       mvbOutlier(frame.mvbOutlier),
-      mnId(frame.mnId),
       mpReferenceKF(frame.mpReferenceKF),
       mnScaleLevels(frame.mnScaleLevels),
       mfScaleFactor(frame.mfScaleFactor),

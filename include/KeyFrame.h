@@ -241,7 +241,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat UnprojectStereo(int i);
 
   // Set/check bad flag
-  bool isBad();  // mbBad
+  bool isBad() override;  // mbBad
   // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF) in mpMap && mpKeyFrameDB;
   // KeepTree=true is used for BadKF's recover in LoadMap()
   void SetBadFlag(bool bKeepTree = false);
@@ -294,7 +294,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // The following variables are accesed from only 1 thread or never change (no mutex needed).
  public:
   static long unsigned int nNextId;
-  long unsigned int mnId;
 
   const long unsigned int mnFrameId;
 
@@ -363,8 +362,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   // The following variables need to be accessed trough a mutex to be thread safe.
  protected:
-  // Bad flags
-  bool mbBad;
   Map *mpMap;
   // BoW
   KeyFrameDatabase *mpKeyFrameDB;

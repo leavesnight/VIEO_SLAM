@@ -20,8 +20,15 @@ class MapPoint;
 
 class FrameBase {
  public:
+  // const Tbc,Tce, so it can be used in multi threads
+  static cv::Mat mTbc, mTce;
+  static Eigen::Matrix3d meigRcb;
+  static Eigen::Vector3d meigtcb;
+
+  long unsigned int mnId;
+
   FrameBase() {}
-  FrameBase(const double &timestamp) : mTimeStamp(timestamp) {}
+  FrameBase(const double &timestamp) : mTimeStamp(timestamp), timestamp_(mTimeStamp) {}
   virtual ~FrameBase() {}
 
   // TODO: if Trc ref is imu, here need to be changed
@@ -72,11 +79,16 @@ class FrameBase {
                                                nullptr, verbose);
   }
 
+  virtual bool isBad() { return mbBad; }
+
   std::vector<GeometricCamera *> mpCameras;
   std::vector<std::pair<size_t, size_t>> mapn2in_;
 
   // Frame timestamp.
   double mTimeStamp;
+  double timestamp_;
+  int8_t id_cam_ = 0;
+  int8_t bcam_fixed_ = 1;
 
  protected:
   inline const Sophus::SE3d GetTcwCst() const {
@@ -97,6 +109,9 @@ class FrameBase {
   // Odom PreIntegration, j means this fb, i means last fb, if no measurements=>mdeltatij==0
   EncPreIntegrator mOdomPreIntEnc;
   IMUPreintegrator mOdomPreIntIMU;
+
+  // Bad flags
+  bool mbBad = false;
 };
 
 template <>

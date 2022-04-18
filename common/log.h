@@ -18,10 +18,10 @@ extern std::mutex gmutexOUTPUT;
 const std::string imu_tightly_debug_path = "/home/leavesnight/tmp/VIEOSLAM/";  //"/backup/imu_tightly/";
 }  // namespace VIEO_SLAM
 
-#define PRINT_INFO_BASE(msg, foldername, filename)                     \
+#define PRINT_INFO_BASE(msg, level, foldername, filename)              \
   do {                                                                 \
-    if (PRINT_LEVEL >= level) {                                        \
-      if (foldername != "") {                                          \
+    if (VIEO_SLAM::PRINT_LEVEL >= level) {              \
+      if ("" != foldername) {                                          \
         std::string debug_file = std::string(foldername) + filename;   \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app); \
         fout << msg;                                                   \
@@ -41,7 +41,14 @@ const std::string imu_tightly_debug_path = "/home/leavesnight/tmp/VIEOSLAM/";  /
         std::cout << msg;                                              \
     }                                                                  \
   } while (0)
+#define PRINT_INFO(msg) PRINT_INFO_BASE(msg, VIEO_SLAM::PRINT_LEVEL_INFO, "", "")
 #define PRINT_INFO_MUTEX(msg) PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::PRINT_LEVEL_INFO, "", "")
+#define PRINT_INFO_FILE(msg, foldername, filename) \
+  PRINT_INFO_BASE(msg, VIEO_SLAM::PRINT_LEVEL_INFO, foldername, filename)
+#define PRINT_INFO_FILE_MUTEX(msg, foldername, filename) \
+  PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::PRINT_LEVEL_INFO, foldername, filename)
+#define PRINT_DEBUG_INFO(msg, foldername, filename) \
+  PRINT_INFO_BASE(msg, VIEO_SLAM::PRINT_LEVEL_DEBUG, foldername, filename)
 #define PRINT_DEBUG_INFO_MUTEX(msg, foldername, filename) \
   PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::PRINT_LEVEL_DEBUG, foldername, filename)
 #define CLEAR_DEBUG_INFO(msg, foldername, filename)                \

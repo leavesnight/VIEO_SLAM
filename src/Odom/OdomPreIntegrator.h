@@ -37,6 +37,7 @@ class OdomPreIntegratorBase {                                 // base class
   using aligned_list = Eigen::aligned_list<T>;
 
   double mdeltatij;  // 0 means not preintegrated
+  double &dt_ij_ = mdeltatij;
 
   OdomPreIntegratorBase() : mdeltatij(0) {}
   // though copy constructor/operator = already deep, please don't copy the list when preintegration is not related to
@@ -112,10 +113,32 @@ class IMUPreIntegratorBase
  public:
   typedef double Tcalc;
   using SO3calc = Sophus::SO3ex<Tcalc>;
-  Matrix3d mRij;         // deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
-  Vector3d mvij, mpij;   // deltav~ij,deltap~ij(bi_bar)
+  Matrix3d mRij;  // deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
+  Matrix3d &Rij_ = mRij;
+  Vector3d mvij, mpij;  // deltav~ij,deltap~ij(bi_bar)
+  Vector3d &vij_ = mvij, &pij_ = mpij;
   Matrix9d mSigmaijPRV;  // Cov_p_Phi_v_ij, a bit different with paper for convenience
-  Matrix9d mSigmaij;     // Cov_p_v_Phi_ij, opposite order with the paper
+  Matrix9d GetProcessedInfoijPRV() const {
+    Matrix9d InfoijPRV = mSigmaijPRV.inverse();
+    InfoijPRV = (InfoijPRV + InfoijPRV.transpose()) / 2;
+    Eigen::SelfAdjointEigenSolver<Matrix9d> es(InfoijPRV);
+    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
+    for (int i = 0; i < 9; ++i) // maybe for fast speed opt.?
+      if (eigs[i] < 1e-12) eigs[i] = 0;
+    InfoijPRV = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    return InfoijPRV;
+  }
+  Matrix9d GetProcessedInfoij() const {
+    Matrix9d Infoij = mSigmaij.inverse();
+    Infoij = (Infoij + Infoij.transpose()) / 2;
+    Eigen::SelfAdjointEigenSolver<Matrix9d> es(Infoij);
+    Eigen::Matrix<double, 9, 1> eigs = es.eigenvalues();
+    for (int i = 0; i < 9; ++i)
+      if (eigs[i] < 1e-12) eigs[i] = 0;
+    Infoij = es.eigenvectors() * eigs.asDiagonal() * es.eigenvectors().transpose();
+    return Infoij;
+  }
+  Matrix9d mSigmaij;  // Cov_p_v_Phi_ij, opposite order with the paper
   // jacobian of delta measurements w.r.t bias of gyro/acc
   Matrix3d mJgpij;  // position / gyro, Jgdeltapij(bi_bar) in VIORBSLAM paper, par(deltapij)/par(bgi).t()(bi_bar) in
                     // Preintegration Paper, we may drop .t() later
@@ -123,8 +146,12 @@ class IMUPreIntegratorBase
   Matrix3d mJgvij;  // velocity / gyro
   Matrix3d mJavij;  // velocity / acc
   Matrix3d mJgRij;  // rotation / gyro
-                    // Vector3d mbgij,mbaij;//bg(ti)=b_bar_gi+db_gi, bg~ij not exists, neither do ba~ij
+  Matrix3d &Japij_ = mJapij, &Jgvij_ = mJgvij, &Javij_ = mJavij, &JgRij_ = mJgRij;
+  Matrix9d &SigmaijPRV_ = mSigmaijPRV;
+
+  // Vector3d mbgij,mbaij;//bg(ti)=b_bar_gi+db_gi, bg~ij not exists, neither do ba~ij
   // Matrix3d mSigmabgd,mSigmabad;//should be deltatij*Cov(eta_bg),deltatij*Cov(eta_ba)
+
   // for lower imu frequency test
   Matrix3d mRij_hf;           // deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
   Vector3d mvij_hf, mpij_hf;  // deltav~ij,deltap~ij(bi_bar)

@@ -17,6 +17,9 @@ namespace VIEO_SLAM {
 // Draw related params
 //#define DRAW_ALL_KPS
 //#define DRAW_KP2MP_LINE
-}
+
+const double kRatioIMUSigma = 1e6;  // 1e3 / 9;
+const double kCoeffDeltatPrior[2] = {kRatioIMUSigma * 1e-3, kRatioIMUSigma * 1e-4};
+}  // namespace VIEO_SLAM
 
 #endif  // VIEO_SLAM_COMMON_H

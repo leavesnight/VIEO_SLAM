@@ -45,11 +45,6 @@ class Frame : public FrameBase {
   IMUPreintegrator *ppreint_imu_kf_;
 
  public:
-  // const Tbc,Tce, so it can be used in multi threads
-  static cv::Mat mTbc, mTce;
-  static Eigen::Matrix3d meigRcb;
-  static Eigen::Vector3d meigtcb;
-
   // For pose optimization/motion-only BA, use as prior and prior information(inverse covariance)
   Matrix<double, 15, 15> mMargCovInv;  // Sigmap in VIORBSLAM paper/prior Hessian matrix for next Frame, notice it's
                                        // unintialized(to infinity/fixedlast)
@@ -181,7 +176,6 @@ class Frame : public FrameBase {
 
   // Current and Next Frame id.
   static long unsigned int nNextId;
-  long unsigned int mnId;
 
   // Vocabulary used for relocalization.
   ORBVocabulary *mpORBvocabulary;

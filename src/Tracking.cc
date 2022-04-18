@@ -351,7 +351,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     }
   }
   mnMatchesInliers = nmatchesMap;
-//  cout << "check matchinliers IMU=" << mnMatchesInliers << endl;
+  //  cout << "check matchinliers IMU=" << mnMatchesInliers << endl;
 
   // we haven't designed tracking mode in VIO/VIEO, but we can just consider VIEO map as VEO then
   // use VEO tracking mode! & VIO map as RGBD map then use RGBD tracking mode!
@@ -394,6 +394,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
     // notice we can't keep this copy updation of mbi for too long!!!
     return false;  // check PreIntegration() failed when mdeltatij==0, so mCurrentFrame.mTcw==cv::Mat()
   }
+  cout << "check bgba="<<ns.mbg.transpose()<<","<<ns.mba.transpose()<<endl;
 
   using namespace Eigen;
   // const EncPreIntegrator &encpreint=mCurrentFrame.GetEncPreInt();
@@ -1356,6 +1357,7 @@ void Tracking::StereoInitialization(cv::Mat img[2]) {
   if (mCurrentFrame.N > 500) {
     // Set Frame pose to the origin
     mCurrentFrame.SetPose(cv::Mat::eye(4, 4, CV_32F));
+    cout << "check init tm=" << mCurrentFrame.mTimeStamp << endl;
 
     // Create KeyFrame
     KeyFrame* pKFini = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true);
@@ -1874,7 +1876,7 @@ bool Tracking::TrackWithMotionModel() {
     }
   }
   mnMatchesInliers = nmatchesMap;
-//  cout << "check matchinliers=" << mnMatchesInliers << endl;
+  //  cout << "check matchinliers=" << mnMatchesInliers << endl;
 
   if (mbOnlyTracking) {
     mbVO = nmatchesMap < 10;  // change to VO mode if the inlier MapPoint is too few i.e. robot goes to the new

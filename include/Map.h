@@ -61,11 +61,21 @@ class Map : public MutexUsed {
   void AddKeyFrame(KeyFrame* pKF);
   void AddMapPoint(MapPoint* pMP);
   void EraseMapPoint(MapPoint* pMP);
-  void EraseKeyFrame(KeyFrame* pKF);                                // mspKeyFrames.erase(pKF)
+  void EraseKeyFrame(KeyFrame* pKF);  // mspKeyFrames.erase(pKF)
 
   long unsigned KeyFramesInMap();
   std::vector<KeyFrame*> GetAllKeyFrames();  // vec(mspKeyFrames)
   std::vector<MapPoint*> GetAllMapPoints();  // vec(mspMapPoints)
+
+  // for imu init
+  int max_id_cam_ = 0, max_id_cam_unfixed_ = -1;  // we should ensure num_cam = max_id_cam_ + 1
+  template <typename _Tp>
+  using vector = std::vector<_Tp>;
+  /* get lastKFs from newest one with >=time_span and neighbor KFs' delta_tij <= max_delta_tij
+   * please give enough time_span_max redundant from time_span
+   */
+  vector<KeyFrame*> GetLastKFs(double time_span, vector<bool>& benough_id_cam, double time_span_max = 16,
+                               double max_delta_tij = 3.0, const int8_t fix_mode = 2, const size_t min_num = 0);
 
   // mnBigChangeIdx++, for System::MapChanged(), notice map is changed even just
   // CorrectLoop() is run though GBA may be cancelled by a new loop

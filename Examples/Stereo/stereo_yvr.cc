@@ -270,6 +270,7 @@ int main(int argc, char **argv) {
   AlignImgs(vtmcam, vstrimg);
   nImages = vtmcam[0].size();
   for (int ni = 0; ni < nImages; ni += fpsrat) {
+    if (vtmcam[0][ni] < 773.36492794600008 - 0.010) continue;
     // Read left and right images from file
     ims[0] = cv::imread(vstrimg[0][ni], cv::IMREAD_GRAYSCALE);
     if (!dataset_type) {

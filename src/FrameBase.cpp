@@ -9,6 +9,10 @@ using namespace VIEO_SLAM;
 using std::pair;
 using std::set;
 
+cv::Mat FrameBase::mTbc, FrameBase::mTce;
+Eigen::Matrix3d FrameBase::meigRcb;
+Eigen::Vector3d FrameBase::meigtcb;
+
 const Sophus::SE3d FrameBase::GetTwc() { return GetTcw().inverse(); }
 const Sophus::SE3d FrameBase::GetTcw() { return GetTcwCst(); }
 

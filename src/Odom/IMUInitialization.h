@@ -29,11 +29,15 @@
 
 #include <unistd.h>
 
+typedef enum kVerboseLevel { kVerbRel, kVerbDeb, kVerbFull };
+
 namespace VIEO_SLAM {
 
 class KeyFrame;
 class Map;
 class LocalMapping;
+class IMUKeyFrameInitFix;
+class FrameBase;
 
 // notice Get##Name() calls copy constructor when return
 #define CREATOR_VAR_MUTEX(Name, Type, Suffix) \
@@ -56,6 +60,16 @@ class LocalMapping;
   CREATOR_GET(Name, Type, Suffix)                    \
   CREATOR_SET(Name, Type, Suffix)                    \
  private:
+#define CREATOR_VAR_MUTEX_INIT(Name, Type, Suffix, InitVal) \
+  Type m##Suffix##Name = InitVal;                           \
+  std::mutex mMutex##Name;
+#define CREATOR_VAR_MULTITHREADS_INIT(Name, Type, Suffix, access_permission, InitVal) \
+  access_permission:                                                                  \
+  CREATOR_VAR_MUTEX_INIT(Name, Type, Suffix, InitVal)                                 \
+ public:                                                                              \
+  CREATOR_GET(Name, Type, Suffix)                                                     \
+  CREATOR_SET(Name, Type, Suffix)                                                     \
+  access_permission:
 
 using namespace Eigen;
 using namespace std;
@@ -63,6 +77,19 @@ using namespace std;
 class IMUKeyFrameInit;
 
 class IMUInitialization {  // designed for multi threads
+ public:
+  // for fast imu init
+  typedef enum IMUInitMode {
+    kIMUInitDefault,  // fix nothing, lba off
+    kIMUInitFixScale,
+    kIMUInitFixGravity = 0x1 << 1,  // also fix lba's g, but won't use bgba's prior
+    kIMUInitLBA = 0x1 << 2,
+    kIMUInitLBAFixSG = 0x7,
+    kIMUInitRough = 0x8  // will demand FixGravity && Scale, usually coupled with LBA
+  } eIMUInitMode;
+  typedef float Tcalc_sgba;
+
+ private:
   string mTmpfilepath;
   double mdInitTime, mdFinalTime;
   unsigned int mnSleepTime;
@@ -83,8 +110,8 @@ class IMUInitialization {  // designed for multi threads
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
-  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b)  // for last GBA(include propagation) required by IMU Initialization,
-                                              // LoopClosing always creates new GBA thread when it's true
+  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b)      // for last GBA(include propagation) required by IMU Initialization,
+                                                  // LoopClosing always creates new GBA thread when it's true
   CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b)  // for 1st Full BA strategy Adjustment
 
   // like the part of LocalMapping
@@ -182,23 +209,24 @@ class IMUInitialization {  // designed for multi threads
                        vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
                        vector<char> &id_cams, vector<char> *id_cams_ref);
 
-  char verbose;
+  char verbose = kVerbDeb;  // kVerbRel; //
 };
 
 class IMUKeyFrameInit {  // a simple/base version of KeyFrame just used for IMU Initialization, not designed for multi
                          // threads
- public:                    // I think it belongs FramePoseBase
-  const double mTimeStamp;  // for ComputePreInt
+ public:                 // I think it belongs FramePoseBase
+  const double timestamp_;  // for ComputePreInt
   cv::Mat mTwc, mTcw;       // for TryInitVIO()&OptimizeInitialGyroBias(),see (9) in VIORBSLAM paper
-  // we don't save mTbc for it's constant
+                            // we don't save mTbc for it's constant
 
  public:
-  Vector3d mbg_, mba_;  // bgj_bar,baj_bar: if changed, mIMUPreInt needs to be recomputed; unoptimized part of current
-                        // defined mNavState
+  Vector3d bg_, ba_;  // bgj_bar,baj_bar: if changed, mIMUPreInt needs to be recomputed; unoptimized part of current
+                      // defined mNavState
   IMUPreintegrator mOdomPreIntIMU;  // including mlIMUData, for OptimizeInitialGyroBias()
   IMUKeyFrameInit *mpPrevKeyFrame;  // but it's important for mOdomPreIntIMU computation && KeyFrameCulling()
 
   IMUKeyFrameInit(KeyFrame &kf);
+  virtual ~IMUKeyFrameInit(){};
 
   cv::Mat &GetTcwRef() { return mTcw; }
   const IMUPreintegrator &GetIMUPreInt(void) const { return mOdomPreIntIMU; }
@@ -206,17 +234,24 @@ class IMUKeyFrameInit {  // a simple/base version of KeyFrame just used for IMU 
   void ComputePreInt() {  // 0th frame don't use this function, mpPrevKeyFrame shouldn't be bad
     if (mpPrevKeyFrame == NULL) return;
 #ifndef TRACK_WITH_IMU
-    mOdomPreIntIMU.PreIntegration(mpPrevKeyFrame->mTimeStamp, mTimeStamp);
+    mOdomPreIntIMU.PreIntegration(mpPrevKeyFrame->timestamp_, timestamp_);
 #else
-    mOdomPreIntIMU.PreIntegration(mpPrevKeyFrame->mTimeStamp, mTimeStamp, mpPrevKeyFrame->mbg_, mpPrevKeyFrame->mba_);
+    mOdomPreIntIMU.PreIntegration(mpPrevKeyFrame->timestamp_, timestamp_, mpPrevKeyFrame->bg_, mpPrevKeyFrame->ba_);
 #endif
   }
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // for maybe quaterniond in IMUPreintegrator
 };
+class IMUKeyFrameInitFix : public IMUKeyFrameInit {
+ public:
+  Vector3d dbg_, dba_;  // dbgba for kFixMode > kFixNone
+
+  IMUKeyFrameInitFix(KeyFrame &kf);
+  ~IMUKeyFrameInitFix(){};
+
+  //        EIGEN_MAKE_ALIGNED_OPERATOR_NEW;//not needed for it will inherit the base operator new
+};
 
 }  // namespace VIEO_SLAM
-
-typedef enum kVerboseLevel { kVerbRel, kVerbDeb, kVerbFull };
 
 #endif

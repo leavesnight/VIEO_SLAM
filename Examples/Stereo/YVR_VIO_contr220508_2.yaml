@@ -87,46 +87,16 @@ Camera.k1: 0.2147914615
 Camera.k2: -0.1668974968
 Camera.k3: 0.06061419983
 Camera.k4: -0.00953557947
-Camera2.fx: 237.8561448
-Camera2.fy: 238.3965886
-Camera2.cx: 315.1253443
-Camera2.cy: 234.9123443
-Camera2.k1: 0.2212046852
-Camera2.k2: -0.1915680692
-Camera2.k3: 0.0830793958
-Camera2.k4: -0.01653183432
-Camera3.fx: 234.1567467
-Camera3.fy: 234.8787781
-Camera3.cx: 316.565752
-Camera3.cy: 233.4381589
-Camera3.k1: 0.2172858419
-Camera3.k2: -0.1703862185
-Camera3.k3: 0.06170501518
-Camera3.k4: -0.009682727357
-Camera4.fx: 233.4342969
-Camera4.fy: 233.5495262
-Camera4.cx: 319.5323293
-Camera4.cy: 232.6459866
-Camera4.k1: 0.2093988973
-Camera4.k2: -0.1552384766
-Camera4.k3: 0.0534472303
-Camera4.k4: -0.008206886505
+Camera2.fx: 233.4342969
+Camera2.fy: 233.5495262
+Camera2.cx: 319.5323293
+Camera2.cy: 232.6459866
+Camera2.k1: 0.2093988973
+Camera2.k2: -0.1552384766
+Camera2.k3: 0.0534472303
+Camera2.k4: -0.008206886505
 # Transformation matrix from reference camera to current camera
 Camera2.Trc: !!opencv-matrix
-  rows: 3
-  cols: 4
-  dt: f
-  data: [ -0.868121682, -0.183877617, -0.461035538, -0.018291693,
-          -0.413607255, -0.245503750,  0.876730830,  0.042184872,
-          -0.274397129,  0.951796686,  0.137074011 ,-0.039091628]
-Camera3.Trc: !!opencv-matrix
-  rows: 3
-  cols: 4
-  dt: f
-  data: [ -0.619610521,  0.123239782, -0.775174018, -0.062817961,
-          0.783056621 , 0.029238639,  -0.621262770 ,-0.120318169,
-          -0.053899255, -0.991946096, -0.114620296, -0.065170043]
-Camera4.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
@@ -139,10 +109,6 @@ Camera.lappingBegin: 0
 Camera.lappingEnd: 639
 Camera2.lappingBegin: 0
 Camera2.lappingEnd: 639
-Camera3.lappingBegin: 0
-Camera3.lappingEnd: 639
-Camera4.lappingBegin: 0
-Camera4.lappingEnd: 639
 Camera.width: 640
 Camera.height: 480
 
@@ -162,7 +128,7 @@ ThDepth: 35.0 # 35
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 350
+ORBextractor.nFeatures: 375
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
 ORBextractor.scaleFactor: 2.

@@ -140,4 +140,17 @@ void EdgeNavStatePriorPVRBias::linearizeOplus()
 //  _jacobianOplusXj.block<3,3>(3,3)=Jep_drhoj;
 //}
 
+void EdgeGyrBiasPrior::computeError() {
+  const VertexGyrBias *vBiasi = static_cast<const VertexGyrBias *>(_vertices[0]);
+  const VertexGyrBias *vBiasj = static_cast<const VertexGyrBias *>(_vertices[1]);
+  const Vector3d &bgi = vBiasi->estimate();
+  const Vector3d &bgj = vBiasj->estimate();
+
+  _error = bgj - bgi;
+}
+void EdgeGyrBiasPrior::linearizeOplus() {
+  _jacobianOplusXi = -Matrix3d::Identity();  // J_eb_bi=-I for eb=bj-bi
+  _jacobianOplusXj = Matrix3d::Identity();   // J_eb_bj=I
+}
+
 }
