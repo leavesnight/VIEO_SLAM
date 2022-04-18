@@ -680,13 +680,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     g2o::VertexNavStateV* vNSV = new g2o::VertexNavStateV();
     vNSV->setEstimate(ns);
     vNSV->setId(idKF + 1);
-    vNSV->setFixed(bFixed);
+    auto bvbgba_fixed = (!bFixed || pimu_initiator) ? false : true;
+    vNSV->setFixed(bvbgba_fixed);
     optimizer.addVertex(vNSV);
     // Vertex of Bias
     g2o::VertexNavStateBias* vNSBias = new g2o::VertexNavStateBias();
     vNSBias->setEstimate(ns);
     vNSBias->setId(idKF + 2);
-    vNSBias->setFixed(bFixed);
+    vNSBias->setFixed(bvbgba_fixed);
     optimizer.addVertex(vNSBias);
     if (idKF + 2 > maxKFid) maxKFid = idKF + 2;  // update maxKFid
   }
@@ -810,7 +811,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
       eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
       eprv->setMeasurement(imupreint);
       Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
-      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2))->fixed())
         eprv->setInformation(InfoijPRV * 1e-2);
       else
         eprv->setInformation(InfoijPRV);
@@ -827,7 +828,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2))->fixed())
       ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
     else
       // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()

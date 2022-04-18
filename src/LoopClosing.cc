@@ -47,7 +47,7 @@ void LoopClosing::CreateGBA() {
     mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, mpCurrentKF->mnId);
   }
 }
-  
+
 //created by zzh
 
 LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, const bool bFixScale, const string &strSettingPath):
@@ -111,7 +111,7 @@ void LoopClosing::Run()
         {
             // Detect loop candidates and check covisibility consistency
             if(DetectLoop()){//else no gw to calculate GBA //(mpIMUInitiator->GetVINSInited())&&
-                // Compute similarity transformation [sR|t] 
+                // Compute similarity transformation [sR|t]
                 // In the stereo/RGBD case s=1
                 unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);//notice we cannot update scale during LoopClosing or LocalBA!
                 if(ComputeSim3()){
@@ -480,7 +480,7 @@ void LoopClosing::CorrectLoop()
       mnLastOdomKFId=0;//added by zzh
       mnCovisibilityConsistencyTh=3;//return back
     }
-  
+
     PRINT_INFO_MUTEX( "Loop detected!" << endl);
 
     // Send a stop signal to Local Mapping
@@ -664,7 +664,7 @@ void LoopClosing::CorrectLoop()
     // Loop closed. Release/recover Local Mapping.
     mpLocalMapper->Release();
 
-    mLastLoopKFid = mpCurrentKF->mnId;   
+    mLastLoopKFid = mpCurrentKF->mnId;
 }
 
 void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
@@ -723,7 +723,7 @@ void LoopClosing::ResetIfRequested()
         mlpLoopKeyFrameQueue.clear();
         mLastLoopKFid=0;
         mbResetRequested=false;
-	
+
 	mnLastOdomKFId=0;mnCovisibilityConsistencyTh=3;//added by zzh
     }
 }
@@ -735,13 +735,15 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 
     bool bUseGBAPRV=false;
     int idx =  mnFullBAIdx;
-    unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);//notice we cannot update scale during LoopClosing or LocalBA! 
+    unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);//notice we cannot update scale during LoopClosing or LocalBA!
     if (mpIMUInitiator->GetVINSInited()) {
       if (!mpIMUInitiator->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
-        cerr << redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl;
+        PRINT_INFO_FILE(redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl, imu_tightly_debug_path,
+                        "gba_thread_debug.txt");
         // 15 written in V-B of VIORBSLAM paper
+        // NOW we will opt gravity dir and with bgba prior here~
         Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnInitIterations,
-                                                     &mbStopGBA, nLoopKF, false);
+                                                     &mbStopGBA, nLoopKF, false, false, mpIMUInitiator);
         //        mbFixScale=true;//not good for V203 when used
       } else {
         Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnIterations, &mbStopGBA,
@@ -774,7 +776,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
             {
                 usleep(1000);
             }
-            
+
             chrono::steady_clock::time_point t1=chrono::steady_clock::now();//test time used
 
             // Get Map Mutex
@@ -858,16 +860,16 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 
                     pMP->SetWorldPos(Rwc*Xc+twc);//update all (new)MPs' Pos to GBA optimized Pos/Pw(new)=Twc(new)*Pc
                 }
-            }            
+            }
 
             mpMap->InformNewBigChange();//used to check the SLAM's state
 
             mpLocalMapper->Release();//recover LocalMapping thread, same as CorrectLoop()
-            
+
 	    if (bUseGBAPRV) mpIMUInitiator->SetInitGBAOver(true);//should be put after 1st visual-inertial full BA!
 
             PRINT_INFO_MUTEX( redSTR<<"Map updated!" <<whiteSTR<< endl);//if GBA/loop correction successed, this word should appear!
-            
+
             cout<<azureSTR"Used time in propagation="<<chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now()-t1).count()<<whiteSTR<<endl;//test time used
         }
 

@@ -43,29 +43,33 @@ void IMUInitialization::Run() {
   unsigned long initedid;
   cout << "start VINSInitThread" << endl;
   mbFinish = false;
+  static int n_imu_extra_init;
   while (1) {
-    if (GetSensorIMU() && !GetVINSInited()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
-      if (mdStartTime == -1) {
-        initedid = 0;
-        mdStartTime = -2;
-      }
-
-      KeyFrame *pCurKF = GetCurrentKeyFrame();
-      if (pCurKF) {
-//#define USE_FAST_IMU_INIT
-        if (mdStartTime < 0 && !mpMap->mvpKeyFrameOrigins.empty()) {
-          mdStartTime = mpMap->mvpKeyFrameOrigins.front()->timestamp_;
+    if (GetSensorIMU()) {
+      if (!GetVINSInited()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
+        if (mdStartTime == -1) {
+          initedid = 0;
+          mdStartTime = -2;
+          n_imu_extra_init = 0;
         }
-        if (mdStartTime >= 0 && pCurKF->timestamp_ - mdStartTime >= mdInitTime)
-          if (pCurKF->mnId > initedid) {
-            // if succeed in IMU Initialization, this thread will finish, when u want the users' pushing reset button be
-            // effective, delete break!
+
+        KeyFrame *pCurKF = GetCurrentKeyFrame();
+        if (pCurKF) {
+//#define USE_FAST_IMU_INIT
+          if (mdStartTime < 0 && !mpMap->mvpKeyFrameOrigins.empty()) {
+            mdStartTime = mpMap->mvpKeyFrameOrigins.front()->timestamp_;
+          }
+          if (mdStartTime >= 0 && pCurKF->timestamp_ - mdStartTime >= mdInitTime)
+            if (pCurKF->mnId > initedid) {
+              // if succeed in IMU Initialization, this thread will finish, when u want the users' pushing reset button
+              // be effective, delete break!
 #ifndef USE_FAST_IMU_INIT
-            initedid = pCurKF->mnId;
-            if (TryInitVIO()) break;
+              initedid = pCurKF->mnId;
+              if (TryInitVIO()) break;
 #else
 #endif
-          }
+            }
+        }
       }
     }
 

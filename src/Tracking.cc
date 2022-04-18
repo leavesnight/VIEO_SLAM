@@ -405,7 +405,6 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
     // notice we can't keep this copy updation of mbi for too long!!!
     return false;  // check PreIntegration() failed when mdeltatij==0, so mCurrentFrame.mTcw==cv::Mat()
   }
-  cout << "check bgba="<<ns.mbg.transpose()<<","<<ns.mba.transpose()<<endl;
 
   using namespace Eigen;
   // const EncPreIntegrator &encpreint=mCurrentFrame.GetEncPreInt();
@@ -792,6 +791,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   CLEAR_DEBUG_INFO("start tracking debug:", imu_tightly_debug_path, "tracking_thread_debug.txt");
   CLEAR_DEBUG_INFO("start imu init debug:", imu_tightly_debug_path, "imu_init_thread_debug.txt");
   CLEAR_DEBUG_INFO("start localmapping debug:", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start gba thread debug:", imu_tightly_debug_path, "gba_thread_debug.txt");
 
   mbf = fSettings["Camera.bf"];
 
@@ -1996,14 +1996,14 @@ bool Tracking::TrackLocalMap() {
 }
 
 bool Tracking::NeedNewKeyFrame() {
-#ifdef ORB3_STRATEGY
-  if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
-    if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
-      return true;
-    else
-      return false;
-  }
-#endif
+  //#ifdef ORB3_STRATEGY
+  //  if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
+  //    if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
+  //      return true;
+  //    else
+  //      return false;
+  //  }
+  //#endif
 
   if (mbOnlyTracking) return false;
 
@@ -2069,8 +2069,8 @@ bool Tracking::NeedNewKeyFrame() {
   bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
 
   double timegap = 0.5;
-  // JW uses different timegap during IMU Initialization(0.1s)
-  // if (!mpIMUInitiator->GetVINSInited()) timegap = 0.25;
+  // JW uses different timegap during IMU Initialization(0.1s); 0.25 ref from ORB3
+  if (!mpIMUInitiator->GetVINSInited()) timegap = 0.25;
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
@@ -2332,7 +2332,7 @@ void Tracking::SearchLocalPoints() {
     int th = 1;
     if (mSensor == System::RGBD) th = 3;
     if (mpIMUInitiator->GetVINSInited()) {  // ref from ORB3
-      th = 2;  // th = 3;
+      th = 2;                               // th = 3;
     }
 
     // If the camera has been relocalised recently, perform a coarser search
