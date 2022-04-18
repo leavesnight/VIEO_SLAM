@@ -74,6 +74,29 @@ void IMUInitialization::Run() {
             }
         }
       }
+#ifdef USE_FAST_IMU_INIT
+      else if (2 > n_imu_extra_init) {
+        KeyFrame *pCurKF = GetCurrentKeyFrame();
+        if (pCurKF->timestamp_ - mdStartTime > (1 > n_imu_extra_init ? 5 : 15) &&
+            (int8_t)(Tracking::OK) == pCurKF->getState()) {
+          KeyFrame *pKFlocal = pCurKF;
+          auto prefkf = mpMap->mvpKeyFrameOrigins.empty() ? pCurKF : mpMap->mvpKeyFrameOrigins.front();
+          int Nlocal = 10;
+          do {
+            if (pKFlocal->isBad()) break;
+            NavStated ns2 = prefkf->GetNavState(), ns1 = pKFlocal->GetNavState();
+            Vector3d rb1b2 = (ns1.mRwb.inverse() * ns2.mRwb).log();
+            if (rb1b2.norm() > 0.1) {
+              SetInitGBAOver(false);
+              SetInitGBA(true);
+              if (2 == ++n_imu_extra_init) SetInitGBA2(true);
+              break;
+            }
+            pKFlocal = pKFlocal->GetPrevKeyFrame();
+          } while (--Nlocal > 0 && pKFlocal);
+        }
+      }
+#endif
     }
 
     ResetIfRequested();
