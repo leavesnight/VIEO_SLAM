@@ -882,6 +882,32 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
   }
   if (num_equations < 1) return num_equations;
 
+  const bool bprior_beg = true;
+  if (bprior_beg) {
+    // old_coeff_bg = 1; we found 1e4 for 10s, 1e4*30 for 0.35s and so on
+    const double coeff_deltat_priorg = kCoeffPriorDefault ? kCoeffDeltatPrior[1] : 1.e6 * 3 / num_equations;
+
+    g2o::VertexGyrBias *vPriorBiasg = new g2o::VertexGyrBias();
+    vPriorBiasg->setEstimate(Vector3d::Zero());
+    vPriorBiasg->setId(1);
+    vPriorBiasg->setFixed(true);
+    optimizer.addVertex(vPriorBiasg);
+
+    g2o::EdgeGyrBiasPrior *epb = new g2o::EdgeGyrBiasPrior();
+    epb->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(1)));
+    epb->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(0)));
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+    Matrix3d InfoBias = 1e2 * Matrix3d::Identity();
+#else
+    Matrix3d InfoBias = inv_sigmabg2 / (sum_dt_tmp * coeff_deltat_priorg) * Matrix3d::Identity();  //.setZero();//
+#endif
+#undef ORB3_STRATEGY
+    epb->setInformation(InfoBias);
+
+    optimizer.addEdge(epb);
+  }
+
   // It's approximately a linear estimator, so 1 iteration is enough. for dbg=bg << 1 and here uses GN not LM
   if (kVerbDeb < verbose) optimizer.setVerbose(true);
   optimizer.initializeOptimization();
