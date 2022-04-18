@@ -41,6 +41,7 @@
 #include "Initializer.h"
 #include "MapDrawer.h"
 #include "System.h"
+#include "common/common.h"
 
 #include <mutex>
 
@@ -316,6 +317,7 @@ class Tracking {
 
   // Current matches in frame
   int mnMatchesInliers;  // rectified in TrackLocalMap()
+  CREATOR_VAR_MULTITHREADS_INIT(num_track_inliers_, int, , protected, 0)
 
   // Last Frame, KeyFrame and Relocalisation Info
   KeyFrame *mpLastKeyFrame;
@@ -435,35 +437,35 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
             Frame *pcurf = dynamic_cast<Frame *>(pcurfb);
 
             double cur_time2 = cur_time;
-//#ifdef USE_PREINT_EULA
+            //#ifdef USE_PREINT_EULA
             if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg - tm_shift_)) {
               cur_time2 = iter->mtm;
             }
-//#endif
+            //#endif
             if (biteri_research) {
               last_time = plastfb_kf->mTimeStamp;
               iteri = lodom_data.begin();
 
               if (iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
                 double last_time2 = last_time;
-//#ifdef USE_PREINT_EULA
+                //#ifdef USE_PREINT_EULA
                 auto iteri2 = iteri;
                 if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
                   last_time2 = iteri2->mtm;
                 }
-//#endif
+                //#endif
                 ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri,
                                                                  iterj, breset_intkf);
               } else
                 ret = false;
             } else {
               double last_time2 = last_time;
-//#ifdef USE_PREINT_EULA
+              //#ifdef USE_PREINT_EULA
               auto iteri2 = iteri;
               if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
                 last_time2 = iteri2->mtm;
               }
-//#endif
+              //#endif
               ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri, iterj,
                                                                breset_intkf);
             }
@@ -511,12 +513,12 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
         // (SetBadFlag only for before KFs)
         if (plastkf) {
           double cur_time2 = cur_time;
-//#ifdef USE_PREINT_EULA
+          //#ifdef USE_PREINT_EULA
           auto iter2 = iter;
           if (iterijFind<OdomData>(lodom_data, cur_time, iter2, derr_imuimg - tm_shift_, false)) {
             cur_time2 = iter2->mtm;
           }
-//#endif
+          //#endif
           pcurkf->PreIntegrationFromLastKF<OdomData>(plastkf, cur_time2, iter, iterj, false, verbose);
         } else
           pcurkf->PreIntegration<OdomData>(plastkf2);

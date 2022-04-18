@@ -127,10 +127,16 @@ void LocalMapping::Run() {
           } else {
             // maybe it needs transition when initialized with a few imu edges<N
             const bool bno_imu_lba = false;  // true;  //
-            if (!bno_imu_lba)
+            if (!bno_imu_lba) {
+              // bLarge/bRecInit ref from ORB3
+              const bool bLarge = false;
+              //                  mpTracker->Getnum_track_inliers_() > mpTracker->mSensor == System::MONOCULAR ? 75 :
+              //                  100;
+              const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
-                                                          mpIMUInitiator->GetGravityVec());
-            // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
+                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
+              // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
+            }
           }
           PRINT_INFO_FILE(
               blueSTR "Used time in localBA="

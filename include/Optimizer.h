@@ -75,8 +75,9 @@ class Optimizer {
                                    // curF/curF&last, if bComputeMarg then save its Hessian
   void static LocalBAPRVIDP(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap, cv::Mat &gw);
 
-  void static LocalBundleAdjustmentNavStatePRV(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap,
-                                               cv::Mat gw);  // Nlocal>=1(if <1 it's 1)
+  // Nlocal>=1(if <1 it's 1)
+  void static LocalBundleAdjustmentNavStatePRV(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap, cv::Mat gw,
+                                               bool bLarge = false, bool bRecInit = false);
   // add all KFs && MPs(having edges(monocular/stereo) to some KFs) to optimizer, optimize their Pose/Pos and save it in
   // KF.mTcwGBA && MP.mPosGBA, nScaleOpt==0 no scale optimized, ==1 scale of MapPoints' Pw/Xw optimized, ==2 scale of
   // MapPoints' Xw && KeyFrames' pwb optimized

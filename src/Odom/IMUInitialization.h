@@ -26,6 +26,7 @@
 // #include "KeyFrame.h"
 // #include "Map.h"
 #include "LocalMapping.h"
+#include "common/common.h"
 
 #include <unistd.h>
 
@@ -38,38 +39,6 @@ class Map;
 class LocalMapping;
 class IMUKeyFrameInitFix;
 class FrameBase;
-
-// notice Get##Name() calls copy constructor when return
-#define CREATOR_VAR_MUTEX(Name, Type, Suffix) \
-  Type m##Suffix##Name;                       \
-  std::mutex mMutex##Name;
-#define CREATOR_GET(Name, Type, Suffix)    \
-  Type Get##Name(void) {                   \
-    unique_lock<mutex> lock(mMutex##Name); \
-    return m##Suffix##Name;                \
-  }
-#define CREATOR_SET(Name, Type, Suffix)    \
-  void Set##Name(Type value) {             \
-    unique_lock<mutex> lock(mMutex##Name); \
-    m##Suffix##Name = value;               \
-  }
-#define CREATOR_VAR_MULTITHREADS(Name, Type, Suffix) \
- private:                                            \
-  CREATOR_VAR_MUTEX(Name, Type, Suffix)              \
- public:                                             \
-  CREATOR_GET(Name, Type, Suffix)                    \
-  CREATOR_SET(Name, Type, Suffix)                    \
- private:
-#define CREATOR_VAR_MUTEX_INIT(Name, Type, Suffix, InitVal) \
-  Type m##Suffix##Name = InitVal;                           \
-  std::mutex mMutex##Name;
-#define CREATOR_VAR_MULTITHREADS_INIT(Name, Type, Suffix, access_permission, InitVal) \
-  access_permission:                                                                  \
-  CREATOR_VAR_MUTEX_INIT(Name, Type, Suffix, InitVal)                                 \
- public:                                                                              \
-  CREATOR_GET(Name, Type, Suffix)                                                     \
-  CREATOR_SET(Name, Type, Suffix)                                                     \
-  access_permission:
 
 using namespace Eigen;
 using namespace std;
@@ -112,7 +81,9 @@ class IMUInitialization {  // designed for multi threads
   // KFs in Tracking thread, useless for LocalMapping is stopped
   CREATOR_VAR_MULTITHREADS(InitGBA, bool, b)      // for last GBA(include propagation) required by IMU Initialization,
                                                   // LoopClosing always creates new GBA thread when it's true
-  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b)  // for 1st Full BA strategy Adjustment
+  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b)  // for Full BA strategy Adjustments
+  CREATOR_VAR_MULTITHREADS_INIT(InitGBA2, bool, , private, false)
+  CREATOR_VAR_MULTITHREADS_INIT(InitGBAPriorCoeff, float, , private, 1)
 
   // like the part of LocalMapping
   CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p)  // updated by LocalMapping thread
@@ -138,6 +109,8 @@ class IMUInitialization {  // designed for multi threads
       SetVINSInited(false);      // usually this 3 variables are false when LOST then this func. will be called
       SetInitGBA(false);         // if it's true, won't be automatically reset
       SetInitGBAOver(false);
+      SetInitGBAPriorCoeff(1);
+      SetInitGBA2(false);
 
       SetReset(false);
     }

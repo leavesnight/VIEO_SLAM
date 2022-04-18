@@ -39,7 +39,8 @@ namespace VIEO_SLAM {  // changed a lot refering to the JingWang's code
 using namespace Eigen;
 
 void Optimizer::LocalBAPRVIDP(KeyFrame* pCurKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat& gw) {}
-void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat gw) {
+void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat gw,
+                                                 bool bLarge, bool bRecInit) {
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
@@ -47,7 +48,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   int optit = 5;
 #ifdef ORB3_STRATEGY
   const int maxFixKF = 200;  // limit fixed vertex size to ensure speed
-  bool bLarge = false;
   if (bLarge) {
     Nlocal *= 2.5;
     optit = 4;
@@ -240,7 +240,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
 #ifdef ORB3_STRATEGY
       bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
-      bool bRecInit = false;  // true;//
       if (bfixedkf || bRecInit) {
         if (bfixedkf) {
           eprv->setInformation(InfoijPRV * 1e-2);

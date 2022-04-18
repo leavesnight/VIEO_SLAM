@@ -19,7 +19,6 @@
  */
 
 #include "common/log.h"
-#include "common/common.h"
 #include "Tracking.h"
 
 #include <opencv2/core/core.hpp>
@@ -1190,6 +1189,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       // the camera we will use the local map again.
       if (bOK && !mbVO) bOK = TrackLocalMap();
     }
+    Setnum_track_inliers_(mnMatchesInliers);
 
     if (bOK) {
       // if (mpIMUInitiator->GetVINSInited()&&mState==MAP_REUSE||mState==MAP_REUSE_RELOC)
@@ -1752,6 +1752,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
         nmatchesMap++;
     }
   }
+  mnMatchesInliers = nmatchesMap;
 
   return nmatchesMap >= thInMPs;  // 10;//Track ok when enough inlier MapPoints
 }
@@ -2332,7 +2333,11 @@ void Tracking::SearchLocalPoints() {
     int th = 1;
     if (mSensor == System::RGBD) th = 3;
     if (mpIMUInitiator->GetVINSInited()) {  // ref from ORB3
-      th = 2;                               // th = 3;
+      bool bimu_stable = true;              // mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver();
+      if (bimu_stable)
+        th = 2;
+      else
+        th = 3;
     }
 
     // If the camera has been relocalised recently, perform a coarser search

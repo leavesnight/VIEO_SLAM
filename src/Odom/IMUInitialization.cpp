@@ -709,6 +709,7 @@ bool IMUInitialization::TryInitVIO_zzh(
       // Run global BA/full BA after inited, we use LoopClosing thread to do this job for safety!
       //                Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,GetGravityVec(),15,NULL,0,false,true/false);SetInitGBAOver(true);
       SetInitGBA(true);
+      SetInitGBA2(true);
     }
   }
 
@@ -1122,6 +1123,7 @@ bool IMUInitialization::TryInitVIO(
       // Run global BA/full BA after inited, we use LoopClosing thread to do this job for safety!
       //       Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,GetGravityVec(),15,NULL,0,false,true/false);SetInitGBAOver(true);
       SetInitGBA(true);
+      SetInitGBA2(true);
     }
   }
 
