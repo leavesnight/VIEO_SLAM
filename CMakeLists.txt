@@ -7,6 +7,8 @@ ENDIF ()
 
 set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
+set(USE_OPENCV_NEWEST 1)
+set(ADD_YVR_EXAMPLE 1)
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -55,14 +57,18 @@ message(STATUS "CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 message(STATUS "CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 
-# set(OpenCV_DIR "/usr/local/opencv320/share/OpenCV") 
-find_package(OpenCV 3.2 QUIET)
+# set(OpenCV_DIR "/usr/local/opencv320/share/OpenCV")
+if (${USE_OPENCV_NEWEST})
+    find_package(OpenCV 4.5 QUIET)
+else()
+    find_package(OpenCV 3.2 QUIET)
 if (NOT OpenCV_FOUND)
     find_package(OpenCV 2.4.3 QUIET)
     if (NOT OpenCV_FOUND)
         message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
     endif ()
 endif ()
+endif()
 
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
 find_package(Pangolin REQUIRED)
@@ -96,6 +102,7 @@ endif ()
 include_directories(
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/include/CameraModels
         ${EIGEN3_INCLUDE_DIR}
         ${Pangolin_INCLUDE_DIRS}
         ${G2O_INCLUDE_DIR}
@@ -121,6 +128,7 @@ add_library(${PROJECT_NAME} SHARED
         src/FrameDrawer.cc
         src/Converter.cc
         src/MapPoint.cc
+        src/FrameBase.cpp
         src/KeyFrame.cc
         src/Map.cc
         src/MapDrawer.cc
@@ -131,12 +139,18 @@ add_library(${PROJECT_NAME} SHARED
         src/Sim3Solver.cc
         src/Initializer.cc
         src/Viewer.cc
+        src/log.cpp
 
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp
         src/Odom/IMUInitialization.cpp
 
-        src/Odom/g2otypes.cpp)
+        src/Odom/g2otypes.cpp
+
+        src/CameraModels/GeometricCamera.cpp
+        src/CameraModels/Pinhole.cpp
+        src/CameraModels/KannalaBrandt8.cpp
+        src/CameraModels/radtan.cpp)
 
 target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}
@@ -170,6 +184,12 @@ add_executable(stereo_euroc
         Examples/Stereo/stereo_euroc.cc)
 target_link_libraries(stereo_euroc ${PROJECT_NAME})
 
+if (${ADD_YVR_EXAMPLE})
+    find_package(RapidJSON)
+    add_executable(stereo_yvr
+            Examples/Stereo/stereo_yvr.cc)
+    target_link_libraries(stereo_yvr ${PROJECT_NAME})
+endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Monocular)
 
@@ -184,4 +204,3 @@ target_link_libraries(mono_kitti ${PROJECT_NAME})
 add_executable(mono_euroc
         Examples/Monocular/mono_euroc.cc)
 target_link_libraries(mono_euroc ${PROJECT_NAME})
-

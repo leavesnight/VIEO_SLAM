@@ -216,17 +216,17 @@ int main(int argc, char **argv)
     vector<float> vTimesTrack;
     vTimesTrack.resize(nImages);
 
-    cout << endl << "-------" << endl;
-    cout << "Start processing sequence ..." << endl;
-    cout << "Images in the sequence: " << nImages << endl << endl;
+    PRINT_INFO_MUTEX( endl << "-------" << endl);
+    PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
+    PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
     // Main loop
     cv::Mat imRGB, imD;
     for(int ni=0; ni<nImages; ni++)
     {
         // Read image and depthmap from file
-        imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],CV_LOAD_IMAGE_UNCHANGED);
-        imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],CV_LOAD_IMAGE_UNCHANGED);
+        imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],cv::IMREAD_UNCHANGED);
+        imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],cv::IMREAD_UNCHANGED);
         double tframe = vTimestamps[ni];
         {//zzh
             unique_lock<mutex> lock(g_mutex);
@@ -324,9 +324,9 @@ int main(int argc, char **argv)
     {
         totaltime+=vTimesTrack[ni];
     }
-    cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
+    PRINT_INFO_MUTEX( "-------" << endl << endl);
+    PRINT_INFO_MUTEX( "median tracking time: " << vTimesTrack[nImages/2] << endl);
+    PRINT_INFO_MUTEX( "mean tracking time: " << totaltime/nImages << endl);
 
     // Save camera trajectory
     SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");

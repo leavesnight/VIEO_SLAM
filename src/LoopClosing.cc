@@ -30,6 +30,7 @@
 
 #include<mutex>
 #include<thread>
+#include "common/log.h"
 
 namespace VIEO_SLAM
 {
@@ -43,7 +44,7 @@ void LoopClosing::CreateGBA()
   }else{
     // Launch a new thread to perform Global Bundle Adjustment
     mbRunningGBA = true;
-    assert(!mbStopGBA);//it's already false
+    CV_Assert(!mbStopGBA && mpCurrentKF);//it's already false
     mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment,this,mpCurrentKF->mnId);
   }
 }
@@ -56,19 +57,37 @@ LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, 
     mbStopGBA(false), mpThreadGBA(NULL), mbFixScale(bFixScale), mnFullBAIdx(0),
     mpIMUInitiator(NULL),mnLastOdomKFId(0),mbLoopDetected(false)//zzh
 {
-    cv::FileStorage fSettings(strSettingPath,cv::FileStorage::READ);
-    cv::FileNode fnIter[2]={fSettings["GBA.iterations"],fSettings["GBA.initIterations"]};
-    if (fnIter[0].empty()||fnIter[1].empty()){
-      mnInitIterations=15;//15 as the VIORBSLAM paper
-      mnIterations=10;//default 10 for real-time nice responce
-      cout<<redSTR"No iterations,use default 15(normal),15(init)"<<whiteSTR<<endl;
-    }else{
-      mnIterations=fnIter[0];
-      mnInitIterations=fnIter[1];
-    }
-//created by zzh
-  
-    mnCovisibilityConsistencyTh = 3;
+  cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
+  cv::FileNode fnIter[] = {fSettings["GBA.iterations"],    fSettings["GBA.initIterations"],
+                           fSettings["GBA.threshMatches"], fSettings["GBA.threshMatches2"],
+                           fSettings["GBA.threshInliers"], fSettings["GBA.threshInliers2"]};
+  if (fnIter[0].empty() || fnIter[1].empty()) {
+    mnInitIterations = 15;  // 15 as the VIORBSLAM paper
+    mnIterations = 10;      // default 10 for real-time nice responce
+    cout << redSTR "No iterations,use default 15(normal),15(init)" << whiteSTR << endl;
+  } else {
+    mnIterations = fnIter[0];
+    mnInitIterations = fnIter[1];
+  }
+  if (fnIter[2].empty())
+    thresh_matches_[0] = 20;
+  else
+    thresh_matches_[0] = (int)fnIter[2];
+  if (fnIter[3].empty())
+    thresh_matches_[1] = 15;
+  else
+    thresh_matches_[1] = (int)fnIter[3];
+  if (fnIter[4].empty())
+    thresh_inliers_[0] = 20;
+  else
+    thresh_inliers_[0] = (int)fnIter[4];
+  if (fnIter[5].empty())
+    thresh_inliers_[1] = 10;
+  else
+    thresh_inliers_[1] = (int)fnIter[5];
+  // created by zzh
+
+  mnCovisibilityConsistencyTh = 3;
 }
 
 void LoopClosing::SetTracker(Tracking *pTracker)
@@ -144,7 +163,7 @@ bool LoopClosing::DetectLoop()
             mpKeyFrameDB->add(mpCurrentKF);
             return false;
         }
-        cout<<"SetNotErase"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("SetNotErase"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetNotErase();
     }
 
@@ -152,7 +171,7 @@ bool LoopClosing::DetectLoop()
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);//add CurrentKF into KFDataBase
-        cout<<"Too close, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("Too close, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetErase();//allow CurrentKF to be erased
         return false;
     }
@@ -183,7 +202,7 @@ bool LoopClosing::DetectLoop()
     {
         mpKeyFrameDB->add(mpCurrentKF);
         mvConsistentGroups.clear();//for it hasn't loop candidate KFs, it breaks the rule of "consecutive" new KFs condition for loop validation/roubst loop detection->restart mvConsistentGroups' counter
-	cout<<"Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+      PRINT_DEBUG_INFO_MUTEX("Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         mpCurrentKF->SetErase();
         return false;
     }
@@ -254,21 +273,19 @@ bool LoopClosing::DetectLoop()
     // Add Current Keyframe to database, always done before return
     mpKeyFrameDB->add(mpCurrentKF);//addition to KFDB only here(LoopClosing)
 
-    if(mvpEnoughConsistentCandidates.empty())
-    {
-        cout<<"Final Empty, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
-        mpCurrentKF->SetErase();
-        return false;
+    if(mvpEnoughConsistentCandidates.empty()) {
+      PRINT_DEBUG_INFO_MUTEX(
+          "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+          imu_tightly_debug_path, "debug.txt");
+      mpCurrentKF->SetErase();
+      return false;
     }
     else//if any candidate group is enough(counter >=3) consistent with any previous group
-    {//first some detection()s won't go here
-        cout<<"DetectLoop!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
-        return true;//keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
+    {       // first some detection()s won't go here
+      PRINT_DEBUG_INFO_MUTEX("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+                             imu_tightly_debug_path, "debug.txt");
+      return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
     }
-
-    //unused
-    //mpCurrentKF->SetErase();
-    //return false;
 }
 
 bool LoopClosing::ComputeSim3()
@@ -310,18 +327,18 @@ bool LoopClosing::ComputeSim3()
         corresponding to pKF1/mpCurrentKF in LoopClosing
 
         cout<<redSTR<<i<<": "<<nmatches<<endl;
-        int thresholdMatches=mnLastOdomKFId==0?20:15;
+        int thresholdMatches=mnLastOdomKFId==0?thresh_matches_[0]:thresh_matches_[1];
         if(nmatches<thresholdMatches)//20)//same threshold in TrackWithMotionModel(), new 10
         {
             vbDiscarded[i] = true;
             continue;
         }
-        else
-        {
-            Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF,pKF,vvpMapPointMatches[i],mbFixScale);//how?
-            int minInliers=mnLastOdomKFId==0?20:10;//20 is stricter than Relocalization()s, old 20 new 10
-            pSolver->SetRansacParameters(0.99,minInliers,300);
-            vpSim3Solvers[i] = pSolver;
+        else {
+          Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);  // how?
+          // 20 is stricter than Relocalization()s, old 20 new 10
+          int minInliers = mnLastOdomKFId == 0 ? thresh_inliers_[0] : thresh_inliers_[1];
+          pSolver->SetRansacParameters(0.99, minInliers, 300);
+          vpSim3Solvers[i] = pSolver;
         }
 
         nCandidates++;//>=20 matches
@@ -398,7 +415,7 @@ bool LoopClosing::ComputeSim3()
 
     if(!bMatch)//if BA inliers validation is not passed
     {
-        cout<<"bMatch==false, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl;
+        PRINT_DEBUG_INFO_MUTEX("bMatch==false, discard loop detection!"<<mpCurrentKF->mnId<<" "<<mpCurrentKF->mTimeStamp<<endl, imu_tightly_debug_path, "debug.txt");
         for(int i=0; i<nInitialCandidates; i++)
              mvpEnoughConsistentCandidates[i]->SetErase();//allow loop candidate KFs && mpCurrentKF to be erased for KF.mspLoopEdges is only added in CorrectLoop()
         mpCurrentKF->SetErase();
@@ -465,7 +482,7 @@ void LoopClosing::CorrectLoop()
       mnCovisibilityConsistencyTh=3;//return back
     }
   
-    cout << "Loop detected!" << endl;
+    PRINT_INFO_MUTEX( "Loop detected!" << endl);
 
     // Send a stop signal to Local Mapping
     // Avoid new keyframes are inserted while correcting the loop
@@ -589,8 +606,10 @@ void LoopClosing::CorrectLoop()
             {
                 MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];//matched MP of pCurMP
                 MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i);
-                if(pCurMP)
-                    pCurMP->Replace(pLoopMP);//use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected by Sim3Motion-only BA optimized S12
+                if(pCurMP) {
+                  PRINT_DEBUG_INFO_MUTEX("cl"<<endl, imu_tightly_debug_path, "debug.txt");
+                  pCurMP->Replace(pLoopMP);  // use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected by Sim3Motion-only BA optimized S12
+                }
                 else//may happen for additional matched MPs by last SBP() in ComputeSim3()
                 {//add loop matched MPs to mpCurrentKF and update MPs' mObservations and descriptor
                     mpCurrentKF->AddMapPoint(pLoopMP,i);
@@ -606,7 +625,6 @@ void LoopClosing::CorrectLoop()
     // into the current keyframe and neighbors using corrected poses.
     // Fuse duplications.
     SearchAndFuse(CorrectedSim3);
-
 
     // After the MapPoint fusion, new links in the covisibility graph will appear attaching both sides of the loop
     map<KeyFrame*, set<KeyFrame*> > LoopConnections;//new links from mvpCurrentConnectedKFs to its new neighbors/loop KFs(set)
@@ -672,6 +690,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
             MapPoint* pRep = vpReplacePoints[i];
             if(pRep)
             {
+              PRINT_DEBUG_INFO_MUTEX("saf"<<endl, imu_tightly_debug_path, "debug.txt");
                 pRep->Replace(mvpLoopMapPoints[i]);//replace vpReplacePoints[i]/pKF->mvpMapPoints[bestIdx] by mvpLoopMapPoints[i]
             }
         }
@@ -713,27 +732,28 @@ void LoopClosing::ResetIfRequested()
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here is mpCurrentKF
 {
     std::chrono::steady_clock::time_point begin= std::chrono::steady_clock::now();
-    cout <<redSTR "Starting Global Bundle Adjustment" << whiteSTR<<endl;
+    PRINT_INFO_MUTEX(redSTR "Starting Global Bundle Adjustment" << whiteSTR<<endl);
 
     bool bUseGBAPRV=false;
     int idx =  mnFullBAIdx;
     unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);//notice we cannot update scale during LoopClosing or LocalBA! 
     if (mpIMUInitiator->GetVINSInited()) {
-        if (!mpIMUInitiator->GetInitGBAOver()) {//if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
-            cerr << redSTR"Full BA just after IMU Initializated!" << whiteSTR << endl;
-            Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnInitIterations,
-                                                         &mbStopGBA, nLoopKF,
-                                                         false);//15 written in V-B of VIORBSLAM paper
-//        mbFixScale=true;//not good for V203 when used
-        } else {
-            Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnIterations,
-                                                         &mbStopGBA,
-                                                         nLoopKF, false);
-        }
-        bUseGBAPRV = true;
-    }else{
-      cerr<<redSTR"pure-vision GBA!"<<whiteSTR<<endl;
-      Optimizer::GlobalBundleAdjustment(mpMap,mnIterations,&mbStopGBA,nLoopKF,false,mpIMUInitiator->GetSensorEnc());//GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
+      if (!mpIMUInitiator->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
+        cerr << redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl;
+        // 15 written in V-B of VIORBSLAM paper
+        Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnInitIterations,
+                                                     &mbStopGBA, nLoopKF, false);
+        //        mbFixScale=true;//not good for V203 when used
+      } else {
+        Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap, mpIMUInitiator->GetGravityVec(), mnIterations, &mbStopGBA,
+                                                     nLoopKF, false);
+      }
+      bUseGBAPRV = true;
+    }else {
+      cerr << redSTR "pure-vision GBA!" << whiteSTR << endl;
+      Optimizer::GlobalBundleAdjustment(
+          mpMap, mnIterations, &mbStopGBA, nLoopKF, false,
+          mpIMUInitiator->GetSensorEnc());  // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
     }
     // Update all MapPoints and KeyFrames
     // Local Mapping was active during BA, that means that there might be new keyframes
@@ -746,8 +766,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 
         if(!mbStopGBA)//I think it's useless for when mbStopGBA==true, idx!=mnFullBAIdx
         {
-            cout << "Global Bundle Adjustment finished" << endl;
-            cout << "Updating map ..." << endl;
+            PRINT_INFO_MUTEX( "Global Bundle Adjustment finished" << endl);
+            PRINT_INFO_MUTEX( "Updating map ..." << endl);
             mpLocalMapper->RequestStop();//same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
             // Wait until Local Mapping has effectively stopped
 
@@ -847,7 +867,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
             
 	    if (bUseGBAPRV) mpIMUInitiator->SetInitGBAOver(true);//should be put after 1st visual-inertial full BA!
 
-            cout << redSTR<<"Map updated!" <<whiteSTR<< endl;//if GBA/loop correction successed, this word should appear!
+            PRINT_INFO_MUTEX( redSTR<<"Map updated!" <<whiteSTR<< endl);//if GBA/loop correction successed, this word should appear!
             
             cout<<azureSTR"Used time in propagation="<<chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now()-t1).count()<<whiteSTR<<endl;//test time used
         }

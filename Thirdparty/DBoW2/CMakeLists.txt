@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(DBoW2)
 
 set(USE_G2O_NEWEST 0)
+set(USE_OPENCV_NEWEST 1)
 
 MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -50,12 +51,16 @@ set(SRCS_DUTILS
   DUtils/Timestamp.cpp)
 
 # set(OpenCV_DIR "/usr/local/opencv320/share/OpenCV")
-find_package(OpenCV 3.2 QUIET)
+if (${USE_OPENCV_NEWEST})
+   find_package(OpenCV 4.5 QUIET)
+else()
+   find_package(OpenCV 3.2 QUIET)
 if(NOT OpenCV_FOUND)
    find_package(OpenCV 2.4.3 QUIET)
    if(NOT OpenCV_FOUND)
       message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
    endif()
+endif()
 endif()
 message("OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
 

@@ -17,6 +17,10 @@ class NavState{//refer to the JW's NavState.h, used in PR&V/PVR order, we will u
   //cv::Mat mTbc,mTbo;//Tbc is from IMU frame to camera frame;Tbo is from IMU frame to encoder frame(the centre of 2 driving wheels, +x pointing to forward,+z pointing up)
   
 public:
+  typedef double Tdata;
+  typedef double Tcalc;
+  using Vector3c = Matrix<Tcalc, 3, 1>; // TODO make this class template
+  using SO3c = Sophus::SO3ex<Tcalc>;
   Sophus::SO3exd mRwb;	// rotation Rwbj=Rwb(tj)=qwbj=wqwb(tj)=Phiwbj=wPhiwb(tj), public for g2otypes
   Vector3d mpwb;	// position pwbj=wpwb(tj) or twbj
   Vector3d mvwb;	// velocity vwbj=wvwb(tj)
@@ -28,18 +32,38 @@ public:
   Vector3d mdba;  	// delta bias of accelerometer
   
   NavState():mpwb(0,0,0),mvwb(0,0,0),mbg(0,0,0),mba(0,0,0),mdbg(0,0,0),mdba(0,0,0){}
-  NavState(const NavState &x):mpwb(x.mpwb),mvwb(x.mvwb),mRwb(x.mRwb),mbg(x.mbg),mba(x.mba),mdbg(x.mdbg),mdba(x.mdba){}//though Eigen has deep copy, use initialization list to speed up
+  // for Eigen has deep copy, we don't define default copy constructor and operator= and we don't need ~NavState(),
+  // so move copy constructor and move operator= will also be default
 
   Matrix3d getRwb() const{return mRwb.matrix();}//get rotation matrix of Rwbj, const is very important!
   //if SO3exd could be used, it will be safer here
   void setRwb(const Matrix3d &Rwb){mRwb=Sophus::SO3exd(Rwb);}//implicitly use SO3(Matrix3d)
-  
+
   // incremental addition, dx = [dP, dV, dPhi, dBa, dBg] for oplusImpl(), see Manifold paper (70)
-  template <int D>//default is for 6, IncSmallPR
-  void IncSmall(const Matrix<double,D,1> &dPR){//also inline
-//     mpwb+=mRwb*dPR.template segment<3>(0);//here dp<-p+R*dp(in paper On-Manifold Preintegration)
-    mpwb+=dPR.template segment<3>(0);//here p<-p+dp, dp=R*dp(in paper On-Manifold Preintegration)
-    mRwb*=Sophus::SO3exd::exp(dPR.template segment<3>(3));//right distrubance model
+  void IncSmall(const Eigen::Map<const Matrix<Tcalc,6,1>> &dPR){//also inline
+    Vector3c pwb = mpwb.template cast<Tcalc>();
+    SO3c Rwb = mRwb.template cast<Tcalc>();
+//            pwb += Rwb * dPR.template segment<3>(0);//here dp<-p+R*dp(in paper On-Manifold Preintegration)
+    pwb += dPR.template segment<3>(0);//here p<-p+dp, dp=R*dp(in paper On-Manifold Preintegration)
+    Rwb *= SO3c::exp(dPR.template segment<3>(3));//right distrubance model
+    mpwb = pwb.template cast<Tdata>();
+    mRwb = Rwb.template cast<Tdata>();
+  }
+  void IncSmall(const Eigen::Map<const Vector3c> &dV) {//use overload to implement part specialization
+    Vector3c vwb = mvwb.template cast<Tcalc>();
+    vwb += dV;
+    mvwb = vwb.template cast<Tdata>();
+  }
+  void IncSmall(const Eigen::Map<const Matrix<Tcalc,9,1>> &dPVR){//TODO: delte this func for code simplicity
+    Vector3c pwb = mpwb.template cast<Tcalc>();
+    SO3c Rwb = mRwb.template cast<Tcalc>();
+    pwb += dPVR.template segment<3>(0);
+    Vector3c vwb = mvwb.template cast<Tcalc>();
+    vwb += dPVR.template segment<3>(3);
+    Rwb *= SO3c::exp(dPVR.template segment<3>(6));
+    mpwb = pwb.template cast<Tdata>();
+    mvwb = vwb.template cast<Tdata>();
+    mRwb = Rwb.template cast<Tdata>();
   }
   inline void IncSmallBias(const Vector6d &dBias){
     mdbg+=dBias.segment<3>(0);mdba+=dBias.segment<3>(3);
@@ -47,18 +71,6 @@ public:
   
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW//for quaterniond in SO3
 };
-//specialized function when using Matrix<double,D,1> I've to defined in .h with inline/static(not good), when it's defined in NavState.cpp, it enters the undefined reference problem? Though I try using Matrix<double,D,1,0> can overcome this problem
-template<>
-inline void NavState::IncSmall<3>(const Vector3d &dV){
-  mvwb+=dV;
-}//IncSmallV
-template<>
-inline void NavState::IncSmall<9>(const Vector9d &dPVR){
-//   mpwb+=mRwb*dPVR.segment<3>(0);//here dp<-p+R*dp(in paper On-Manifold Preintegration)
-  mpwb+=dPVR.segment<3>(0);//we don't discover improvement using p<-p+R*dp, so we prefer the simple form p<-p+dp
-  mvwb+=dPVR.segment<3>(3);
-  mRwb*=Sophus::SO3exd::exp(dPVR.segment<3>(6));
-}//IncSmallPVR
 
 }
 

@@ -54,6 +54,7 @@
 #include <opencv2/core/core.hpp>
 #include "MapPoint.h"
 #include "Frame.h"
+#include "GeometricCamera.h"
 
 namespace VIEO_SLAM
 {
@@ -72,7 +73,7 @@ class PnPsolver {
   cv::Mat iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers);
 
  private:
-
+  void Getuv(const Vector3d &Pcr, double &ue, double&ve, size_t i);
   void CheckInliers();
   bool Refine();
 
@@ -80,7 +81,7 @@ class PnPsolver {
   void set_maximum_number_of_correspondences(const int n);
   void reset_correspondences(void);
   void add_correspondence(const double X, const double Y, const double Z,
-              const double u, const double v);
+              const double u, const double v, size_t idx);
 
   double compute_pose(double R[3][3], double T[3]);
 
@@ -88,7 +89,6 @@ class PnPsolver {
               const double Rtrue[3][3], const double ttrue[3],
               const double Rest[3][3],  const double test[3]);
 
-  void print_pose(const double R[3][3], const double t[3]);
   double reprojection_error(const double R[3][3], const double t[3]);
 
   void choose_control_points(void);
@@ -128,6 +128,7 @@ class PnPsolver {
   double uc, vc, fu, fv;
 
   double * pws, * us, * alphas, * pcs;
+  double *usun;
   int maximum_number_of_correspondences;
   int number_of_correspondences;
 
@@ -142,6 +143,9 @@ class PnPsolver {
 
   // 3D Points
   vector<cv::Point3f> mvP3Dw;
+  vector<GeometricCamera *> pcams_;
+  vector<size_t> mapidx2cami_;
+  bool usedistort_;
 
   // Index in Frame
   vector<size_t> mvKeyPointIndices;

@@ -12,46 +12,45 @@ namespace VIEO_SLAM{
 
     using Eigen::Quaterniond;
     using Eigen::Matrix;
-  
+
 template<class _OdomData>
 class OdomPreIntegratorBase{//base class
   OdomPreIntegratorBase(const OdomPreIntegratorBase &pre){}//don't want the list to be copied (e.g. by derived class)
   OdomPreIntegratorBase& operator=(const OdomPreIntegratorBase &other){;return *this;}//do nothing, don't want the list to be assigned in any situation, this makes the derived class unable to use default =!
-  
+
 protected:
   listeig(_OdomData) mlOdom;//for IMUPreIntegrator: IMU list
-  
+
+  virtual void reset() {
+    mdeltatij = 0;  // very important!
+  }
+
 public:
+ template <class T>
+ using aligned_list = Eigen::aligned_list<T>;
+
   double mdeltatij;//0 means not preintegrated
-  
+
   OdomPreIntegratorBase():mdeltatij(0){}
   //though copy constructor/operator = already deep, please don't copy the list when preintegration is not related to the statei...j
   virtual ~OdomPreIntegratorBase(){}
   // Odom PreIntegration List Setting
-  virtual void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,typename listeig(_OdomData)::const_iterator pback){
+  virtual void SetPreIntegrationList(const typename listeig(_OdomData)::const_iterator &begin,typename listeig(_OdomData)::const_iterator end){
     mlOdom.clear();
-    mlOdom.insert(mlOdom.begin(),begin,++pback);
+    mlOdom.insert(mlOdom.begin(),begin,end);
+  }
+  // splice operation (like move) for fast append
+  virtual void AppendFrontPreIntegrationList(aligned_list<_OdomData> &x,
+                                             const typename aligned_list<_OdomData>::const_iterator &begin,
+                                             const typename aligned_list<_OdomData>::const_iterator &end) {
+    mlOdom.splice(mlOdom.begin(), x, begin, end);
   }
   const listeig(_OdomData)& getlOdom(){return mlOdom;}//the list of Odom, for KFCulling()
+  // the list of Odom, for deep proc(like KFCulling())
+  aligned_list<_OdomData> &GetRawDataRef() { return mlOdom; }
   // Odom PreIntegration
   virtual void PreIntegration(const double timeStampi,const double timeStampj){assert(0&&"You called an empty virtual function!!!");}//cannot use =0 for we allow transformed in derived class
-  
-  // normalize to avoid numerical error accumulation
-  inline Quaterniond normalizeRotationQ(const Quaterniond& r) const
-  {
-    Quaterniond _r(r);
-    if (_r.w()<0)//is this necessary?
-    {
-	_r.coeffs() *= -1;
-    }
-    return _r.normalized();
-  }
-  inline Matrix3d normalizeRotationM(const Matrix3d& R) const
-  {
-    Quaterniond qr(R);
-    return normalizeRotationQ(qr).toRotationMatrix();
-  }
-  
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
@@ -60,21 +59,31 @@ typedef Eigen::Matrix<double, 6, 1> Vector6d;
 //next derived classes don't use operator=!
 class EncPreIntegrator:public OdomPreIntegratorBase<EncData>{
   //mlOdom: mlOdomEnc list for vl,vr& its own timestamp
+  void reset() override;
+  Eigen::Vector2d eigdeltaPijM;//deltaPii=0
+  double deltaThetaijMz;
 public:
   Vector6d mdelxEij;// delta~Phiij(3*1),delta~pij(3*1) from Encoder PreIntegration, 6*1*float
   Matrix6d mSigmaEij;// by Enc, 6*6*float
-  
+
   EncPreIntegrator():mdelxEij(Vector6d::Zero()),mSigmaEij(Matrix6d::Zero()){}
-  EncPreIntegrator(const EncPreIntegrator &pre):mdelxEij(pre.mdelxEij),mSigmaEij(pre.mSigmaEij){mdeltatij=pre.mdeltatij;}//don't copy list!
-  EncPreIntegrator& operator=(const EncPreIntegrator &pre){
-    mdeltatij=pre.mdeltatij;//don't copy list!
-    mdelxEij=pre.mdelxEij;mSigmaEij=pre.mSigmaEij;
+  EncPreIntegrator(const EncPreIntegrator &pre)
+      : eigdeltaPijM(pre.eigdeltaPijM),deltaThetaijMz(pre.deltaThetaijMz),
+        mdelxEij(pre.mdelxEij),mSigmaEij(pre.mSigmaEij) {
+    mdeltatij = pre.mdeltatij;
+  }//don't copy list!
+  EncPreIntegrator& operator=(const EncPreIntegrator &pre) {
+    eigdeltaPijM = pre.eigdeltaPijM;
+    deltaThetaijMz = pre.deltaThetaijMz;
+    mdelxEij = pre.mdelxEij;
+    mSigmaEij = pre.mSigmaEij;
+    mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
-  void PreIntegration(const double &timeStampi,const double &timeStampj,
-		      const listeig(EncData)::const_iterator &iterBegin,const listeig(EncData)::const_iterator &iterEnd);//rewrite
+  int PreIntegration(const double &timeStampi,const double &timeStampj,
+		      const listeig(EncData)::const_iterator &iterBegin,const listeig(EncData)::const_iterator &iterEnd, bool breset = true);//rewrite
   void PreIntegration(const double &timeStampi,const double &timeStampj){PreIntegration(timeStampi,timeStampj,mlOdom.begin(),mlOdom.end());}//rewrite, inline
-  
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
@@ -83,6 +92,8 @@ typedef Eigen::Matrix<double, 9, 9> Matrix9d;
 template<class IMUDataBase>
 class IMUPreIntegratorBase:public OdomPreIntegratorBase<IMUDataBase>{//refer the IMUPreintergrator.cpp by JingWang, so use PVR/PRV Cov.
 public:
+ typedef double Tcalc;
+ using SO3calc = Sophus::SO3ex<Tcalc>;
   Matrix3d mRij;//deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
   Vector3d mvij,mpij;//deltav~ij,deltap~ij(bi_bar)
   Matrix9d mSigmaijPRV;//Cov_p_Phi_v_ij, a bit different with paper for convenience
@@ -99,69 +110,66 @@ public:
     Matrix3d mRij_hf;//deltaR~ij(bgi_bar) by awIMU, 3*3*float/delta~Rbibj
     Vector3d mvij_hf,mpij_hf;//deltav~ij,deltap~ij(bi_bar)
     double mdt_hf, mdt_hf_ref;
-  
+
   IMUPreIntegratorBase():mRij(Matrix3d::Identity()),mvij(0,0,0),mpij(0,0,0),mSigmaijPRV(Matrix9d::Zero()),mSigmaij(Matrix9d::Zero()){
     mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
   }
-  IMUPreIntegratorBase(const IMUPreIntegratorBase &pre):mRij(pre.mRij),mvij(pre.mvij),mpij(pre.mpij),mSigmaijPRV(pre.mSigmaijPRV),mSigmaij(pre.mSigmaij),
-  mJgpij(pre.mJgpij),mJapij(pre.mJapij),mJgvij(pre.mJgvij),mJavij(pre.mJavij),mJgRij(pre.mJgRij){
-    this->mdeltatij=pre.mdeltatij;//2-phase name lookup used in Derived template class
+  IMUPreIntegratorBase(const IMUPreIntegratorBase &pre)
+      :mRij(pre.mRij),mvij(pre.mvij),mpij(pre.mpij),mSigmaijPRV(pre.mSigmaijPRV),mSigmaij(pre.mSigmaij),
+        mJgpij(pre.mJgpij),mJapij(pre.mJapij),mJgvij(pre.mJgvij),mJavij(pre.mJavij),mJgRij(pre.mJgRij) {
+    this->mdeltatij = pre.mdeltatij;  // 2-phase name lookup used in Derived template class
   }//don't copy list!
-  IMUPreIntegratorBase& operator=(const IMUPreIntegratorBase &pre){
-    this->mdeltatij=pre.mdeltatij;//don't copy list!
-    this->mRij=pre.mRij,this->mvij=pre.mvij,this->mpij=pre.mpij,this->mSigmaijPRV=pre.mSigmaijPRV,this->mSigmaij=pre.mSigmaij,
-    this->mJgpij=pre.mJgpij,this->mJapij=pre.mJapij,this->mJgvij=pre.mJgvij,this->mJavij=pre.mJavij,this->mJgRij=pre.mJgRij;
+  IMUPreIntegratorBase& operator=(const IMUPreIntegratorBase &pre) {
+    this->mRij = pre.mRij, this->mvij = pre.mvij, this->mpij = pre.mpij, this->mSigmaijPRV = pre.mSigmaijPRV,
+    this->mSigmaij = pre.mSigmaij, this->mJgpij = pre.mJgpij, this->mJapij = pre.mJapij, this->mJgvij = pre.mJgvij,
+    this->mJavij = pre.mJavij, this->mJgRij = pre.mJgRij;
+    this->mdeltatij = pre.mdeltatij;  // don't copy list!
     return *this;
   }
   virtual ~IMUPreIntegratorBase(){}
-  
-  void PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
-		      const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd);//rewrite, like override but different
+
+  int PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
+		      const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset = true);//rewrite, like override but different
   void PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar){//inline
     PreIntegration(timeStampi,timeStampj,bgi_bar,bai_bar,this->mlOdom.begin(),this->mlOdom.end());
   }//rewrite
   // incrementally update 1)delta measurements, 2)jacobians, 3)covariance matrix
   void update(const Vector3d& omega, const Vector3d& acc, const double& dt);//don't allow dt<0!
   void update_highfreq(const Vector3d& omega, const Vector3d& acc, const double& dt);//don't allow dt<0!
-  
+
   // reset to initial state
-  void reset(){
+  void reset() override {
+    OdomPreIntegratorBase<IMUDataBase>::reset();
     mRij.setIdentity();mvij.setZero();mpij.setZero();mSigmaijPRV.setZero();mSigmaij.setZero();
     mJgpij.setZero();mJapij.setZero();mJgvij.setZero();mJavij.setZero();mJgRij.setZero();
-    this->mdeltatij=0;//very important!
       mRij_hf.setIdentity();mvij_hf.setZero();mpij_hf.setZero();
       mdt_hf = 0;
       mdt_hf_ref = 1. / 105;//60;//
   }
-  
-  // exponential map from vec3 to mat3x3 (Rodrigues formula)
-  static Matrix3d Expmap(const Vector3d& v){//here is inline, but defined in .cpp is ok for efficiency due to copy elision(default gcc -O2 uses it) when return a temporary variable(NRVO/URVO)
-    return Sophus::SO3exd::exp(v).matrix();//here is URVO
-  }
 };
 //when template<>: specialized definition should be defined in .cpp(avoid redefinition) or use inline/static(not good) in .h and template func. in template class can't be specialized(only fully) when its class is not fully specialized
 template<class IMUDataBase>
-void IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
-						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd){
+int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,const double &timeStampj,const Vector3d &bgi_bar,const Vector3d &bai_bar,
+						       const typename listeig(IMUDataBase)::const_iterator &iterBegin,const typename listeig(IMUDataBase)::const_iterator &iterEnd, bool breset){
   //TODO: refer to the code by JingWang
-  if (iterBegin!=iterEnd&&timeStampi<timeStampj){//default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
+  if (iterBegin!=iterEnd){//default parameter = !mlOdom.empty(); timeStampi may >=timeStampj for Map Reuse
     // Reset pre-integrator first
-    reset();
+    if (breset) reset();
     // remember to consider the gap between the last KF and the first IMU
     // integrate each imu
     IMUDataBase imu_last;
     double t_last;
     for (typename listeig(IMUDataBase)::const_iterator iterj=iterBegin;iterj!=iterEnd;){
       typename listeig(IMUDataBase)::const_iterator iterjm1=iterj++;//iterj-1
-      
+
       // delta time
       double dt,tj,tj_1;
       if (iterjm1==iterBegin) tj_1=timeStampi; else tj_1=iterjm1->mtm;
       if (iterj==iterEnd) tj=timeStampj; else{ tj=iterj->mtm;assert(tj-tj_1>=0);}
       dt=tj-tj_1;
       if (dt==0) continue;//for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj], when we concate them in KeyFrameCulling(), dt may be 0
-      if (dt>1.5){ this->mdeltatij=0;std::cout<<"CheckIMU!!!"<<std::endl;return;}//for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
-      
+      if (dt>1.5){ this->mdeltatij=0;std::cout<<"CheckIMU!!!"<<std::endl;return -1;}//for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
+
       //selete/design measurement_j-1
       const IMUDataBase& imu=*iterjm1;//imuj-1 for w~j-1 & a~j-1 chooses imu(tj-1), maybe u can try (imu(tj-1)+imu(tj))/2 or other filter here
 //      IMUDataBase imu=*iterjm1, imu_now = iterj != iterEnd ? *iterj : iterjm1 != iterBegin ? imu_last : imu;//(interplot)
@@ -276,18 +284,19 @@ void IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi,
       update(imu.mw-bgi_bar,imu.ma-bai_bar,dt);
     }
   }
+  return 0;
 }
 template<class IMUDataBase>
 void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d& omega, const Vector3d& acc, const double& dt){
   using namespace Sophus;
   using namespace Eigen;
   double dt2div2=dt*dt/2;
-  Matrix3d dR=Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+  Matrix3d dR=SO3calc::Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
   Matrix3d Jr=SO3exd::JacobianR(omega*dt);//Jrj-1=Jr(dtj-1j*(w~j-1 - bgi_bar))
   Matrix3d skewa=SO3exd::hat(acc);//(~aj-1 - bai_bar)^
 
   //see paper On-Manifold Preintegration (63), notice PRV is different from paper RVP, but the BgBa is the same(A change row&col, B just change row)
-  // err_k+1 = A*err_k + Bg*err_gyro + Ba*err_acc; or Bj-1=[Bg Ba],Aj-1=A 
+  // err_k+1 = A*err_k + Bg*err_gyro + Ba*err_acc; or Bj-1=[Bg Ba],Aj-1=A
   Matrix3d I3x3 = Matrix3d::Identity();
   Matrix<double,9,9> A = Matrix9d::Identity();
   A.block<3,3>(3,3) = dR.transpose();
@@ -322,7 +331,7 @@ void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d& omega, const Vect
     mSigmaij=A*mSigmaij*A.transpose()+Bg*(IMUDataBase::mSigmag/dt)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa/dt)*Ba.transpose();
   else
     mSigmaij=A*mSigmaij*A.transpose()+Bg*(IMUDataBase::mSigmag*IMUDataBase::mFreqRef)*Bg.transpose()+Ba*(IMUDataBase::mSigmaa*IMUDataBase::mFreqRef)*Ba.transpose();
-  
+
   //see the same paper (69) & use similar iterative rearrange method (59)
   // jacobian of delta measurements w.r.t bias of gyro/acc, for motion_update_with_dbi & residual error & J_error_dxi,xj calculation
   // update P first, then V, then R for using ij as ij-1 term
@@ -331,13 +340,13 @@ void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d& omega, const Vect
   mJavij += -mRij*dt;
   mJgvij += -mRij*skewa*mJgRij*dt;//notice except mJgRij use dR, the other Jxxij use mRij!
   mJgRij = dR.transpose()*mJgRij - Jr*dt;//like (59): JgRij=delta~Rj-1j.t()*JgRij-1 - Jrj-1*dtj-1j, the left incremental formula is easy to get for there's no j label
-  
+
   //see paper On-Manifold Preintegration (35~37)
   mpij+=mvij*dt+mRij*(acc*dt2div2);//delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
   mvij+=mRij*(acc*dt);//here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
   // normalize rotation, in case of numerical error accumulation
-  mRij=this->normalizeRotationM(mRij*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
-  
+  mRij=SO3calc::normalizeRotationM(mRij*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
+
   this->mdeltatij+=dt;
 }
 
@@ -346,13 +355,13 @@ void IMUPreIntegratorBase<IMUDataBase>::update(const Vector3d& omega, const Vect
         using namespace Sophus;
         using namespace Eigen;
         double dt2div2=dt*dt/2;
-        Matrix3d dR=Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
+        Matrix3d dR=SO3calc::Expmap(omega*dt);//Exp((w~j-1 - bgi_bar)*dtj-1j)=delta~Rj-1j
 
         //see paper On-Manifold Preintegration (35~37)
         mpij_hf+=mvij_hf*dt+mRij_hf*(acc*dt2div2);//delta~pij=delta~pij-1 + delta~vij-1*dtj-1j + 1/2*delta~Rij-1*(~aj-1 - bai_bar)*dtj-1j^2
         mvij_hf+=mRij_hf*(acc*dt);//here mRij=mRij-1, delta~vij=delta~vij-1 + delta~Rij-1 * (~aj-1 - bai_bar)*dtj-1j
         // normalize rotation, in case of numerical error accumulation
-        mRij_hf=this->normalizeRotationM(mRij_hf*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
+        mRij_hf=SO3calc::normalizeRotationM(mRij_hf*dR);//here omega=(w~k-bgi_bar)(k=j-1), deltaR~ij(bgi_bar)=deltaRij-1(bgi_bar) * Exp((w~j-1 - bgi_bar)*dtj-1j)
     }
 
 class IMUPreIntegratorDerived:public IMUPreIntegratorBase<IMUDataDerived>{
@@ -361,12 +370,14 @@ public:
   Matrix3d mSigmaPhiij;// SigmaPhiij by qIMU, 3*3*float
 
   IMUPreIntegratorDerived():mdelxRji(Matrix3d::Identity()),mSigmaPhiij(Matrix3d::Zero()){}
-  void SetPreIntegrationList(const listeig(IMUDataDerived)::const_iterator &begin,const listeig(IMUDataDerived)::const_iterator &pback){//rewrite, will override the base class one
+  void SetPreIntegrationList(const listeig(IMUDataDerived)::const_iterator &begin,const listeig(IMUDataDerived)::const_iterator &end){//rewrite, will override the base class one
     this->mlOdom.clear();
+    auto pback = end;
+    --pback;
     this->mlOdom.push_front(*begin);this->mlOdom.push_back(*pback);
   }
   void PreIntegration(const double &timeStampi,const double &timeStampj);//rewrite
-  
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 

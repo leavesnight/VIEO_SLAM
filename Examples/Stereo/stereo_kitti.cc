@@ -57,17 +57,17 @@ int main(int argc, char **argv)
     vector<float> vTimesTrack;
     vTimesTrack.resize(nImages);
 
-    cout << endl << "-------" << endl;
-    cout << "Start processing sequence ..." << endl;
-    cout << "Images in the sequence: " << nImages << endl << endl;   
+    PRINT_INFO_MUTEX( endl << "-------" << endl);
+    PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
+    PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
 
     // Main loop
     cv::Mat imLeft, imRight;
     for(int ni=0; ni<nImages; ni++)
     {
         // Read left and right images from file
-        imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
-        imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
+        imLeft = cv::imread(vstrImageLeft[ni],cv::IMREAD_UNCHANGED);
+        imRight = cv::imread(vstrImageRight[ni],cv::IMREAD_UNCHANGED);
         double tframe = vTimestamps[ni];
 
         if(imLeft.empty())
@@ -84,7 +84,7 @@ int main(int argc, char **argv)
 #endif
 
         // Pass the images to the SLAM system
-        SLAM.TrackStereo(imLeft,imRight,tframe);
+        SLAM.TrackStereo(vector<cv::Mat>({imLeft,imRight}),tframe);
 
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
@@ -117,9 +117,9 @@ int main(int argc, char **argv)
     {
         totaltime+=vTimesTrack[ni];
     }
-    cout << "-------" << endl << endl;
-    cout << "median tracking time: " << vTimesTrack[nImages/2] << endl;
-    cout << "mean tracking time: " << totaltime/nImages << endl;
+    PRINT_INFO_MUTEX( "-------" << endl << endl);
+    PRINT_INFO_MUTEX( "median tracking time: " << vTimesTrack[nImages/2] << endl);
+    PRINT_INFO_MUTEX( "mean tracking time: " << totaltime/nImages << endl);
 
     // Save camera trajectory
     SLAM.SaveTrajectoryKITTI("CameraTrajectory.txt");

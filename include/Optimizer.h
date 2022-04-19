@@ -52,6 +52,7 @@
 #include "KeyFrame.h"
 #include "LoopClosing.h"
 #include "Frame.h"
+#include "Pinhole.h"
 
 namespace VIEO_SLAM {
 
@@ -61,8 +62,8 @@ class Optimizer {
  public:
   template <class MatrixNVd = MatrixXd>
   static void FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *eNSBias, g2o::EdgeEncNavStatePVR *eEnc,
-                         const int8_t schur_bec, const vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> *pvpEdgesMono,
-                         const vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> *pvpEdgesStereo, MatrixNVd &cov_inv,
+                         const int8_t schur_bec, const vector<g2o::EdgeReprojectPVR *> *pvpEdgesMono,
+                         const vector<g2o::EdgeReprojectPVRStereo *> *pvpEdgesStereo, MatrixNVd &cov_inv,
                          g2o::EdgeNavStatePriorPVRBias *eNSPrior = nullptr,
                          const int8_t exact_mode = (int8_t)g2o::kNotExact);
 
@@ -71,13 +72,6 @@ class Optimizer {
       Frame *pFrame, KeyFrame *pLastKF, const cv::Mat &gw, const bool bComputeMarg = false,
       const bool bNoMPs = false);  // 2 frames' motion-only BA, automatically fix/unfix lastF/KF and optimize
                                    // curF/curF&last, if bComputeMarg then save its Hessian
-  template <class KeyFrame>
-  static void PoseOptimizationAddEdge(KeyFrame *pFrame, vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> &vpEdgesMono,
-                                      vector<size_t> &vnIndexEdgeMono,
-                                      vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> &vpEdgesStereo,
-                                      vector<size_t> &vnIndexEdgeStereo, const Matrix3d &Rcb, const Vector3d &tcb,
-                                      g2o::SparseOptimizer &optimizer, int LastKFPVRId, int8_t last_mono_stereo = 0) {
-  }  // we specialize the Frame version
   void static LocalBAPRVIDP(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap, cv::Mat &gw);
 
   void static LocalBundleAdjustmentNavStatePRV(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap,
@@ -139,8 +133,8 @@ using namespace Eigen;
 
 template <class MatrixNVd>
 void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *eNSBias, g2o::EdgeEncNavStatePVR *eEnc,
-                           const int8_t schur_bec, const vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> *pvpEdgesMono,
-                           const vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> *pvpEdgesStereo,
+                           const int8_t schur_bec, const vector<g2o::EdgeReprojectPVR *> *pvpEdgesMono,
+                           const vector<g2o::EdgeReprojectPVRStereo *> *pvpEdgesStereo,
                            MatrixNVd &cov_inv, g2o::EdgeNavStatePriorPVRBias *eNSPrior, const int8_t exact_mode) {
   const bool robust = (int8_t)g2o::kExactRobust == exact_mode;
   // Notice g2o's jacobians of some vertices will be shared for all edges by allocating max vertices number needed by
@@ -169,18 +163,18 @@ void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *
 
     if (pvpEdgesMono)
       for (auto iter = pvpEdgesMono->begin(), iterend = pvpEdgesMono->end(); iterend != iter; ++iter) {
-        g2o::EdgeNavStatePVRPointXYZOnlyPose *e = *iter;
+        g2o::EdgeReprojectPVR *e = *iter;
         if (!e->level()) {
           e->linearizeOplus();
-          cov_inv.template block<9, 9>(0, 0) += e->getHessianXi(robust);
+          cov_inv.template block<9, 9>(0, 0) += e->getHessian(1, robust);
         }
       }
     if (pvpEdgesStereo)
       for (auto iter = pvpEdgesStereo->begin(), iterend = pvpEdgesStereo->end(); iterend != iter; ++iter) {
-        g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *e = *iter;
+        g2o::EdgeReprojectPVRStereo *e = *iter;
         if (!e->level()) {
           e->linearizeOplus();
-          cov_inv.template block<9, 9>(0, 0) += e->getHessianXi(robust);
+          cov_inv.template block<9, 9>(0, 0) += e->getHessian(1, robust);
         }
       }
   } else if (2 == schur_bec) {
@@ -242,7 +236,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
   // Set Frame & fixed KeyFrame's vertices, see VIORBSLAM paper (4)~(8)
   const int FramePVRId = 0, FrameBiasId = 1, LastKFPVRId = 2, LastKFBiasId = 3;
-  NavState &nsj = pFrame->mNavState;
+  NavState &nsj = pFrame->GetNavStateRef();
   // Set Frame vertex PVR/Bias
   g2o::VertexNavStatePVR *vNSFPVR = new g2o::VertexNavStatePVR();
   vNSFPVR->setEstimate(nsj);
@@ -267,7 +261,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   optimizer.addVertex(vNSKFBias);
 
   // Set IMU_I/PVR(B) edge(ternary/multi edge) between LastKF-Frame
-  const IMUPreintegrator &imupreint = pFrame->mOdomPreIntIMU;
+  const IMUPreintegrator &imupreint = pFrame->GetIMUPreInt();
   g2o::EdgeNavStatePVR *eNSPVR = new g2o::EdgeNavStatePVR();
   eNSPVR->setVertex(
       0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // PVRi, i is keyframe's id
@@ -312,9 +306,9 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   }
   // Set Enc edge(binary) between LastKF-Frame
   g2o::EdgeEncNavStatePVR *eEnc = nullptr;
-  if (pFrame->mOdomPreIntEnc.mdeltatij > 0) {
+  if (pFrame->GetEncPreInt().mdeltatij > 0) {
     // Set Enc edge(binary edge) between LastF-Frame
-    const EncPreIntegrator &encpreint = pFrame->mOdomPreIntEnc;
+    const EncPreIntegrator &encpreint = pFrame->GetEncPreInt();
     eEnc = new g2o::EdgeEncNavStatePVR();
     eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFPVRId)));  // lastF,i
     eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(FramePVRId)));   // curF,j
@@ -335,96 +329,111 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const int N = pFrame->N;  // for LastFrame JingWang use Nlast while the VIORBSLAM paper hasn't done this see its
                             // Fig.2.! let's try his method!
 
-  vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> vpEdgesMono;  // 2*1(_measurement) unary edge<VertexNavStatePVR>
+  vector<g2o::EdgeReprojectPVR*> vpEdgesMono;  // 2*1(_measurement) binary edge<VertexSBAPointXYZ,VertexNavStatePVR>
   vector<size_t> vnIndexEdgeMono;
   vpEdgesMono.reserve(N);
   vnIndexEdgeMono.reserve(N);  // this can be optimized in RGBD mode
-  // for bFixedLast==false
-  vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> vpEdgesMonoLast;
-  vector<size_t> vnIndexEdgeMonoLast;
-  vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> vpEdgesStereoLast;
-  vector<size_t> vnIndexEdgeStereoLast;
 
-  vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> vpEdgesStereo;  // 3*1(ul vl ur) unary edge
+  vector<g2o::EdgeReprojectPVRStereo*> vpEdgesStereo;  // 3*1(ul vl ur) binary edge
   vector<size_t> vnIndexEdgeStereo;
   vpEdgesStereo.reserve(N);
   vnIndexEdgeStereo.reserve(N);
 
   const float deltaMono = sqrt(5.991);    // chi2(0.05,2)
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
+
+  Pinhole CamInst;
+  bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
   // configs for Prior Hessian
   const bool calc_cov_explicit = true;  // false;
   const int8_t exact_mode =
       calc_cov_explicit ? (int8_t)g2o::kExactRobust : (int8_t)g2o::kNotExact;  //(int8_t)g2o::kExactRobust
-  const int8_t last_mono_stereo = 0;                                           // 0
   const bool calc_cond_jac = false;//calculate conditional cov for only PVR or only Bias
   {
-    unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
+    if (!usedistort) {
+      CamInst.setParameter(pFrame->fx, 0);
+      CamInst.setParameter(pFrame->fy, 1);
+      CamInst.setParameter(pFrame->cx, 2);
+      CamInst.setParameter(pFrame->cy, 3);
+    }
 
+    unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
+    int id_mp_beg = 4;
+
+    const auto& frame_mps = pFrame->GetMapPointMatches();
     for (int i = 0; i < N; i++) {
-      MapPoint *pMP = pFrame->mvpMapPoints[i];
+      MapPoint *pMP = frame_mps[i];
       if (pMP) {
+        // add fixed mp vertices for motion_only BA
+        g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
+        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        int id = i + id_mp_beg;  //>=maxKFid+1
+        vPoint->setId(id);
+        vPoint->setFixed(true);
+        optimizer.addVertex(vPoint);
+
+        nInitialCorrespondences++;
+        pFrame->mvbOutlier[i] = false;
+
         // Monocular observation
         if (pFrame->mvuRight[i] < 0)  // this may happen in RGBD case!
         {
-          nInitialCorrespondences++;
-          pFrame->mvbOutlier[i] = false;
+          g2o::EdgeReprojectPVR* e = new g2o::EdgeReprojectPVR();
+          if (!usedistort)
+            e->SetParams(&CamInst, Rcb, tcb);
+          else {
+            CV_Assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
+          }
+
+          // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
+          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+          // 1 Tbw, VertexNavStatePR* corresponding to pFB->mNavState
+          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FramePVRId)));
 
           Eigen::Matrix<double, 2, 1> obs;
-          const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
+          const cv::KeyPoint &kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           obs << kpUn.pt.x, kpUn.pt.y;
-
-          g2o::EdgeNavStatePVRPointXYZOnlyPose *e = new g2o::EdgeNavStatePVRPointXYZOnlyPose();
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(
-                              optimizer.vertex(FramePVRId)));  // here should change to FramePVRId!
           e->setMeasurement(obs);
           const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          // diagonal matrix means independece between x and y pixel noise 2*2 matrix
           e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
           g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
           e->setRobustKernel(rk);
           rk->setDelta(deltaMono);
 
-          e->SetParams(pFrame->fx, pFrame->fy, pFrame->cx, pFrame->cy, Rcb, tcb,
-                       Converter::toVector3d(pMP->GetWorldPos()));
-
           optimizer.addEdge(e);
 
+          // record the edge recording feature index
           vpEdgesMono.push_back(e);
           vnIndexEdgeMono.push_back(i);
         } else  // Stereo observation
         {
-          nInitialCorrespondences++;
-          pFrame->mvbOutlier[i] = false;
+          g2o::EdgeReprojectPVRStereo* e = new g2o::EdgeReprojectPVRStereo();
+          if (!usedistort)
+            e->SetParams(&CamInst, Rcb, tcb, &pFrame->mbf);
+          else {
+            CV_Assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb, &pFrame->mbf);
+          }
+
+          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(FramePVRId)));
 
           // SET EDGE
           Eigen::Matrix<double, 3, 1> obs;
-          const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
+          const cv::KeyPoint& kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           const float &kp_ur = pFrame->mvuRight[i];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
-
-          // g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
-          g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *e = new g2o::EdgeStereoNavStatePVRPointXYZOnlyPose();
-
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(
-                              optimizer.vertex(FramePVRId)));  // this dynamic_cast is useless
           e->setMeasurement(obs);                              // edge parameter/measurement formula output z
           const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-          Eigen::Matrix3d Info =
-              Eigen::Matrix3d::Identity() * invSigma2;  // optimization target block=|e'*Omiga(or Sigma^(-1))*e|,
-                                                        // diagonal matrix means independece between x and y pixel noise
-          e->setInformation(Info);                      // 3*3 matrix
+          e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
 
-          g2o::RobustKernelHuber *rk =
-              new g2o::RobustKernelHuber;  // optimization target=KernelHuber(block)=H(e)={1/2*e
-                                           // sqrt(e)<=delta;delta(sqrt(e)-1/2*delta) others}
+          // optimization target=KernelHuber(block)=H(e)={1/2*e sqrt(e)<=delta;delta(sqrt(e)-1/2*delta) others}
+          g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
           e->setRobustKernel(rk);
           rk->setDelta(deltaStereo);
-
-          e->SetParams(pFrame->fx, pFrame->fy, pFrame->cx, pFrame->cy, Rcb, tcb,
-                       Converter::toVector3d(pMP->GetWorldPos()),
-                       &pFrame->mbf);  // edge/measurement formula parameter Xw
 
           optimizer.addEdge(e);  //_error is the edge output
 
@@ -433,10 +442,6 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         }
       }
     }
-    // for bFixedLast==false
-    if (last_mono_stereo && !bFixedLast)
-      PoseOptimizationAddEdge<KeyFrame>(pLastKF, vpEdgesMonoLast, vnIndexEdgeMonoLast, vpEdgesStereoLast,
-                                        vnIndexEdgeStereoLast, Rcb, tcb, optimizer, LastKFPVRId, last_mono_stereo);
   }
 
   if (nInitialCorrespondences < 3 && !bNoMPs)  // at least P3P（well posed equation） EPnP(n>3) (overdetermined
@@ -471,7 +476,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     nBad = 0;
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++)  // for 3D-monocular 2D matches, may entered in RGBD!
     {
-      g2o::EdgeNavStatePVRPointXYZOnlyPose *e = vpEdgesMono[i];
+      g2o::EdgeReprojectPVR* e = vpEdgesMono[i];
 
       const size_t idx = vnIndexEdgeMono[i];
 
@@ -495,36 +500,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
       if (it == 2) e->setRobustKernel(0);
     }
-    for (size_t i = 0, iend = vpEdgesMonoLast.size(); i < iend;
-         i++)  // for 3D-monocular 2D matches, may entered in RGBD!
-    {
-      KeyFrame *pFrame = pLastKF;
-      g2o::EdgeNavStatePVRPointXYZOnlyPose *e = vpEdgesMonoLast[i];
-
-      const size_t idx = vnIndexEdgeMonoLast[i];
-
-      if ((int8_t)g2o::kNotExact > exact_mode || pFrame->mvbOutlier[idx]) {
-        e->computeError();
-      }
-
-      const float chi2 = e->chi2();
-
-      if (chi2 > chi2Mono[it]) {
-        pFrame->mvbOutlier[idx] = true;
-//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
-          e->setLevel(1);
-      } else {
-        pFrame->mvbOutlier[idx] = false;
-//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
-          e->setLevel(0);
-      }
-
-      if (it == 2) e->setRobustKernel(0);
-    }
 
     for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++)  // for 3D-stereo 2D matches
     {
-      g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *e = vpEdgesStereo[i];
+      g2o::EdgeReprojectPVRStereo* e = vpEdgesStereo[i];
 
       const size_t idx = vnIndexEdgeStereo[i];
 
@@ -552,60 +531,11 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         e->setRobustKernel(
             0);  // let the final(it==3) optimization use no RobustKernel; this function will delete _robustkernel first
     }
-    for (size_t i = 0, iend = vpEdgesStereoLast.size(); i < iend; i++)  // for 3D-stereo 2D matches
-    {
-      KeyFrame *pFrame = pLastKF;
-      g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *e = vpEdgesStereoLast[i];
-
-      const size_t idx = vnIndexEdgeStereoLast[i];
-
-      if ((int8_t)g2o::kNotExact > exact_mode || pFrame->mvbOutlier[idx]) {
-        e->computeError();
-      }
-
-      const float chi2 = e->chi2();
-
-      if (chi2 > chi2Stereo[it]) {
-        pFrame->mvbOutlier[idx] = true;
-//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
-          e->setLevel(1);
-        nBad++;
-      } else {
-//        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
-          e->setLevel(0);
-        pFrame->mvbOutlier[idx] = false;
-      }
-
-      if (it == 2) e->setRobustKernel(0);
-    }
 
     if (optimizer.edges().size() <
         10)  // it outliers+inliers(/_edges) number<10 only optimize once with RobustKernelHuber
       break;
-
-    /*      if (it<3){
-          nBadIMU=0;
-          {
-            g2o::EdgeNavStatePVR* e=eNSPVR;
-            if(e->chi2()>21.666){//if chi2 error too big(5% wrong) or Zc<=0 then outlier
-              e->setLevel(1);++nBadIMU;
-            }else e->setLevel(0);
-            if (it==2) e->setRobustKernel(0);//cancel RobustKernel
-          }
-          {
-            g2o::EdgeNavStateBias* e=eNSBias;
-            if(e->chi2()>16.812){//if chi2 error too big(5% wrong) or Zc<=0 then outlier
-              e->setLevel(1);++nBadIMU;
-            }else e->setLevel(0);
-            if (it==2) e->setRobustKernel(0);//cancel RobustKernel
-          }
-          if (eNSPrior!=NULL){
-            g2o::EdgeNavStatePriorPVRBias* e=eNSPrior;
-            if(e->chi2()>30.5779){//if chi2 error too big(5% wrong) or Zc<=0 then outlier
-              e->setLevel(1);++nBadIMU;
-            }else e->setLevel(0);
-            if (it==2) e->setRobustKernel(0);//cancel RobustKernel
-          }}*/
+    // we tested erasing erroneous IMU edge through chi2 error strategy, but not better, so we abandoned it
   }
 
   // Recover optimized pose and return number of inliers
@@ -642,8 +572,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         cov_inv.block<9, 6>(0, 9).setZero();
         cov_inv.block<6, 9>(9, 0).setZero();
       } else
-        FillCovInv(eNSPVR, eNSBias, eEnc, 0, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
-                   1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv, nullptr, exact_mode);
+        FillCovInv(eNSPVR, eNSBias, eEnc, 0, &vpEdgesMono, &vpEdgesStereo, cov_inv, nullptr, exact_mode);
       if (!bFixedLast) {  // schur complement to get marginalized(lastf) cov_inv(curf)
         Matrix15d cov_inv_last, cov_inv_cur_last;
         if ((int8_t)g2o::kNotExact <= exact_mode) {
@@ -658,11 +587,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           cov_inv_cur_last.block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
         } else {
           eNSPrior->computeError();
-          FillCovInv(eNSPVR, eNSBias, eEnc, 2, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
-                     1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv_last, eNSPrior, exact_mode);
-          FillCovInv(eNSPVR, eNSBias, eEnc, 1, !last_mono_stereo ? &vpEdgesMono : &vpEdgesMonoLast,
-                     1 >= last_mono_stereo ? &vpEdgesStereo : &vpEdgesStereoLast, cov_inv_cur_last, nullptr,
-                     exact_mode);
+          FillCovInv(eNSPVR, eNSBias, eEnc, 2, &vpEdgesMono, &vpEdgesStereo, cov_inv_last, eNSPrior, exact_mode);
+          FillCovInv(eNSPVR, eNSBias, eEnc, 1, &vpEdgesMono, &vpEdgesStereo, cov_inv_cur_last, nullptr, exact_mode);
         }
         //[B|E;E^T|C]->[B-EC^(-1)E^T|0;ET|C] => margH = B-EC^(-1)E^T
         Eigen::JacobiSVD<Matrix<double, 15, Eigen::Dynamic>> svd_c(cov_inv_last,
@@ -773,15 +699,6 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   return nInitialCorrespondences - nBad;  // number of inliers
 }
 
-template <>
-void Optimizer::PoseOptimizationAddEdge<Frame>(Frame *pFrame,
-                                               vector<g2o::EdgeNavStatePVRPointXYZOnlyPose *> &vpEdgesMono,
-                                               vector<size_t> &vnIndexEdgeMono,
-                                               vector<g2o::EdgeStereoNavStatePVRPointXYZOnlyPose *> &vpEdgesStereo,
-                                               vector<size_t> &vnIndexEdgeStereo, const Matrix3d &Rcb,
-                                               const Vector3d &tcb, g2o::SparseOptimizer &optimizer, int LastFramePVRId,
-                                               int8_t last_mono_stereo);
-
 template <class IMUKeyFrameInit>
 int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpKFInit, Vector3d &bg, bool bInfo) {
   Matrix3d Rcb = Frame::meigRcb;
@@ -816,7 +733,7 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
   for (int i = 0; i < N; i++) {
     if (i == 0) continue;  // Ignore the first KF
     const IMUPreintegrator &imupreint =
-        vpKFInit[i]->mOdomPreIntIMU;  // notice this should be computed before calling this function
+        vpKFInit[i]->GetIMUPreInt();  // notice this should be computed before calling this function
     if (imupreint.mdeltatij == 0) continue;
     ++num_equations;
     assert(imupreint.mdeltatij > 0);
@@ -827,8 +744,8 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
     eBiasg->deltaRij = imupreint.mRij;  // deltaRij/deltaRii+1
     eBiasg->JgRij = imupreint.mJgRij;   // Jg_deltaR
     eBiasg->Rwbi =
-        Converter::toMatrix3d(vpKFInit[i - 1]->mTcw.rowRange(0, 3).colRange(0, 3).t()) * Rcb;  // Rwbi=Rwci*Rcb
-    eBiasg->Rwbj = Converter::toMatrix3d(vpKFInit[i]->mTcw.rowRange(0, 3).colRange(0, 3).t()) *
+        Converter::toMatrix3d(vpKFInit[i - 1]->GetTcwRef().rowRange(0, 3).colRange(0, 3).t()) * Rcb;  // Rwbi=Rwci*Rcb
+    eBiasg->Rwbj = Converter::toMatrix3d(vpKFInit[i]->GetTcwRef().rowRange(0, 3).colRange(0, 3).t()) *
                    Rcb;  // Rwbj/Rwbi+1=Rwcj/Rwci+1 * Rcb
     if (bInfo)
       eBiasg->setInformation(imupreint.mSigmaijPRV.block<3, 3>(3, 3).inverse());

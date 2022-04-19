@@ -11,6 +11,7 @@ Examples/ROS/*/Stereo
 Examples/ROS/*/build/
 Examples/Stereo/stereo_euroc
 Examples/Stereo/stereo_kitti
+Examples/Stereo/stereo_yvr
 KeyFrameTrajectory*.txt
 Thirdparty/DBoW2/build/
 Thirdparty/DBoW2/lib/
@@ -25,8 +26,7 @@ lib/
 #added by zzh
 build2/
 build_kdevelop/
-cmake-build-debug/
-cmake-build-release/
+cmake-build-*/
 .idea/
 #Vocabulary/ORBvoc.bin
 *.bin

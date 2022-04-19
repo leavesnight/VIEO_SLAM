@@ -140,36 +140,6 @@ public:
   double fx, fy, cx, cy, bf;
 };
 
-class  EdgeSE3ProjectXYZOnlyPose: public  BaseUnaryEdge<2, Vector2d, VertexSE3Expmap>{
-public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  EdgeSE3ProjectXYZOnlyPose(){}
-
-  bool read(std::istream& is);
-
-  bool write(std::ostream& os) const;
-
-  void computeError()  {
-    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
-    Vector2d obs(_measurement);
-    _error = obs-cam_project(v1->estimate().map(Xw));
-  }
-
-  bool isDepthPositive() {//unused in motion-only BA
-    const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
-    return (v1->estimate().map(Xw))(2)>0.0;
-  }
-
-
-  virtual void linearizeOplus();//calculate the 2*6 jacobian matrix(here is partial(e)/partial(ksi), exactly is par(e)/par(ksi.t()))
-
-  Vector2d cam_project(const Vector3d & trans_xyz) const;
-
-  Vector3d Xw;
-  double fx, fy, cx, cy;
-};
-
 
 class  EdgeStereoSE3ProjectXYZOnlyPose: public  BaseUnaryEdge<3, Vector3d, VertexSE3Expmap>{
 public:
