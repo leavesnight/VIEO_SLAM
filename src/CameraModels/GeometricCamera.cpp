@@ -150,7 +150,7 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(vector<Geomet
 cv::Mat GeometricCamera::toKcv() { return Converter::toCvMat(toK()); }
 bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                         const cv::Mat &R12in, const cv::Mat &t12in, const float sigmaLevel,
-                                        const float unc) {
+                                        const float unc, bool bkp_distort) {
   // Compute Fundamental Matrix F12=K1^(-T)*t12^R12*K2^(-1)
   Eigen::Vector3d t12 = Converter::toVector3d(t12in);
   Eigen::Matrix3d R12 = Converter::toMatrix3d(R12in);
@@ -160,7 +160,20 @@ bool GeometricCamera::epipolarConstrain(GeometricCamera *pCamera2, const cv::Key
 
   // Epipolar line in second image l = x1'F12 = [a b c], or l2=e2 cross x2=F21*x1=[a;b;c](easy to prove F21'=F12), here
   // l2 means n vector(perpendicular to x2&&e2), e2 means epipolar point in 2nd image
-  auto pt1 = unproject(kp1.pt), pt2 = unproject(kp2.pt);
+  cv::Point2f pt1 = kp1.pt, pt2 = kp2.pt;
+  if (bkp_distort) {
+    auto pt1normed = unproject(kp1.pt), pt2normed = pCamera2->unproject(kp2.pt);
+    Eigen::Vector3d pt = K1 * Eigen::Vector3d(pt1normed.x, pt1normed.y, pt1normed.z);
+    if (!pt(2)) return false;
+    pt /= pt(2);
+    pt1.x = pt.x();
+    pt1.y = pt.y();
+    pt = K2 * Eigen::Vector3d(pt2normed.x, pt2normed.y, pt2normed.z);
+    if (!pt(2)) return false;
+    pt /= pt(2);
+    pt2.x = pt.x();
+    pt2.y = pt.y();
+  }
   const float a = pt1.x * F12(0, 0) + pt1.y * F12(1, 0) + F12(2, 0);  // p1'*F12
   const float b = pt1.x * F12(0, 1) + pt1.y * F12(1, 1) + F12(2, 1);
   const float c = pt1.x * F12(0, 2) + pt1.y * F12(1, 2) + F12(2, 2);

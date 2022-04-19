@@ -1038,7 +1038,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<pa
           // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
           cv::Mat t12 = R1r2 * (pcam2->Trc_.col(3) - tr2r1) - R1r1 * pcam1->Trc_.col(3);
           if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
-                                       pKF2->mvLevelSigma2[kp2.octave])) {
+                                       pKF2->mvLevelSigma2[kp2.octave], usedistort[0])) {
             vbestIdx2[img_id] = idx2;
             vbestDist[img_id] = dist;
           }

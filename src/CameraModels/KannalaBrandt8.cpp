@@ -151,8 +151,9 @@ Eigen::Matrix<double, 2, 3> KannalaBrandt8::projectJac(const Eigen::Vector3d &v3
 }
 
 bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
-                                       const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel,
-                                       const float unc) {
+                                       const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel, const float unc,
+                                       bool bkp_distort) {
+  CV_Assert(bkp_distort);
   vector<cv::KeyPoint> kpts = {kp1, kp2};
   auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, {sigmaLevel, unc});
   if (zs.empty()) return false;

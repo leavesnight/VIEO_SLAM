@@ -64,7 +64,8 @@ class GeometricCamera {
   virtual Eigen::Matrix3d toK() = 0;
   virtual cv::Mat toKcv();
   virtual bool epipolarConstrain(GeometricCamera* otherCamera, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                                 const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
+                                 const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc,
+                                 bool bkp_distort = true);
   // for monocular init
   //  virtual bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&
   //  vKeys2,

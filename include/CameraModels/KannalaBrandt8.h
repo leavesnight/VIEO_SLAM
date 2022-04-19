@@ -46,12 +46,13 @@ class KannalaBrandt8 final : public Pinhole {
 
   Eigen::Vector2d project(const Eigen::Vector3d& v3D) override;
 
-  Eigen::Vector3d unproject(const Eigen::Vector2d &p2D) override;
+  Eigen::Vector3d unproject(const Eigen::Vector2d& p2D) override;
 
   Eigen::Matrix<double, 2, 3> projectJac(const Eigen::Vector3d& v3D) override;
 
   bool epipolarConstrain(GeometricCamera* pCamera2, const cv::KeyPoint& kp1, const cv::KeyPoint& kp2,
-                         const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc);
+                         const cv::Mat& R12, const cv::Mat& t12, const float sigmaLevel, const float unc,
+                         bool bkp_distort = true);
 
   //  bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>& vKeys2,
   //                               const std::vector<int>& vMatches12, cv::Mat& R21, cv::Mat& t21,
