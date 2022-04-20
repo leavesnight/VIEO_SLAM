@@ -44,10 +44,16 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
-#define ORB3_STRATEGY
   int optit = 5;
-#ifdef ORB3_STRATEGY
-  const int maxFixKF = 200;  // limit fixed vertex size to ensure speed
+  // limit fixed vertex size to ensure speed
+#define LIMIT_KFS_NUM
+#ifdef LIMIT_KFS_NUM
+  // ref from ORB3
+  const int maxFixKF = 200;
+#endif
+  // TODO(zzh): we hope to do more here, but now no_do_more is more robust
+#define ORB3_STRATEGY_NO_DO_MORE
+#ifdef ORB3_STRATEGY_NO_DO_MORE
   if (bLarge) {
     Nlocal *= 2.5;
     optit = 4;
@@ -107,7 +113,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
         pKFi->mnBAFixedForKF = pKF->mnId;
         if (!pKFi->isBad()) lFixedCameras.push_back(pKFi);
       }
-#ifdef ORB3_STRATEGY
+#ifdef LIMIT_KFS_NUM
       if (lFixedCameras.size() >= maxFixKF) break;
 #endif
     }
@@ -135,7 +141,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   g2o::OptimizationAlgorithmLevenberg* solver =
       new g2o::OptimizationAlgorithmLevenberg(solver_ptr);  // LM descending method
 #endif
-#ifdef ORB3_STRATEGY
+//#define ORB3_STRATEGY_LAMBDA
+#ifdef ORB3_STRATEGY_LAMBDA
   if (bLarge) {
     solver->setUserLambdaInit(1e-2);  // to avoid iterating for finding optimal lambda
   } else {
@@ -228,6 +235,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     CV_Assert(!pKF1->isBad());
 
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
+    bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
     if (imupreint.mdeltatij) {
       // IMU_I/PRV(B) edges
       g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
@@ -238,8 +246,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
       eprv->setMeasurement(imupreint);
       Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
-#ifdef ORB3_STRATEGY
-      bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
+#define ORB3_STRATEGY_IMU_EDGE
+#ifdef ORB3_STRATEGY_IMU_EDGE
       if (bfixedkf || bRecInit) {
         if (bfixedkf) {
           eprv->setInformation(InfoijPRV * 1e-2);
@@ -252,7 +260,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       } else
         eprv->setInformation(InfoijPRV);
 #else
-      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed()) {
+      if (bfixedkf) {
         eprv->setInformation(InfoijPRV * 1e-2);
       } else
         eprv->setInformation(InfoijPRV);
@@ -270,11 +278,25 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
     double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
-#ifdef ORB3_STRATEGY
-    ebias->setInformation(InvCovBgaRW / deltatij);
-#else
     // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed()) {
+#ifdef ORB3_STRATEGY_IMU_EDGE
+    // we found bias also expands will improve the track stability, where mainly ba adjusted more robust
+#define USE_ZZH_IMU_EDGE
+#ifdef USE_ZZH_IMU_EDGE
+    if (bfixedkf || bRecInit) {
+      if (bfixedkf) {
+        ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
+      } else
+        ebias->setInformation(InvCovBgaRW / deltatij);
+
+      g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+      ebias->setRobustKernel(rk);
+      rk->setDelta(thHuberNavStateBias);
+    } else
+#endif
+      ebias->setInformation(InvCovBgaRW / deltatij);
+#else
+    if (bfixedkf) {
       ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
     } else
       ebias->setInformation(InvCovBgaRW / deltatij);
@@ -300,7 +322,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       // no vbgba problem(camera could not give enough restriction on vbgba) but
       eEnc->setInformation(encpreint.mSigmaEij.inverse());
       // calibration for enc is worse so we add robust kernel here
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_IMU_EDGE
     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
 #else
     rk = new g2o::RobustKernelHuber;
@@ -362,7 +384,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
          ++mit) {
       KeyFrame* pKFi = mit->first;
 
-#ifdef ORB3_STRATEGY
+#ifdef LIMIT_KFS_NUM
       if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) continue;
 #endif
 
@@ -467,20 +489,35 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   //#endif
 
   optimizer.initializeOptimization();
-#ifdef ORB3_STRATEGY
+  // ref from ORB3
   optimizer.computeActiveErrors();
   float err = optimizer.activeRobustChi2();
+  if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
+    optimizer.setForceStopFlag(pbStopFlag);
+#define FIND_LAMBDA_AVG
+#ifdef FIND_LAMBDA_AVG
+  PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
+#endif
+  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+#ifdef FIND_LAMBDA_AVG
+  static double lambda_avg = 0;
+  static unsigned long num_lambda = 0;
+  double lambda = solver->currentLambda();
+  lambda_avg += lambda;
+  ++num_lambda;
+  PRINT_INFO_FILE("after=" << lambda << ",avg=" << lambda_avg / num_lambda << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
+#endif
+
+#ifdef ORB3_STRATEGY_NO_DO_MORE
   bool bDoMore = false;
 #else
   bool bDoMore = true;
-#endif
-  if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
-    optimizer.setForceStopFlag(pbStopFlag);
-  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
-
   if (pbStopFlag)
     if (*pbStopFlag)  // judge mbAbortBA again
       bDoMore = false;
+#endif
 
   if (bDoMore) {
     // Check inlier observations
@@ -572,13 +609,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
 #endif
 
-#ifdef ORB3_STRATEGY
+  // ref from ORB3
   float err_end = optimizer.activeRobustChi2();
+  PRINT_INFO_FILE("check err:" << err << ",end=" << err_end << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
   if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
-    PRINT_DEBUG_INFO("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    PRINT_INFO_FILE("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
     return;
   }
-#endif
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
