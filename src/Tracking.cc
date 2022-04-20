@@ -2088,15 +2088,18 @@ bool Tracking::NeedNewKeyFrame() {
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
-    if (!mpIMUInitiator->GetSensorEnc()) {
-      // ref from ORB3
-      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
-      //      if (!mpIMUInitiator->GetVINSInited()) bNeedToInsertClose = false;
-    } else {
+    //#ifdef ORB3_STRATEGY
+    //    if (!mpIMUInitiator->GetSensorEnc()) {
+    //      // ref from ORB3
+    //      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
+    //    } else
+    //#endif
+    {
       cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
                  mnMatchesInliers > 15;
       // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
       // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
+      // when ORB3_STRATEGY added, c1c unused but c2 extended for IMU_STEREO
       bNeedToInsertClose = false;
       // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
       if (mState == ODOMOK) {
