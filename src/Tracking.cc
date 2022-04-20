@@ -282,10 +282,10 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
 bool Tracking::TrackWithIMU(bool bMapUpdated) {
   ORBmatcher matcher(0.9, true);  // here 0.9 is useless
 
-#ifdef ORB3_STRATEGY
+  //#ifdef ORB3_STRATEGY
   // UpdateLastFrame();
   // mLastFrame.UpdateNavStatePVRFromTcw();  // maybe useless
-#endif
+  //#endif
 
   // Update current frame pose according to last frame or keyframe when last KF is changed by LocalMapping/LoopClosing
   // threads unadded code: Create "visual odometry" points if in Localization Mode
@@ -495,7 +495,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
       } else {
         // why not include System::RGBD?maybe or RGBD lba thread can do faster.
 #ifdef ORB3_STRATEGY
-        if (mSensor == System::STEREO && !mpIMUInitiator->GetSensorIMU()) mCurrentFrame.EraseMapPointMatch(i);
+        if (mSensor == System::STEREO && !mpIMUInitiator->GetVINSInited()) mCurrentFrame.EraseMapPointMatch(i);
 #else
         if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
 #endif
@@ -511,9 +511,8 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
       (mnMatchesInliers < 50))  // 10 || mCurrentFrame.GetIMUPreInt().mdeltatij == 0 && mnMatchesInliers < 50))  // 50)
     return false;
 
-#ifdef ORB3_STRATEGY
+  // ref from ORB3
   if ((mnMatchesInliers > 10) && (mState == ODOMOK)) return true;
-#endif
 
   if (mnMatchesInliers < 15)  // 6)  // 30)//notice it's a class data member, changed by JingWang
     return false;
@@ -1983,7 +1982,7 @@ bool Tracking::TrackLocalMap() {
       } else {
         // why not include System::RGBD?maybe or RGBD lba thread can do faster.
 #ifdef ORB3_STRATEGY
-        if (mSensor == System::STEREO && !mpIMUInitiator->GetSensorIMU()) mCurrentFrame.EraseMapPointMatch(i);
+        if (mSensor == System::STEREO && !mpIMUInitiator->GetVINSInited()) mCurrentFrame.EraseMapPointMatch(i);
 #else
         if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
 #endif
@@ -2089,20 +2088,22 @@ bool Tracking::NeedNewKeyFrame() {
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
-#ifdef ORB3_STRATEGY
-    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
-#else
-    cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
-               mnMatchesInliers > 15;
-    // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
-    // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
-    bNeedToInsertClose = false;
-    // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
-    if (mState == ODOMOK) {
-      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
+    if (!mpIMUInitiator->GetSensorEnc()) {
+      // ref from ORB3
+      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
+      //      if (!mpIMUInitiator->GetVINSInited()) bNeedToInsertClose = false;
+    } else {
+      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
+                 mnMatchesInliers > 15;
+      // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
+      // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
+      bNeedToInsertClose = false;
+      // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
+      if (mState == ODOMOK) {
+        cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
+      }
+      // minClose=100;
     }
-    // minClose=100;
-#endif
   }
 
   // Thresholds
@@ -2122,7 +2123,7 @@ bool Tracking::NeedNewKeyFrame() {
   // rgbd/stereo tracking weak outside(large part are far points)
 #ifdef ORB3_STRATEGY
   // for Mono/IMU_STREREO won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
-  const bool c1c = mSensor != System::MONOCULAR && !mpIMUInitiator->GetSensorIMU() &&
+  const bool c1c = mSensor != System::MONOCULAR && !mpIMUInitiator->GetVINSInited() &&
                    (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
 #else
   // for Mono won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
@@ -2500,9 +2501,9 @@ void Tracking::UpdateLocalKeyFrames() {
     }
   }
 
-#ifdef ORB3_STRATEGY
+  // ref from ORB3
   // Add 10 last temporal KFs (mainly for IMU)
-  if (mpIMUInitiator->GetSensorIMU() && mvpLocalKeyFrames.size() < 80) {
+  if (mpIMUInitiator->GetVINSInited() && mvpLocalKeyFrames.size() < 80) {
     KeyFrame* tempKeyFrame = mpLastKeyFrame;
 
     const int Nd = 20;
@@ -2515,7 +2516,6 @@ void Tracking::UpdateLocalKeyFrames() {
       }
     }
   }
-#endif
 
   if (pKFmax)  // still maybe rectify this two refKF variables in CreateNewKeyFrame()
   {

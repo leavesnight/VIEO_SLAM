@@ -474,10 +474,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 #else
   bool bDoMore = true;
 #endif
-  //#ifndef ORB3_STRATEGY
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
-  //#endif
   optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
 
   if (pbStopFlag)

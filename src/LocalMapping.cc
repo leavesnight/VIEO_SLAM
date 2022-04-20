@@ -429,9 +429,9 @@ void LocalMapping::CreateNewMapPoints() {
   if (mbMonocular) nn = 20;
   vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
-#define ORB3_STRATEGY
-#ifdef ORB3_STRATEGY
-  if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  // ref from ORB3
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited()) {
     KeyFrame *pKF = mpCurrentKeyFrame;
     int count = 0;
     while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
@@ -440,7 +440,6 @@ void LocalMapping::CreateNewMapPoints() {
       pKF = pKF->GetPrevKeyFrame();
     }
   }
-#endif
 
   ORBmatcher matcher(0.6, false);
 
@@ -633,14 +632,16 @@ void LocalMapping::SearchInNeighbors() {
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
+#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
     //  if (mbAbortBA) return;
 #endif
   }
 
-#ifdef ORB3_STRATEGY
+  // ref from ORB3
   // Extend to temporal neighbors
-  if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited()) {
     KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
     while (vpTargetKFs.size() < 20 && pKFi) {
       if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {
@@ -652,7 +653,6 @@ void LocalMapping::SearchInNeighbors() {
       pKFi = pKFi->GetPrevKeyFrame();
     }
   }
-#endif
 
   // bijection search matches
   //  Search matches by projection from current KF in target KFs
