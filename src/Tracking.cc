@@ -47,7 +47,8 @@ namespace VIEO_SLAM {
 //#define CHECK_JITTER
 //#define NO_LBA_THREAD
 //#define DEBUG_STRATEGY
-#define ORB3_STRATEGY
+#define ORB3_STRATEGY_TRACK_BA_ONCE
+#define ORB3_STRATEGY_KF_MORE
 
 cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
                             const char mode) {  // different thread from GrabImageX
@@ -282,7 +283,7 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
 bool Tracking::TrackWithIMU(bool bMapUpdated) {
   ORBmatcher matcher(0.9, true);  // here 0.9 is useless
 
-  //#ifdef ORB3_STRATEGY
+  //#ifdef ORB3_STRATEGY_TRACK_BA_ONCE
   // UpdateLastFrame();
   // mLastFrame.UpdateNavStatePVRFromTcw();  // maybe useless
   //#endif
@@ -299,7 +300,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
     } else
       return false;  // all motion model failed
   }
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_TRACK_BA_ONCE
   else
     return true;
 #endif
@@ -494,7 +495,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
           mnMatchesInliers++;
       } else {
         // why not include System::RGBD?maybe or RGBD lba thread can do faster.
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_KF_MORE
         if (mSensor == System::STEREO && !mpIMUInitiator->GetVINSInited()) mCurrentFrame.EraseMapPointMatch(i);
 #else
         if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
@@ -1981,7 +1982,7 @@ bool Tracking::TrackLocalMap() {
           mnMatchesInliers++;
       } else {
         // why not include System::RGBD?maybe or RGBD lba thread can do faster.
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_KF_MORE
         if (mSensor == System::STEREO && !mpIMUInitiator->GetVINSInited()) mCurrentFrame.EraseMapPointMatch(i);
 #else
         if (mSensor == System::STEREO) mCurrentFrame.EraseMapPointMatch(i);
@@ -2010,6 +2011,7 @@ bool Tracking::TrackLocalMap() {
 }
 
 bool Tracking::NeedNewKeyFrame() {
+  //#define ORB3_STRATEGY
   //#ifdef ORB3_STRATEGY
   //  if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
   //    if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
@@ -2124,7 +2126,7 @@ bool Tracking::NeedNewKeyFrame() {
   const bool c1b = (mCurrentFrame.mnId >= mnLastKeyFrameId + mMinFrames && bLocalMappingIdle);
   // Condition 1c: tracking is weak
   // rgbd/stereo tracking weak outside(large part are far points)
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_KF_MORE
   // for Mono/IMU_STREREO won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
   const bool c1c = mSensor != System::MONOCULAR && !mpIMUInitiator->GetVINSInited() &&
                    (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
@@ -2405,7 +2407,7 @@ void Tracking::UpdateLocalKeyFrames() {
   // Each map point vote for the keyframes in which it has been observed
   map<KeyFrame*, int> keyframeCounter;
   Frame* pref_f = &mCurrentFrame;
-#ifdef ORB3_STRATEGY
+#ifdef ORB3_STRATEGY_TRACK_BA_ONCE
   if (mpIMUInitiator->GetVINSInited() && !mbRelocBiasPrepare) {
     pref_f = &mLastFrame;
   }
