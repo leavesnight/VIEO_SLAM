@@ -138,10 +138,13 @@ void LocalMapping::Run() {
               // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
             }
           }
+          static double dt_olba_avg = 0;
+          static unsigned long num_olba_avg = 0;
+          double dt_olba = chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count();
+          dt_olba_avg += dt_olba;
+          ++num_olba_avg;
           PRINT_INFO_FILE(
-              blueSTR "Used time in localBA="
-                  << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count()
-                  << whiteSTR << endl,
+              blueSTR "Used time in localBA=" << dt_olba << ",avg=" << dt_olba_avg / num_olba_avg << whiteSTR << endl,
               imu_tightly_debug_path, "localmapping_thread_debug.txt");
         }
 
@@ -154,9 +157,13 @@ void LocalMapping::Run() {
 #ifndef NO_GBA_THREAD
       mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 #endif
-      PRINT_INFO_FILE(blueSTR "Used time in localmapping="
-                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
-                          << whiteSTR << endl,
+      static double dt_lbathread_avg = 0;
+      static unsigned long num_lbathread_avg = 0;
+      double dt_lbathread = chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count();
+      dt_lbathread_avg += dt_lbathread;
+      ++num_lbathread_avg;
+      PRINT_INFO_FILE(blueSTR "Used time in localmapping=" << dt_lbathread << ",avg="
+                                                           << dt_lbathread_avg / num_lbathread_avg << whiteSTR << endl,
                       imu_tightly_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop

@@ -459,9 +459,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
                   "localmapping_thread_debug.txt");
 
   //#ifndef ORB3_STRATEGY
-  if (pbStopFlag)     // true in LocalMapping
-    if (*pbStopFlag)  // if mbAbortBA
+  if (pbStopFlag)       // true in LocalMapping
+    if (*pbStopFlag) {  // if mbAbortBA
+      PRINT_INFO_FILE("Aborted OLBA!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
       return;
+    }
   //#endif
 
   optimizer.initializeOptimization();
