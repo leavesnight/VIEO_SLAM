@@ -2517,8 +2517,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     pMP->UpdateNormalAndDepth();  // update MP's normal for its position changed
   }
-  // don't call pMap->InformNewChange(); for it's done outside
   PRINT_INFO_MUTEX("PoseGraph end!" << endl);
+
+  // call pMap->InformNewChange()
+  pMap->InformNewBigChange();
 }
 
 int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& vpMatches1, g2o::Sim3& g2oS12,

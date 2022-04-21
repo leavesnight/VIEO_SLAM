@@ -646,10 +646,8 @@ void LoopClosing::CorrectLoop()
         }
     }
 
-    // Optimize graph
+    // Optimize graph, inform change and kfs pose/mp position change must lock MapUpdate!
     Optimizer::OptimizeEssentialGraph(mpMap, mpMatchedKF, mpCurrentKF, NonCorrectedSim3, CorrectedSim3, LoopConnections, mbFixScale);//PoseGraph Opt.
-
-    mpMap->InformNewBigChange();
 
     // Add loop edge
     mpMatchedKF->AddLoopEdge(mpCurrentKF);
