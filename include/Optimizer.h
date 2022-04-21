@@ -482,6 +482,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     }
   }
   // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("moba enterobs=" << nInitialCorrespondences << endl, imu_tightly_debug_path,
+                  "tracking_thread_debug.txt");
 
   // at least P3P（well posed equation） EPnP(n>3) (overdetermined equation)
   int nBad = 0;

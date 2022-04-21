@@ -503,7 +503,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     }
   }
 
-  PRINT_DEBUG_INFO("inliers_map imu=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
   //  if (mCurrentFrame.mTimeStamp > 845.064) CV_Assert(0);
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
@@ -995,7 +995,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     bMapUpdated = true;
   }
 
-  PRINT_DEBUG_INFO("curf tm=" << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("curf tm=" << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
       StereoInitialization(img);
