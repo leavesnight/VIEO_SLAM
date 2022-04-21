@@ -141,7 +141,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   g2o::OptimizationAlgorithmLevenberg* solver =
       new g2o::OptimizationAlgorithmLevenberg(solver_ptr);  // LM descending method
 #endif
-//#define ORB3_STRATEGY_LAMBDA
+#define ORB3_STRATEGY_LAMBDA
 #ifdef ORB3_STRATEGY_LAMBDA
   if (bLarge) {
     solver->setUserLambdaInit(1e-2);  // to avoid iterating for finding optimal lambda
@@ -494,7 +494,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   float err = optimizer.activeRobustChi2();
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
-#define FIND_LAMBDA_AVG
+//#define FIND_LAMBDA_AVG
 #ifdef FIND_LAMBDA_AVG
   PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", imu_tightly_debug_path,
                   "localmapping_thread_debug.txt");
