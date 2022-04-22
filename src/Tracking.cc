@@ -219,6 +219,14 @@ void Tracking::PreIntegration(const int8_t type) {
     PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, plastkf, &lasttm_preint_kf_[0]);
     plastkf = brecompute_kf2kfpreint_[1] ? nullptr : mpLastKeyFrame;
     PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf, &lasttm_preint_kf_[1]);
+    if (plastfb) {
+      auto deltatij = pcurfb->GetIMUPreInt().mdeltatij;
+      if (deltatij && fabs(pcurfb->mTimeStamp - plastfb->mTimeStamp - deltatij) > 1e-5) {
+        cout << "dt=" << pcurfb->GetIMUPreInt().mdeltatij << ",hope=" << pcurfb->mTimeStamp - plastfb->mTimeStamp
+             << endl;
+        CV_Assert(0 && "preint wrong, check!");
+      }
+    }
     // won't care initial value of this and how flow strategy it's (like pure vision then visualimu/mixed one)
     for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
     blast_kf2kfpreint_ = true;
