@@ -209,6 +209,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   // Set IMU/KF-KF/PRV(B)+B edges, here (B) means it's not included in error but used to calculate the error
   //  PRVB/IMU & B/RandomWalk edge
+  vector<KeyFrame*> debug_kf0s;
   vector<g2o::EdgeNavStatePRV*> vpEdgesNavStatePRV;
   vector<g2o::EdgeNavStateBias*> vpEdgesNavStateBias;
   // what does this 10(sigma) mean??? better result?
@@ -306,6 +307,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 #endif
     optimizer.addEdge(ebias);
     vpEdgesNavStateBias.push_back(ebias);
+
+    debug_kf0s.push_back(pKF0);
 
     // Set Enc edge(binary edge) between LastF-Frame
     const EncPreIntegrator encpreint = pKF1->GetEncPreInt();
@@ -492,6 +495,35 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // ref from ORB3
   optimizer.computeActiveErrors();
   float err = optimizer.activeRobustChi2();
+//#define DEBUG_OLBA
+#ifdef DEBUG_OLBA
+  if (err > 1e6) {
+    double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
+    PRINT_INFO_FILE("2 PRVedge: ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    for (size_t i = 0, iend = vpEdgesNavStatePRV.size(); i < iend; i++) {
+      g2o::EdgeNavStatePRV* e = vpEdgesNavStatePRV[i];
+
+      // if chi2 error too big(5% wrong) then outlier
+      if (e->chi2() > th_chi2) {
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ",tm=" << debug_kf0s[i]->mTimeStamp
+                                << ",tmn=" << debug_kf0s[i]->GetNextKeyFrame()->mTimeStamp
+                                << ",dt=" << debug_kf0s[i]->GetNextKeyFrame()->GetIMUPreInt().mdeltatij << ". ",
+                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
+      }
+    }
+    PRINT_INFO_FILE(endl << "2 Biasedge ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
+    for (size_t i = 0, iend = vpEdgesNavStateBias.size(); i < iend; i++) {
+      g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
+
+      if (e->chi2() > th_chi2) {
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ", imu_tightly_debug_path,
+                        "localmapping_thread_debug.txt");
+      }
+    }
+    PRINT_INFO_FILE(endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  }
+#endif
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
 //#define FIND_LAMBDA_AVG
