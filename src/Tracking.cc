@@ -188,9 +188,11 @@ void Tracking::PreIntegration(const int8_t type) {
     bool bpreint;
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
-    else
-      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                        blast_kf2kfpreint_);
+    else {
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->mTimeStamp;
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame,
+                                        &lasttm_preint_kf_[0]);
+    }
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (blast_kf2kfpreint_)
@@ -200,9 +202,11 @@ void Tracking::PreIntegration(const int8_t type) {
     // TODO(zzh): put it before lock MapUpdate!
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[1])
       bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, nullptr);
-    else
-      bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                        blast_kf2kfpreint_);
+    else {
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[1] = mpLastKeyFrame->mTimeStamp;
+      bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame,
+                                        &lasttm_preint_kf_[1]);
+    }
     if (!bpreint)
       brecompute_kf2kfpreint_[1] = true;
     else if (blast_kf2kfpreint_)
@@ -212,9 +216,9 @@ void Tracking::PreIntegration(const int8_t type) {
     plastfb = static_cast<FrameBase*>(mpLastKeyFrame);
     pcurfb = type == 2 ? static_cast<FrameBase*>(mpReferenceKF) : static_cast<FrameBase*>(&mCurrentFrame);
     KeyFrame* plastkf = brecompute_kf2kfpreint_[0] ? nullptr : mpLastKeyFrame;
-    PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, plastkf);
+    PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, plastkf, &lasttm_preint_kf_[0]);
     plastkf = brecompute_kf2kfpreint_[1] ? nullptr : mpLastKeyFrame;
-    PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf);
+    PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf, &lasttm_preint_kf_[1]);
     // won't care initial value of this and how flow strategy it's (like pure vision then visualimu/mixed one)
     for (auto& brecompute : brecompute_kf2kfpreint_) brecompute = true;
     blast_kf2kfpreint_ = true;
@@ -234,9 +238,11 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
     bool bpreint;
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
-    else
-      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame, &mLastFrame,
-                                        blast_kf2kfpreint_);
+    else {
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->mTimeStamp;
+      bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame,
+                                        &lasttm_preint_kf_[0]);
+    }
     if (!bpreint)
       brecompute_kf2kfpreint_[0] = true;
     else if (blast_kf2kfpreint_)

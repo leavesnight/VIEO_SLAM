@@ -16,14 +16,12 @@ using Eigen::Matrix;
 using Eigen::Quaterniond;
 
 template <class _OdomData>
-class OdomPreIntegratorBase {                                 // base class
-  OdomPreIntegratorBase(const OdomPreIntegratorBase &pre) {}  // don't want the list to be copied (e.g. by derived
-                                                              // class)
-  OdomPreIntegratorBase &operator=(const OdomPreIntegratorBase &other) {
-    ;
-    return *this;
-  }  // do nothing, don't want the list to be assigned in any situation, this makes the derived class unable to use
-     // default =!
+class OdomPreIntegratorBase {  // base class
+  // don't want the list to be copied (e.g. by derived class)
+  OdomPreIntegratorBase(const OdomPreIntegratorBase &pre) {}
+  // do nothing, don't want the list to be assigned in any situation, this makes the derived class unable to use
+  // default =!
+  OdomPreIntegratorBase &operator=(const OdomPreIntegratorBase &other) { return *this; }
 
  protected:
   listeig(_OdomData) mlOdom;  // for IMUPreIntegrator: IMU list
@@ -239,16 +237,22 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
 
     // for iterBegin!=iterEnd, here iter_stop can no init
     typename listeig(IMUDataBase)::const_iterator iter_start = iterBegin, iter_stop;
-    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi; iter_start = iterj++) {
+    using Ttime = double;
+    bool bimu_order_back = timeStampi > timeStampj;
+    Ttime timemin = timeStampi, timemax = timeStampj;
+    using std::swap;
+    if (bimu_order_back) swap(timemin, timemax);
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timemin; iter_start = iterj++) {
     }
     for (auto iterj = iterEnd; iterj != iterBegin;) {
       iter_stop = iterj--;
-      if (iterj->mtm >= timeStampj) continue;
+      if (iterj->mtm >= timemax) continue;
       break;
     }
+    if (bimu_order_back) swap(iter_start, iter_stop);
 
     for (typename listeig(IMUDataBase)::const_iterator iterj = iter_start; iterj != iter_stop;) {
-      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj++;  // iterj-1
+      typename listeig(IMUDataBase)::const_iterator iterjm1 = bimu_order_back ? iterj-- : iterj++;  // iterj-1
 
       // delta time
       double dt, tj, tj_1;
@@ -268,7 +272,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       if (dt == 0) continue;
       // for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
       // (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
-      if (dt > 1.5) {
+      if (abs(dt) > 1.5) {
         this->mdeltatij = 0;
         std::cout << "CheckIMU!!!" << std::endl;
         return -1;
@@ -289,8 +293,8 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
         if (iterj == iter_stop) {
           Tcalc dt_tmp = (Tcalc)(iterj->mtm - timeStampj);
           // if dt_comple_stop > 0, then dt_tmp < 0, no interplot
-          if (dt_tmp > 0) {
-            Tcalc rat = dt_tmp / (Tcalc)(iterj->mtm - tj_1);
+          if (bimu_order_back ? dt_tmp < 0 : dt_tmp > 0) {
+            Tcalc rat = dt_tmp / (Tcalc)(iterj->mtm - iterjm1->mtm);
             imu_now.mw = rat * imu.mw + (1 - rat) * imu_now.mw;
             imu_now.ma = rat * imu.ma + (1 - rat) * imu_now.ma;
           }
@@ -298,10 +302,10 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
         if (iterjm1 == iter_start) {
           Tcalc dt_tmp = (Tcalc)(timeStampi - iterjm1->mtm);
           // if dt_comple > 0, then dt_tmp < 0, no interplot
-          if (dt_tmp > 0) {
+          if (bimu_order_back ? dt_tmp < 0 : dt_tmp > 0) {
             // Eigen::AngleAxisd ang_last(imu.mw.norm(),imu.mw.normalized()),
             // ang_now(imu_now.mw.norm(),imu_now.mw.normalized());
-            Tcalc rat = dt_tmp / (tj - iterjm1->mtm);
+            Tcalc rat = dt_tmp / (Tcalc)(iterj->mtm - iterjm1->mtm);
             // Eigen::AngleAxisd ang_mid(Eigen::Quaterniond(ang_last).slerp(rat, Eigen::Quaterniond(ang_now)));
             // imu.mw = ang_mid.angle() * ang_mid.axis();
             imu.mw = (1 - rat) * imu.mw + rat * imu_now.mw;
@@ -384,7 +388,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       // update pre-integrator(interplot)
       if (iterjm1 == iter_start) {  // we could use imu to preintegrate [timeStampi,imu]
         double dt_comple = iterjm1->mtm - timeStampi;
-        if (dt_comple > 0) {
+        if (bimu_order_back ? dt_comple < 0 : dt_comple > 0) {
           update(imu.mw - bgi_bar, imu.ma - bai_bar, dt_comple);
           dt -= dt_comple;
           if (!dt) continue;
@@ -392,14 +396,14 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       }
       Tcalc dt_comple_stop = 0;
       if (iterj == iter_stop) {
-        dt_comple_stop = (Tcalc)(timeStampj - tj);
-        if (dt_comple_stop > 0) {
+        dt_comple_stop = (Tcalc)(timeStampj - imu_now.mtm);
+        if (bimu_order_back ? dt_comple_stop < 0 : dt_comple_stop > 0) {
           dt -= dt_comple_stop;
         }
       }
       // end speical constant process
       update((imu_now.mw + imu.mw) / 2 - bgi_bar, (imu_now.ma + imu.ma) / 2 - bai_bar, dt);
-      if (dt_comple_stop > 0) {
+      if (bimu_order_back ? dt_comple_stop < 0 : dt_comple_stop > 0) {
         update(imu_now.mw - bgi_bar, imu_now.ma - bai_bar, dt_comple_stop);
       }
 #else

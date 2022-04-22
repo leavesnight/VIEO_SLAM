@@ -82,8 +82,7 @@ class Tracking {
   template <class OdomData>
   bool PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &lodom_data,
                       typename Eigen::aligned_list<OdomData>::const_iterator &iter_lastodom, FrameBase *plastfb,
-                      FrameBase *pcurfb, KeyFrame *plastkf, FrameBase *plastfb_kf = nullptr, bool breset_intkf = false,
-                      int8_t verbose = 0);
+                      FrameBase *pcurfb, KeyFrame *plastkf, double *plasttm_kf = nullptr, int8_t verbose = 0);
   void PreIntegration(const int8_t type = 0);
   bool TrackWithIMU(bool bMapUpdated);  // use IMU prediction instead of constant velocity/uniform motion model
   // Predict the NavState of Current Frame by IMU
@@ -194,6 +193,7 @@ class Tracking {
   // Current Frame
   EncPreIntegrator preint_enc_kf_;
   IMUPreintegrator preint_imu_kf_;
+  double lasttm_preint_kf_[2];
   Frame mCurrentFrame;
   vector<cv::Mat> mImGrays = vector<cv::Mat>(1);  // used by FrameDrawer
 
@@ -388,8 +388,7 @@ bool Tracking::iterijFind(const listeig(EncData) & mlOdomEnc, const double &cur_
 template <class OdomData>
 bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &lodom_data,
                               typename Eigen::aligned_list<OdomData>::const_iterator &iter_lastodom, FrameBase *plastfb,
-                              FrameBase *pcurfb, KeyFrame *plastkf, FrameBase *plastfb_kf, bool breset_intkf,
-                              int8_t verbose) {
+                              FrameBase *pcurfb, KeyFrame *plastkf, double *plasttm_kf, int8_t verbose) {
   using Eigen::aligned_list;
   using Tldata = OdomData;
 
@@ -419,7 +418,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       // RecomputeIMUBiasAndCurrentNavstate()
       if (!lodom_data.empty()) {
         double last_time = plastfb->mTimeStamp;
-        bool biteri_research = plastfb_kf && plastfb_kf->mTimeStamp != plastfb->mTimeStamp;
+        bool biteri_research = plasttm_kf && *plasttm_kf != plastfb->mTimeStamp;
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iterj,
                                                       iteri = type == 1 ? iter_lastodom : lodom_data.begin();
         // iterj&iteri both found then calculate delta~xij(phi,p)
@@ -433,42 +432,27 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
 
           // maybe if plastkf == plastfb, we could speed up/skip this preintegration here
           if (plastkf) {
-            assert(plastfb_kf);
+            assert(plasttm_kf);
             Frame *pcurf = dynamic_cast<Frame *>(pcurfb);
 
+            double last_time2 = *plasttm_kf;
             double cur_time2 = cur_time;
-            //#ifdef USE_PREINT_EULA
             if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg - tm_shift_)) {
               cur_time2 = iter->mtm;
             }
-            //#endif
+            bool breset_intkf = plastkf->mTimeStamp == last_time2;  // even imu tm curl back
+            if (plasttm_kf) *plasttm_kf = cur_time2;
             if (biteri_research) {
-              last_time = plastfb_kf->mTimeStamp;
               iteri = lodom_data.begin();
 
-              if (iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
-                double last_time2 = last_time;
-                //#ifdef USE_PREINT_EULA
-                auto iteri2 = iteri;
-                if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
-                  last_time2 = iteri2->mtm;
-                }
-                //#endif
-                ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri,
-                                                                 iterj, breset_intkf);
-              } else
+              if (iterijFind<OdomData>(lodom_data, last_time2 - tm_shift_, iteri, derr_imuimg, false))
+                ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, last_time2, cur_time2, iteri, iterj,
+                                                                 breset_intkf);
+              else
                 ret = false;
-            } else {
-              double last_time2 = last_time;
-              //#ifdef USE_PREINT_EULA
-              auto iteri2 = iteri;
-              if (iterijFind<OdomData>(lodom_data, last_time, iteri2, derr_imuimg - tm_shift_, false)) {
-                last_time2 = iteri2->mtm;
-              }
-              //#endif
-              ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, plastfb_kf, last_time2, cur_time2, iteri, iterj,
+            } else
+              ret = !pcurf->PreIntegrationFromLastKF<OdomData>(plastkf, last_time2, cur_time2, iteri, iterj,
                                                                breset_intkf);
-            }
           }
         } else
           ret = false;
@@ -505,21 +489,19 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
           iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
           lodom_data.erase(lodom_data.begin(), iter);
           pcurkf->ClearOdomPreInt<OdomData>();
+          ret = false;  // or iterj=iter
         }
 
         iter_lastodom = lodom_data.begin();
 
+        if (!ret) break;
+
         // mpLastKeyFrame cannot be bad here for mpReferenceKF hasn't been inserted
         // (SetBadFlag only for before KFs)
         if (plastkf) {
-          double cur_time2 = cur_time;
-          //#ifdef USE_PREINT_EULA
-          auto iter2 = iter;
-          if (iterijFind<OdomData>(lodom_data, cur_time, iter2, derr_imuimg - tm_shift_, false)) {
-            cur_time2 = iter2->mtm;
-          }
-          //#endif
-          pcurkf->PreIntegrationFromLastKF<OdomData>(plastkf, cur_time2, iter, iterj, false, verbose);
+          assert(plasttm_kf);
+          double last_time2 = *plasttm_kf;  // near cur_time
+          pcurkf->PreIntegrationFromLastKF<OdomData>(plastkf, last_time2, iter, iterj, false, verbose);
         } else
           pcurkf->PreIntegration<OdomData>(plastkf2);
       } else

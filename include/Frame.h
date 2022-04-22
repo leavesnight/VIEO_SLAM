@@ -71,14 +71,15 @@ class Frame : public FrameBase {
   //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
   // connect 2KFs preintegration by only preintegrating the final KF2KF period
   template <class OdomData>
-  int PreIntegrationFromLastKF(FrameBase *plastkf, FrameBase *plastfb_kf, double tmi, double tmj_1,
+  int PreIntegrationFromLastKF(FrameBase *plastkf, double tmi, double tmj_1,
                                const typename aligned_list<OdomData>::const_iterator &iteri,
                                const typename aligned_list<OdomData>::const_iterator &iterj, bool breset = false,
                                int8_t verbose = 0) {
     CV_Assert(ppreint_enc_kf_);
     NavState ns = plastkf->GetNavState();
-    return FrameBase::PreIntegration<OdomData>(breset ? plastfb_kf->mTimeStamp : tmi, tmj_1, ns.mbg, ns.mba, iteri,
-                                               iterj, breset, ppreint_enc_kf_, verbose);
+    if (breset) CV_Assert(plastkf->mTimeStamp == tmi);
+    return FrameBase::PreIntegration<OdomData>(tmi, tmj_1, ns.mbg, ns.mba, iteri, iterj, breset, ppreint_enc_kf_,
+                                               verbose);
   }
 
   // for LoadMap() in System.cc
@@ -280,7 +281,7 @@ class Frame : public FrameBase {
 template <>
 void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom);
 template <>
-int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf, double tmi, double tmj_1,
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, double tmj_1,
                                              const typename aligned_list<IMUData>::const_iterator &iteri,
                                              const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                              int8_t verbose);
