@@ -31,10 +31,9 @@ IMU.SigmaI:
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
 # [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
-# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
 # [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
  [7.8e-5, 6.5e-3, 4.0e-5, 7.3e-3]
-# [7.8e-4, 6.8e-3, 4.0e-5, 7.3e-4]
 
 IMU.freq_hz: 1000.0
 IMU.dt_cov_noise_fix: 1
@@ -44,9 +43,9 @@ IMU.dMultiplyG: 1.
 
 # camera-imu frame transformation, Pi = Tic * Pc; For stereo: it's the rectified left(0) camera's Tbc'=Tbc0*Tc'c0.inv(), notice LEFT.R is Rc'c0(R1) & tc'c0=0
 Camera.Tbc:
- [0.201299353,  0.962888982,  0.179787040,  0.099495763,
-  -0.755935959,  0.269434525, -0.596628748,  0.002507497,
-  -0.622928083, -0.015806508,  0.782119401,  0.006693590,
+ [ 0.205000749,  0.957490798,  0.202943502,  0.101511340,
+  -0.738822896,  0.287380123, -0.609551797,  0.003195355,
+  -0.641962165, -0.024980731,  0.766329264, -0.006339940,
   0        ,   0,           0         ,  1]
 
 # imu-encoder frame transformation
@@ -80,60 +79,60 @@ GBA.threshInliers : 10
 
 Camera.type: "KannalaBrandt8"
 # Camera calibration and distortion parameters (OpenCV)
-Camera.fx: 234.1880629
-Camera.fy: 234.7812
-Camera.cx: 315.7536361 
-Camera.cy: 235.7147846
-Camera.k1: 0.213186433
-Camera.k2: -0.1629277497
-Camera.k3: 0.05754378841
-Camera.k4: -0.008671469663
-Camera2.fx: 236.5673807
-Camera2.fy: 236.7734949
-Camera2.cx: 315.4433573
-Camera2.cy: 233.8171481
-Camera2.k1: 0.2139231601
-Camera2.k2: -0.1654129519
-Camera2.k3: 0.05759914372
-Camera2.k4: -0.008638573905
-Camera3.fx: 237.5684601
-Camera3.fy: 238.3958173
-Camera3.cx: 319.0968645
-Camera3.cy: 233.8469634
-Camera3.k1: 0.2053684704
-Camera3.k2: -0.1571537097
-Camera3.k3: 0.05538060014
-Camera3.k4: -0.008568903558
-Camera4.fx: 235.2586282 
-Camera4.fy: 235.7377231
-Camera4.cx: 317.2162393 
-Camera4.cy: 234.3107724
-Camera4.k1: 0.2091942181
-Camera4.k2: -0.1601806788
-Camera4.k3: 0.05745422052
-Camera4.k4: -0.009171365526
+Camera.fx: 235.6342561
+Camera.fy: 235.2998781
+Camera.cx: 322.6497194
+Camera.cy: 238.1280048
+Camera.k1: 0.2093292161
+Camera.k2: -0.1579340467
+Camera.k3: 0.05269761997
+Camera.k4: -0.0072202325
+Camera2.fx: 235.9321491
+Camera2.fy: 236.3175296
+Camera2.cx: 325.1943436
+Camera2.cy: 238.3841575
+Camera2.k1: 0.1953326589
+Camera2.k2: -0.1369290327
+Camera2.k3: 0.04499455698
+Camera2.k4: -0.007346792499
+Camera3.fx: 236.4921994
+Camera3.fy: 236.5857694
+Camera3.cx: 323.4779803
+Camera3.cy: 239.094942
+Camera3.k1: 0.2047303869
+Camera3.k2: -0.1607803667
+Camera3.k3: 0.06461865995
+Camera3.k4: -0.01209744925
+Camera4.fx: 235.668388
+Camera4.fy: 235.4064958
+Camera4.cx: 323.4000232
+Camera4.cy: 239.5444319
+Camera4.k1: 0.2100287293
+Camera4.k2: -0.1598509867
+Camera4.k3: 0.05081253988
+Camera4.k4: -0.006284505074
 # Transformation matrix from reference camera to current camera
 Camera2.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
-  data: [ -0.765412313, -0.077148614, -0.638899118, -0.024361251,
-          -0.598934878, -0.277778005,  0.751076821,  0.043226684,
-          -0.235416658,  0.957542412,  0.166407710, -0.039690376]
+  data: [ -0.737687896, -0.088481848, -0.669318707, -0.039181177,
+          -0.626582721, -0.279454533,  0.727529558,  0.038994712,
+          -0.251417306,  0.956073285,  0.150709029, -0.033756194]
 Camera3.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
-  data: [ -0.443938298,  0.016072542 ,-0.895913199 ,-0.061367401,
-          0.895245197,  0.050515496 ,-0.442701053 ,-0.119345071,
-          0.038142168, -0.998593941, -0.036814629, -0.067423353]
+  data: [ -0.429667330, 0.062567474, -0.900817016, -0.067068458,
+           0.901103935, 0.094106187, -0.423267909, -0.116224859,
+           0.058289651, -0.993594151, -0.096814151, -0.067264686]
 Camera4.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
-  data: [ 0.921426381,  0.384342650, -0.057045174, -0.021275771,
-          -0.378992063,  0.856646144, -0.350031998, -0.109619463,
-          -0.085664698,  0.344148385,  0.934999170, -0.021441253]
+  data: [ 0.923507721, 0.375941286, -0.076168493, -0.019817468,
+         -0.377384388, 0.854952694, -0.355860807, -0.110861809,
+         -0.068662311, 0.357385003,  0.931429786, -0.022527167]
 
 # Lapping area between images
 Camera.lappingBegin: 0
@@ -163,7 +162,7 @@ ThDepth: 35.0 # 35
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 187
+ORBextractor.nFeatures: 350
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
 ORBextractor.scaleFactor: 2.

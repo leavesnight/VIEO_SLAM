@@ -59,7 +59,7 @@ Camera.Tce:
 LocalMapping.LocalWindowSize: 10
 
 # the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
-ErrIMUImg: 0.03
+ErrIMUImg: 1 #0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
 IMU.InitTime: 0

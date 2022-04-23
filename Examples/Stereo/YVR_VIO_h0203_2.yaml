@@ -4,7 +4,7 @@
 test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 
 # Timestamp shift(s) Timage = Timu/Tenc + image_delay
-Camera.delaytoimu: 0.
+Camera.delaytoimu: -0.0035
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
 Camera.delayForPolling: 0.005
@@ -32,7 +32,8 @@ IMU.SigmaI:
 IMU.sigma:
 # [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
 # [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
- [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+# [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+ [7.8e-5, 6.5e-3, 4.0e-5, 7.3e-3]
 
 IMU.freq_hz: 1000.0
 IMU.dt_cov_noise_fix: 1
@@ -62,7 +63,7 @@ ErrIMUImg: 0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
 IMU.InitTime: 0
-IMU.FinalTime: 15
+IMU.FinalTime: 3
 IMU.SleepTime: 1.0
 
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
