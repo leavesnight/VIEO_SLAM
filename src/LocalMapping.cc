@@ -214,8 +214,7 @@ void LocalMapping::ProcessNewKeyFrame() {
     // KFs for a better map
     if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->mnId <= mnLastOdomKFId + 5) {
       // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
-      if (!mpIMUInitiator->GetCopyInitKFs()) {
-        mpIMUInitiator->SetCopyInitKFs(true);
+      if (mpIMUInitiator->SetCopyInitKFs(true)) {
         KeyFrame *pLastKF = mpCurrentKeyFrame;
         vector<KeyFrame *> vecEraseKF;
         if (mpIMUInitiator->GetVINSInited()) {
@@ -779,8 +778,7 @@ void LocalMapping::InterruptBA() { mbAbortBA = true; }
 
 void LocalMapping::KeyFrameCulling() {
   // during the copying KFs' stage in IMU Initialization, don't cull any KF!
-  if (mpIMUInitiator->GetCopyInitKFs()) return;
-  mpIMUInitiator->SetCopyInitKFs(true);
+  if (!mpIMUInitiator->SetCopyInitKFs(true)) return;
 
   // Check redundant keyframes (only local keyframes)
   // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen

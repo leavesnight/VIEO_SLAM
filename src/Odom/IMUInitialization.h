@@ -74,8 +74,8 @@ class IMUInitialization {  // designed for multi threads
   std::mutex mMutexInitIMU;                      // for mGravityVec, improved by zzh
   // double mnVINSInitScale; //scale estimation for Mono, not necessary here
 
-  CREATOR_VAR_MULTITHREADS(CopyInitKFs, bool,
-                           b)  // for copying/cache KFs in IMU initialization thread avoiding KeyFrameCulling()
+  // for copying/cache KFs in IMU initialization thread avoiding KeyFrameCulling()
+  CREATOR_VAR_MUTEX(CopyInitKFs, bool, b)
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
@@ -163,6 +163,13 @@ class IMUInitialization {  // designed for multi threads
   }
 
   void Run();
+
+  bool SetCopyInitKFs(bool copying) {
+    unique_lock<mutex> lock(mMutexCopyInitKFs);
+    if (copying && mbCopyInitKFs) return false;
+    mbCopyInitKFs = copying;
+    return true;
+  }
 
   cv::Mat GetGravityVec(void);
   void SetGravityVec(const cv::Mat &mat);

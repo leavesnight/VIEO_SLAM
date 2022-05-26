@@ -55,7 +55,7 @@ void IMUInitialization::Run() {
 
         KeyFrame *pCurKF = GetCurrentKeyFrame();
         if (pCurKF) {
-//#define USE_FAST_IMU_INIT
+          //#define USE_FAST_IMU_INIT
           if (mdStartTime < 0 && !mpMap->mvpKeyFrameOrigins.empty()) {
             mdStartTime = mpMap->mvpKeyFrameOrigins.front()->timestamp_;
           }
@@ -164,12 +164,12 @@ bool IMUInitialization::TryInitVIO_zzh(
   }
 
   // Cache KFs / wait for KeyFrameCulling() over
-  while (GetCopyInitKFs()) {
+  // stop KeyFrameCulling() when this copying KFs
+  while (!SetCopyInitKFs(true)) {
     if (kVerbDeb < verbose) cout << ".";
     usleep(1000);
   }
   if (kVerbDeb < verbose) cout << endl << "copy init KFs...";
-  SetCopyInitKFs(true);  // stop KeyFrameCulling() when this copying KFs
 
   // see VIORBSLAM paper IV, here N=all KFs in map, not the meaning of local KFs' number
   // Use all KeyFrames in map to compute
@@ -765,8 +765,8 @@ bool IMUInitialization::TryInitVIO(
   cv::Mat pcb = -Rcb * pbc;
 
   // Cache KFs / wait for KeyFrameCulling() over
-  while (GetCopyInitKFs()) usleep(1000);
-  SetCopyInitKFs(true);  // stop KeyFrameCulling() when this copying KFs
+  // stop KeyFrameCulling() when this copying KFs
+  while (!SetCopyInitKFs(true)) usleep(1000);
   //   if(mpMap->KeyFramesInMap()<4){ SetCopyInitKFs(false);return false;}//ensure no KeyFrameCulling() during the start
   //   of this func. till here
 
