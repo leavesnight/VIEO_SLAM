@@ -407,12 +407,20 @@ void LoadImages(const string &strImagePath, vector<string> &vstrImages, vector<d
                 const string &suffix) {
   ifstream fTimes;
   GetFileNames(strImagePath, vstrImages, suffix);
-  sort(vstrImages.begin(), vstrImages.end());
+  constexpr double CoeffNanoSecond = 1e-9;
+  sort(vstrImages.begin(), vstrImages.end(), [](const string &im1, const string &im2) {
+    string dir_path = dirname(strdup(im1.c_str()));
+    int offset = dir_path.length();
+    if (dir_path[offset - 1] != '/' and dir_path[offset - 1] != '\\') ++offset;
+    double ftmp[2] = {strtod(im1.substr(offset).c_str(), 0) * CoeffNanoSecond,
+                      strtod(im2.substr(offset).c_str(), 0) * CoeffNanoSecond};
+    return ftmp[0] < ftmp[1];
+  });
   for (int i = 0; i < vstrImages.size(); ++i) {
     string dir_path = dirname(strdup(vstrImages[i].c_str()));
     int offset = dir_path.length();
     if (dir_path[offset - 1] != '/' and dir_path[offset - 1] != '\\') ++offset;
-    double ftmp = strtod(vstrImages[i].substr(offset).c_str(), 0) * 1e-9;
+    double ftmp = strtod(vstrImages[i].substr(offset).c_str(), 0) * CoeffNanoSecond;
     vTimeStamps.push_back(ftmp);
   }
 }
