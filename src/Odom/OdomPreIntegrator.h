@@ -249,10 +249,26 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       if (iterj->mtm >= timemax) continue;
       break;
     }
-    if (bimu_order_back) swap(iter_start, iter_stop);
+    if (bimu_order_back) {
+      if (iter_stop == iterEnd) {
+        --iter_stop;
+      }
+      swap(iter_start, iter_stop);
+      if ((iter_stop)->mtm > timemin) {
+        assert(iter_stop == iterBegin);
+        iter_stop = iterEnd;
+      }
+    }
 
     for (typename listeig(IMUDataBase)::const_iterator iterj = iter_start; iterj != iter_stop;) {
-      typename listeig(IMUDataBase)::const_iterator iterjm1 = bimu_order_back ? iterj-- : iterj++;  // iterj-1
+      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj; // iterj-1
+      if (bimu_order_back) {
+        if (iterj == iterBegin) {
+          iterj = iter_stop;
+        } else
+          --iterj;
+      } else
+        ++iterj;
 
       // delta time
       double dt, tj, tj_1;
