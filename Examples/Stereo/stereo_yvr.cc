@@ -429,7 +429,7 @@ typedef enum KeyStrType { kStrStart, kStrEnd, kStrDivide, kNumKeyStrType };
 
 static int GetFloatArray(const string &str_tmp, const string *keystr, size_t &last_pos, vector<double> &ret_vals) {
   size_t pos_keystr = str_tmp.find(keystr[kStrStart], last_pos);
-  if (keystr[kStrStart] == "") pos_keystr = 0;
+  if (keystr[kStrStart] == "") pos_keystr = last_pos;
   if (string::npos != pos_keystr) {
     last_pos = pos_keystr + keystr[kStrStart].length();
     if (keystr[kStrEnd] == "")
