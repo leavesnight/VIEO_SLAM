@@ -111,6 +111,9 @@ void odomRun(vector<double> &vTimestampsImu, vector<cv::Point3f> &vAcc, vector<c
   PRINT_INFO_MUTEX(greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 
+void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, string &tmp_configfile_path,
+                          bool mute = true);
+
 int main(int argc, char **argv) {
   thread *pOdomThread = NULL;
   int totalNum = 0;
@@ -172,6 +175,10 @@ int main(int argc, char **argv) {
   }
 
   cv::FileStorage fSettings(argv[2], cv::FileStorage::READ);  // already checked in System() creator
+  if (!fSettings.isOpened()) {
+    cerr << "ERROR: Wrong path to settings" << endl;
+    return -1;
+  }
   cv::FileNode fnDelay = fSettings["Camera.delayForPolling"];
   if ("VIO" == mode) {
     cv::FileNode fnimumode = fSettings["IMU.mode"];
@@ -196,6 +203,15 @@ int main(int argc, char **argv) {
     gDelayCache = 0;
   } else {
     gDelayCache = (double)fnDelay;
+  }
+  string tmp_configfile_path = argv[2];
+  auto fncalib_type = fSettings["Calib.type"];
+  if (!fncalib_type.empty()) {
+    if ((int)fncalib_type) {
+      AutoFillParamsFromDS(fSettings, pathSeq + "/device_calibration_imu.xml", tmp_configfile_path);
+    } else {
+      AutoFillParamsFromDS(fSettings, pathSeq + "/device_calibration.xml", tmp_configfile_path);
+    }
   }
 
   // Retrieve paths to images
@@ -230,17 +246,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Read rectification parameters
-  cv::FileStorage fsSettings(argv[2], cv::FileStorage::READ);
-  if (!fsSettings.isOpened()) {
-    cerr << "ERROR: Wrong path to settings" << endl;
-    return -1;
-  }
-
   int nImages = vstrimg[0].size(), nImagesUsed = 0;
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
-  VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
+  VIEO_SLAM::System SLAM(argv[1], tmp_configfile_path, VIEO_SLAM::System::STEREO, true);
   g_pSLAM = &SLAM;
 
   // Vector for tracking time statistics
@@ -434,8 +443,9 @@ static int GetFloatArray(const string &str_tmp, const string *keystr, size_t &la
     last_pos = pos_keystr + keystr[kStrStart].length();
     if (keystr[kStrEnd] == "")
       pos_keystr = str_tmp.length();
-    else
+    else {
       pos_keystr = str_tmp.find(keystr[kStrEnd], last_pos);
+    }
     string str_data = str_tmp.substr(last_pos, pos_keystr - last_pos);
     char *endptr = 0;
     last_pos = 0;
@@ -537,4 +547,306 @@ void LoadIMU(const vector<string> &strImuPath, vector<double> &vTimeStamps, vect
     vTimeStamps.resize(vAcc.size());
     vGyro.resize(vAcc.size());
   }
+}
+
+class exfstream : public fstream {
+  using Base = fstream;
+
+ public:
+  exfstream(string path, ios::openmode mode) : Base(path, mode) { (*this) << "%YAML:1.0" << endl; }
+  template <class type>
+  void write_yaml(const string &key, const type &data) {
+    auto &fs = *this;
+    fs << key << ": ";
+    if (typeid(double) == typeid(type)) {
+      // auto oldflags = fs.flags();
+      fs.setf(ios::showpoint);
+      fs.precision(10);
+      fs << data << endl;
+      // fs.unsetf(ios::showpoint);
+      // fs.flags(oldflags);
+    } else if (typeid(int) == typeid(type)) {
+      fs << data << endl;
+    } else if (typeid(string) == typeid(type)) {
+      fs << "\"" << data << "\"" << endl;
+    } else {
+      cerr << "Unknown type: " << typeid(data).name() << endl;
+      return;
+    }
+  }
+};
+template<>
+void exfstream::write_yaml(const string &key, const Eigen::VectorXd &data) {
+  auto &fs = *this;
+  CV_Assert(data.size());
+  fs << key << ": ";
+  fs << "[";
+  size_t ilast = data.size() - 1;
+  fs.setf(ios::showpoint);
+  fs.precision(9);
+  for (size_t i = 0; i < ilast; ++i) {
+    fs << data[i] << ", ";
+  }
+  fs << data[ilast];
+  fs << "]" << endl;
+}
+template<>
+void exfstream::write_yaml(const string &key, const cv::Mat &data) {
+  auto &fs = *this;
+  CV_Assert(!data.empty());
+  fs << key << ": !!opencv-matrix" << endl;
+  fs << "  rows: " << data.rows << endl;
+  fs << "  cols: " << data.cols << endl;
+  fs << "  dt: " << (CV_32F == data.type() ? "f" : CV_64F == data.type() ? "f" : "unknown") << endl;
+  fs << "  data: [ ";
+  fs.setf(ios::showpoint);
+  fs.precision(9);
+  for (size_t row = 0; row < data.rows; ++row) {
+    for (size_t col = 0; col < data.cols; ++col) {
+      if (CV_32F == data.type()) {
+        fs << data.at<float>(row, col);
+      } else if (CV_64F == data.type()) {
+        fs << data.at<double>(row, col);
+      }
+      if (col < data.cols - 1)
+        fs << ", ";
+      else if (row < data.rows - 1)
+        fs << "," << endl << "          ";
+    }
+  }
+  fs << "]" << endl;
+}
+void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, string &tmp_configfile_path,
+                          bool mute) {
+  typedef struct SetType {
+    int type = 0;  // 0 is vec, 1 is double, 2 is cv::Mat, 3 is int, 4 is string
+    struct DataType {
+      Eigen::VectorXd vec;
+      cv::Mat mat;
+      double f;
+      int i;
+      string s;
+    } data;
+    SetType() {}
+    SetType(const Eigen::VectorXd &vec_in) { data.vec = vec_in; }
+    SetType(const double &f_in) : type(1) { data.f = f_in; }
+    SetType(const cv::Mat &mat_in) : type(2) { data.mat = mat_in; }
+    SetType(const int &i_in) : type(3) { data.i = i_in; }
+    SetType(const string &s_in) : type(4) { data.s = s_in; }
+  };
+  map<string, SetType> all_settings;
+
+  // copy fSettings to all_settings
+  cv::FileNode fn_tmp;
+  int i = 0;
+  while (1) {
+    fn_tmp = fSettings.root(i++);
+    if (fn_tmp.empty()) break;
+    const auto &keys = fn_tmp.keys();
+    string last_key0;
+    for (auto key : keys) {
+      if (!mute) cout << key << endl;
+
+      if (fSettings[key].isReal()) {
+        all_settings.emplace(key, fSettings[key].real());
+      } else if (fSettings[key].isInt()) {
+        all_settings.emplace(key, (int)fSettings[key]);
+      } else if (fSettings[key].isString()) {
+        all_settings.emplace(key, fSettings[key].string());
+      } else if (fSettings[key].isSeq()) {
+        Eigen::VectorXd vec;
+        auto iter_key = fSettings[key].begin();
+        while (fSettings[key].end() != iter_key) {
+          auto ind_last = vec.size();
+          vec.conservativeResize(ind_last + 1);
+          vec[ind_last] = *iter_key;
+          ++iter_key;
+        }
+        all_settings.emplace(key, vec);
+      }
+    }
+  }
+  // add settings to all_settings
+  cout << pathCalib << endl;
+  ifstream input(pathCalib);
+  string str_tmp;
+  int id_cam = -1;
+  while (!input.eof() && !input.fail()) {
+    getline(input, str_tmp);
+
+    string keystr[kNumKeyStrType] = {"ombc=\"", " \"", " "};
+    size_t last_pos = 0;
+    vector<double> ret_vals;
+    Eigen::VectorXd T(4 * 4);
+    T.setZero();
+    cv::Mat Tcv = cv::Mat::zeros(3, 4, CV_64F);
+    if (!mute) cout << str_tmp << endl;
+    if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+      CV_Assert(3 == ret_vals.size());
+      Eigen::Vector3d r(ret_vals.data());
+      Eigen::Matrix3d R = Sophus::SO3exd::exp(r).matrix();
+      for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 3; ++col) {
+          T(row * 4 + col) = R(row, col);
+        }
+      T(3 * 4 + 3) = 1;
+      ret_vals.clear();
+
+      keystr[kStrStart] = "tbc=\"";
+      GetFloatArray(str_tmp, keystr, last_pos, ret_vals);
+      CV_Assert(3 == ret_vals.size());
+      for (int row = 0; row < 3; ++row) {
+        T(row * 4 + 3) = ret_vals[row];
+      }
+      if (!mute) cout << "Camera.Tbc:" << T.transpose() << endl;
+      all_settings.emplace("Camera.Tbc", SetType(T));
+      ret_vals.clear();
+    }
+
+    keystr[kStrStart] = " id=\"";
+    keystr[kStrEnd] = "\"";
+    if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+      CV_Assert(1 == ret_vals.size());
+      id_cam = ret_vals[0];
+    }
+    if (0 <= id_cam) {
+      string cam_name = "Camera" + (id_cam ? to_string(id_cam + 1) : "");
+      keystr[kStrStart] = "Calibration size=\"";
+      keystr[kStrEnd] = " \"";
+      if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+        CV_Assert(2 == ret_vals.size());
+        if (!mute) cout << "size = " << ret_vals[0] << "x" << ret_vals[1] << endl;
+        all_settings.emplace(cam_name + ".width", (int)(ret_vals[0]));
+        all_settings.emplace(cam_name + ".height", (int)(ret_vals[1]));
+        all_settings.emplace(cam_name + ".lappingBegin", 0);
+        all_settings.emplace(cam_name + ".lappingEnd", (int)(ret_vals[0] - 1));
+        ret_vals.clear();
+      }
+
+      keystr[kStrStart] = "principal_point=\"";
+      keystr[kStrEnd] = "\"";
+      if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+        CV_Assert(2 == ret_vals.size());
+        if (!mute) cout << cam_name << ".cx,cy:" << ret_vals[0] << "," << ret_vals[1] << endl;
+        all_settings.emplace(cam_name + ".cx", ret_vals[0]);
+        all_settings.emplace(cam_name + ".cy", ret_vals[1]);
+        ret_vals.clear();
+
+        keystr[kStrStart] = "focal_length=\"";
+        if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+          CV_Assert(2 == ret_vals.size());
+          if (!mute) cout << cam_name << ".fx,fy:" << ret_vals[0] << "," << ret_vals[1] << endl;
+          auto iter_as = all_settings.find(cam_name + ".fx");
+          if (all_settings.end() == iter_as)
+            all_settings.emplace(cam_name + ".fx", ret_vals[0]);
+          else
+            iter_as->second = ret_vals[0];
+          all_settings.emplace(cam_name + ".fy", ret_vals[1]);
+          ret_vals.clear();
+
+          keystr[kStrStart] = "model=\"";
+          size_t model_pos = str_tmp.find(keystr[kStrStart], last_pos);
+          if (string::npos != model_pos) {
+            model_pos += keystr[kStrStart].length();
+            last_pos = str_tmp.find(keystr[kStrEnd], model_pos);
+            string model_str = str_tmp.substr(model_pos, last_pos - model_pos);
+            last_pos += keystr[kStrEnd].length();
+            if (!mute) cout << model_str << endl;
+            if ("FISHEYE_4_PARAMETERS" == model_str) all_settings.emplace("Camera.type", "KannalaBrandt8");
+          }
+        }
+      }
+
+      keystr[kStrStart] = "radial_distortion=\"";
+      if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+        CV_Assert(6 == ret_vals.size());
+        if (!mute)
+          cout << cam_name << ".k1,k2,k3,k4:" << ret_vals[0] << "," << ret_vals[1] << "," << ret_vals[2] << ","
+               << ret_vals[3] << endl;
+        for (int j = 0; j < 4; ++j) all_settings.emplace(cam_name + ".k" + to_string(j + 1), ret_vals[j]);
+        ret_vals.clear();
+      }
+
+      if (0 < id_cam) {
+        keystr[kStrStart] = "Rig translation=\"";
+        if (!GetFloatArray(str_tmp, keystr, last_pos, ret_vals)) {
+          CV_Assert(3 == ret_vals.size());
+          Sophus::SE3d Ttmp;
+          for (int row = 0; row < 3; ++row) {
+            Ttmp.translation()[row] = ret_vals[row];
+          }
+          ret_vals.clear();
+
+          keystr[kStrStart] = "rowMajorRotationMat=\"";
+          GetFloatArray(str_tmp, keystr, last_pos, ret_vals);
+          CV_Assert(9 == ret_vals.size());
+          Eigen::Matrix<double, 3, 3, Eigen::RowMajor> R(ret_vals.data());
+          Ttmp.so3() = Sophus::SO3exd(R);
+          Ttmp = Ttmp.inverse();
+          for (int row = 0; row < 3; ++row) {
+            Tcv.at<double>(row, 3)  = Ttmp.translation()[row];
+          }
+          R = Ttmp.so3().matrix();
+          for (int row = 0; row < 3; ++row)
+            for (int col = 0; col < 3; ++col) {
+              Tcv.at<double>(row, col) = R(row, col);
+            }
+          if (!mute) cout << cam_name + ".Trc:" << T.transpose() << endl;
+          all_settings.emplace(cam_name + ".Trc", SetType(Tcv));
+          ret_vals.clear();
+        }
+      }
+    }
+  }
+
+  // output all_settings
+  const string input_config = tmp_configfile_path;
+  size_t pos_dir = tmp_configfile_path.rfind("/") + 1;
+  tmp_configfile_path = tmp_configfile_path.substr(0, pos_dir) + "YVR_tmp.yaml";
+  exfstream fs_tmp(tmp_configfile_path, ios::out);
+  if (!fs_tmp.is_open()) {
+    cerr << "ERROR: Wrong path to tmp_config" << endl;
+    return;
+  }
+  map<string, int> dic_keys;
+  string last_key0;
+  for (auto iter_mp = all_settings.begin(); all_settings.end() != iter_mp; ++iter_mp) {
+    const auto &key = iter_mp->first;
+    auto key0 = key.substr(0, key.find_first_of('.'));
+    auto dic_iter = dic_keys.find(key0);
+    if (dic_iter == dic_keys.end()) {
+      dic_keys.emplace(key0, 1);
+      if (!mute) cout << endl;
+      fs_tmp << endl;
+    } else {
+      ++dic_iter->second;
+      if (last_key0 != key0) {
+        if (!mute) cout << endl;
+        fs_tmp << endl;
+      }
+    }
+    last_key0 = key0;
+    if (!mute) cout << key << endl;
+
+    auto &type_tmp = iter_mp->second.type;
+    auto &data_tmp = iter_mp->second.data;
+    switch (type_tmp) {
+      case 0:
+        fs_tmp.write_yaml(key, data_tmp.vec);
+        break;
+      case 1:
+        fs_tmp.write_yaml(key, data_tmp.f);
+        break;
+      case 2:
+        fs_tmp.write_yaml(key, data_tmp.mat);
+        break;
+      case 3:
+        fs_tmp.write_yaml(key, data_tmp.i);
+        break;
+      case 4:
+        fs_tmp.write_yaml(key, data_tmp.s);
+        break;
+    }
+  }
+  // CV_Assert(0);
 }
