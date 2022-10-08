@@ -384,8 +384,9 @@ int main(int argc, char **argv) {
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
-  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
-  SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+  const bool bgravity_as_w = fSettings["Output.gravity_as_w"].empty() ? false : (int)fSettings["Output.gravity_as_w"];
+  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt", bgravity_as_w);
+  SLAM.SaveTrajectoryTUM("CameraTrajectory.txt", 0, bgravity_as_w);
   SLAM.SaveTrajectoryTUM("CameraTrajectoryCamPoseIMUBias.txt", 1);
 
   return 0;

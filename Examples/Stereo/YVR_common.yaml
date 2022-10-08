@@ -1,5 +1,8 @@
 %YAML:1.0
 
+# 1 will let g at z+ for output world frame else 0
+Output.gravity_as_w: 1
+
 #path of temperary recording files for analysis
 test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 
