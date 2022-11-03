@@ -988,7 +988,8 @@ void Frame::ComputeStereoFishEyeMatches() {
   for (int i = 0; i < n_cams - 1; ++i) {
     for (int j = i + 1; j < n_cams; ++j) {
       allmatches.push_back(vector<vector<cv::DMatch>>());
-      if (vdescriptors_[i].empty() || vdescriptors_[j].empty()) continue;
+      if (num_mono[i] >= vdescriptors_[i].rows || num_mono[j] >= vdescriptors_[j].rows) continue;
+      CV_Assert(!vdescriptors_[i].empty() && !vdescriptors_[j].empty());
       BFmatcher.knnMatch(vdescriptors_[i].rowRange(num_mono[i], vdescriptors_[i].rows),
                          vdescriptors_[j].rowRange(num_mono[j], vdescriptors_[j].rows), allmatches.back(), 2);
     }
