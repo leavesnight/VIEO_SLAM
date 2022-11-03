@@ -145,7 +145,7 @@ void Viewer::Run()
           if (1 <= n_cams) {
             int n_cols = 2;
             if (n_cams < n_cols) n_cols = n_cams;
-            int n_rows = n_cams / n_cols;
+            int n_rows = (n_cams - 1) / n_cols + 1;
             vector<cv::Mat> ims(n_rows);
             ims[0] = im;
             int i = 1;
@@ -164,8 +164,15 @@ void Viewer::Run()
             }
             if (i == n_cols)
               toShow = ims[0];
-            else
-              cv::vconcat(toShow, ims[1], toShow);
+            else {
+              if (ims[n_rows - 1].cols != toShow.cols) {
+                CV_Assert(ims[n_rows - 1].cols < toShow.cols);
+                cv::Mat tmp =
+                    cv::Mat::zeros(ims[n_rows - 1].rows, toShow.cols - ims[n_rows - 1].cols, ims[n_rows - 1].type());
+                cv::hconcat(ims[n_rows - 1], tmp, ims[n_rows - 1]);
+              }
+              cv::vconcat(toShow, ims[n_rows - 1], toShow);
+            }
           }
         } else {
           toShow = im;
