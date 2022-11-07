@@ -130,10 +130,15 @@ class KeyFrame : public FrameBase, public MutexUsed {
     auto stop = end;
     if (mOdomPreIntEnc.getlOdom().size()) {
       double tm_ref = mOdomPreIntEnc.getlOdom().begin()->mtm;
-      for (auto iter = end; iter != begin;) {
+      auto iter = end;
+      for (; iter != begin;) {
         stop = iter--;
         if (iter->mtm >= tm_ref) continue;
         break;
+      }
+      if (iter != end && iter->mtm >= tm_ref) {
+        CV_Assert(0 && "check AppendFrontPreIntegrationList usage!");
+        stop = begin;
       }
     }
     mOdomPreIntEnc.AppendFrontPreIntegrationList(x, begin, stop);

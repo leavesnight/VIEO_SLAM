@@ -81,10 +81,15 @@ void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
   auto stop = end;
   if (mOdomPreIntIMU.getlOdom().size()) {
     double tm_ref = mOdomPreIntIMU.getlOdom().begin()->mtm;
-    for (auto iter = end; iter != begin;) {
+    auto iter = end;
+    for (; iter != begin;) {
       stop = iter--;
       if (iter->mtm >= tm_ref) continue;
       break;
+    }
+    if (iter != end && iter->mtm >= tm_ref) {
+      CV_Assert(0 && "check AppendFrontPreIntegrationList usage!");
+      stop = begin;
     }
   }
   mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, stop);
