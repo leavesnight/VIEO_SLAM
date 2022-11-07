@@ -8,7 +8,7 @@
 namespace VIEO_SLAM {
 //#define USE_STRATEGY_ABANDON
 #ifndef USE_STRATEGY_ABANDON
-//#define USE_STRATEGY_MIN_DIST
+#define USE_STRATEGY_MIN_DIST
 #define USE_STRATEGY_FIRST_ONE
 #endif
 
