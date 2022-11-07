@@ -394,8 +394,14 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
   // configs for Prior Hessian
   const bool calc_cov_explicit = true;  // false;
-  const int8_t exact_mode =
-      calc_cov_explicit ? (int8_t)g2o::kExactNoRobust : (int8_t)g2o::kNotExact;  //(int8_t)g2o::kExactRobust
+#define USE_ROBUST_PRIOR_EDGE
+  const int8_t exact_mode = calc_cov_explicit ?
+#ifdef USE_ROBUST_PRIOR_EDGE
+                                              (int8_t)g2o::kExactRobust
+#else
+                                              (int8_t)g2o::kExactNoRobust
+#endif
+                                              : (int8_t)g2o::kNotExact;  //(int8_t)g2o::kExactRobust
   const bool calc_cond_jac = false;                   // calculate conditional cov for only PVR or only Bias
   const auto &frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
   {
