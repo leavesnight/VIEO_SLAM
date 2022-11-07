@@ -1163,6 +1163,11 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   // maybe stopped by next CorrectLoop() in LoopClosing
   optimizer.optimize(nIterations);
 
+  unique_lock<mutex> lock(pMap->mMutexMapUpdate, defer_lock);
+  if (nLoopKF == 0) { // for safety, later globalbaprv may be called like lbaprv()
+    lock.lock();
+  }
+
   // Recover optimized data in an intermediate way
   if (pimu_initiator) {
     g2o::VertexGThetaXYRwI* vG = static_cast<g2o::VertexGThetaXYRwI*>(optimizer.vertex(id_g));
