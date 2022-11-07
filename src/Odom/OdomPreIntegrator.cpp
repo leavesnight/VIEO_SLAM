@@ -35,29 +35,45 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
 
     // for iterBegin!=iterEnd, here iter_stop can no init
     typename listeig(EncData)::const_iterator iter_start = iterBegin, iter_stop;
-    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timeStampi;iter_start = iterj++) {
+    bool border_back = timeStampi > timeStampj;
+    using Ttime = double;
+    Ttime timemin = timeStampi, timemax = timeStampj;
+    using std::swap;
+    if (border_back) swap(timemin, timemax);
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timemin; iter_start = iterj++) {
     }
     for (auto iterj = iterEnd; iterj != iterBegin;) {
       iter_stop = iterj--;
-      if (iterj->mtm >= timeStampj) continue;
+      if (iterj->mtm >= timemax) continue;
       break;
+    }
+    if (border_back) {
+      if (iter_stop == iterEnd) {
+        --iter_stop;
+      }
+      swap(iter_start, iter_stop);
+      if ((iter_stop)->mtm > timemin) {
+        assert(iter_stop == iterBegin);
+        iter_stop = iterEnd;
+      }
     }
     
     for (listeig(EncData)::const_iterator iterj=iter_start;iterj!=iter_stop;){//start iterative method from i/iteri->tm to j/iter->tm
-      listeig(EncData)::const_iterator iterjm1=iterj++;//iterj-1
+      listeig(EncData)::const_iterator iterjm1 = iterj; // iterj-1
+      if (border_back) {
+        if (iterj == iterBegin) {
+          iterj = iter_stop;
+        } else
+          --iterj;
+      } else
+        ++iterj;
       
       double deltat,tj,tj_1;//deltatj-1j
       if (iterjm1==iter_start) tj_1=timeStampi; else tj_1=iterjm1->mtm;
       if (iterj==iter_stop) {
-        //        if (timeStampj - tj_1 > 0)
-        //          tj = timeStampj;
-        //        else
-        //          break;
         tj = timeStampj;
       }else {
         tj = iterj->mtm;
-        // assert(tj-tj_1>=0);
-        //        if (tj > timeStampj) tj = timeStampj;
       }
       deltat=tj-tj_1;
       if (deltat==0) continue;

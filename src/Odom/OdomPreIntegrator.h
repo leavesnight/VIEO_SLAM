@@ -280,7 +280,6 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
         tj = timeStampj;
       else {
         tj = iterj->mtm;
-        assert(tj - tj_1 >= 0);
       }
       dt = tj - tj_1;
       // for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj],
