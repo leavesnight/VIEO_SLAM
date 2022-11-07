@@ -209,7 +209,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   // Set IMU/KF-KF/PRV(B)+B edges, here (B) means it's not included in error but used to calculate the error
   //  PRVB/IMU & B/RandomWalk edge
+//#define DEBUG_OLBA
+#ifdef DEBUG_OLBA
   vector<KeyFrame*> debug_kf0s;
+#endif
   vector<g2o::EdgeNavStatePRV*> vpEdgesNavStatePRV;
   vector<g2o::EdgeNavStateBias*> vpEdgesNavStateBias;
   // what does this 10(sigma) mean??? better result?
@@ -308,7 +311,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.addEdge(ebias);
     vpEdgesNavStateBias.push_back(ebias);
 
+#ifdef DEBUG_OLBA
     debug_kf0s.push_back(pKF0);
+#endif
 
     // Set Enc edge(binary edge) between LastF-Frame
     const EncPreIntegrator encpreint = pKF1->GetEncPreInt();
@@ -495,7 +500,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // ref from ORB3
   optimizer.computeActiveErrors();
   float err = optimizer.activeRobustChi2();
-//#define DEBUG_OLBA
 #ifdef DEBUG_OLBA
   if (err > 1e6) {
     double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
