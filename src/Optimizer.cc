@@ -588,35 +588,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
-  vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
-
-  // Check inlier observations
-  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    const BaseEdgeMono& e = vpEdgesMono[i];
-    MapPoint* pMP = vpMapPointEdgeMono[i];
-    // ref from ORB3
-    bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
-
-    if (pMP->isBad()) continue;
-
-    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
-      KeyFrame* pKFi = vpEdgeKFMono[i];
-      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
-    }
-  }
-  for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
-    MapPoint* pMP = vpMapPointEdgeStereo[i];
-
-    if (pMP->isBad()) continue;
-
-    if (e->chi2() > 7.815 || !e->isDepthPositive()) {
-      KeyFrame* pKFi = vpEdgeKFStereo[i];
-      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
-    }
-  }
-
 #ifndef NDEBUG
   {
     double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
@@ -648,6 +619,35 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
     PRINT_INFO_FILE("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
     return;
+  }
+
+  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
+  vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
+
+  // Check inlier observations
+  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+    const BaseEdgeMono& e = vpEdgesMono[i];
+    MapPoint* pMP = vpMapPointEdgeMono[i];
+    // ref from ORB3
+    bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
+
+    if (pMP->isBad()) continue;
+
+    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
+      KeyFrame* pKFi = vpEdgeKFMono[i];
+      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
+    }
+  }
+  for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
+    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
+    MapPoint* pMP = vpMapPointEdgeStereo[i];
+
+    if (pMP->isBad()) continue;
+
+    if (e->chi2() > 7.815 || !e->isDepthPositive()) {
+      KeyFrame* pKFi = vpEdgeKFStereo[i];
+      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
+    }
   }
 
   // Get Map Mutex
