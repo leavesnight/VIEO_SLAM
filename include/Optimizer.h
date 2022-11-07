@@ -292,12 +292,19 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
     eNSPVR->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(LastKFBiasId)));  // bi
     eNSPVR->setMeasurement(imupreint);                 // set delta~PVRij/delta~pij,delta~vij,delta~Rij
     Matrix9d Infoij = imupreint.GetProcessedInfoij();  // mSigmaij.inverse();
-    eNSPVR->setInformation(Infoij);
+#define USE_ZZH_IMU_EDGE_FEBA
+#ifdef USE_ZZH_IMU_EDGE_FEBA
+    if (bFixedLast) {
+      eNSPVR->setInformation(Infoij * 1e-2);
+
+      g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+      eNSPVR->setRobustKernel(rk);
+      // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
+      rk->setDelta(sqrt(16.919));
+    } else
+#endif
+      eNSPVR->setInformation(Infoij);
     eNSPVR->SetParams(GravityVec);
-    //    g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-    //    eNSPVR->setRobustKernel(rk);
-    // chi2(0.05/0.01,9), 16.919/21.666 for 0.95/0.99 9DoF, but JingWang uses 100*21.666
-    //    rk->setDelta(sqrt(16.919));
     optimizer.addEdge(eNSPVR);
     // Set IMU_RW/Bias edge(binary edge) between LastKF-Frame
   }
@@ -313,10 +320,16 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
   // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
   double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->mTimeStamp - pLastKF->mTimeStamp;
-  eNSBias->setInformation(InvCovBgaRW / deltatij);
-  //  g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
-  //  eNSBias->setRobustKernel(rk);
-  //  rk->setDelta(sqrt(12.592));  // chi2(0.05/0.01,6), 12.592/16.812 for 0.95/0.99 6DoF, but JW uses 16.812
+#ifdef USE_ZZH_IMU_EDGE_FEBA
+  if (bFixedLast) {
+    eNSBias->setInformation(InvCovBgaRW / deltatij * 1e-2);
+
+    g2o::RobustKernelHuber *rk = new g2o::RobustKernelHuber;
+    eNSBias->setRobustKernel(rk);
+    rk->setDelta(sqrt(12.592));  // chi2(0.05/0.01,6), 12.592/16.812 for 0.95/0.99 6DoF, but JW uses 16.812
+  } else
+#endif
+    eNSBias->setInformation(InvCovBgaRW / deltatij);
   optimizer.addEdge(eNSBias);
   // Set Prior edge(binary edge) for Last Frame, from mMargCovInv
   g2o::EdgeNavStatePriorPVRBias *eNSPrior = NULL;
