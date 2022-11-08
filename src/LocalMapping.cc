@@ -632,7 +632,7 @@ void LocalMapping::SearchInNeighbors() {
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
-//#define ORB3_STRATEGY
+#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
     if (mbAbortBA) return;
 #endif
