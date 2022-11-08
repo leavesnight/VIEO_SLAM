@@ -52,7 +52,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const int maxFixKF = 200;
 #endif
   // TODO(zzh): we hope to do more here, but now no_do_more is more robust
-#define ORB3_STRATEGY_NO_DO_MORE
+//#define ORB3_STRATEGY_NO_DO_MORE
 #ifdef ORB3_STRATEGY_NO_DO_MORE
   if (bLarge) {
     Nlocal *= 2.5;
