@@ -390,18 +390,28 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
 
   return nmatchesMap >= 6;  // 10;//Track ok when enough inlier MapPoints, changed by JingWang
 }
+static void print_debug_navstate(const NavState& ns, const string& prefix) {
+  PRINT_DEBUG_INFO(prefix << ns.mpwb.transpose() << ";" << ns.mRwb.log().transpose() << ";" << ns.mvwb.transpose()
+                          << ";" << ns.mbg.transpose() << "+" << ns.mdbg.transpose() << ";" << ns.mba.transpose() << "+"
+                          << ns.mdba.transpose() << endl,
+                   imu_tightly_debug_path, "tracking_thread_debug.txt");
+}
 bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   assert(mpIMUInitiator->GetVINSInited());
 
   // Initialize NavState of mCurrentFrame
   //  Map updated, optimize with last KeyFrame
   NavState& ns = mCurrentFrame.GetNavStateRef();
+  print_debug_navstate(mLastFrame.GetNavStateRef(), "lastf's p,r,v,bias=");
   if (bMapUpdated) {
     // Get initial NavState&pose from Last KeyFrame
     ns = mpLastKeyFrame->GetNavState();
     // preintegrate from LastKF to curF
     if (preint) PreIntegration(3);
-    //     cout<<"LastKF's pwb="<<ns.mpwb.transpose()<<endl;
+
+    print_debug_navstate(ns, "lastkf's p,r,v,bias=");
+    PRINT_DEBUG_INFO("lastkftm=" << fixed << setprecision(9) << mpLastKeyFrame->timestamp_ << endl,
+                     imu_tightly_debug_path, "tracking_thread_debug.txt");
   }
   // Map not updated, optimize with last Frame
   else {
@@ -411,6 +421,9 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
     if (preint) PreIntegration(1);
     //     cout<<"LastF's pwb="<<ns.mpwb.transpose()<<endl;
   }
+  PRINT_DEBUG_INFO("lastftm=" << fixed << setprecision(9) << mLastFrame.timestamp_
+                              << ",imupreintdt=" << mCurrentFrame.GetIMUPreInt().mdeltatij << endl,
+                   imu_tightly_debug_path, "tracking_thread_debug.txt");
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
     ns.mbg += ns.mdbg;
     ns.mba += ns.mdba;
@@ -447,7 +460,8 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   ns.mdba.setZero();
   mCurrentFrame.UpdatePoseFromNS();  // for VIE, we may use a complementary filter of encoder & IMU to predict NavState
 
-  //   cout<<"CurF's pwb="<<ns.mpwb.transpose()<<endl;
+  print_debug_navstate(ns, "CurF's p,r,v,bias=");
+
   return true;
 }
 bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
@@ -995,7 +1009,8 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     bMapUpdated = true;
   }
 
-  PRINT_INFO_FILE("curf tm=" << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("curf tm=" << fixed << setprecision(9) << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path,
+                  "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
       StereoInitialization(img);
@@ -1657,6 +1672,7 @@ void Tracking::CheckReplacedInLastFrame() {
 #ifndef CHECK_REPLACE_ALL
   set<pair<MapPoint*, size_t>> spAlreadyFound = mLastFrame.GetMapPointsCami();
 #endif
+  size_t num_pts_replaced = 0;
   for (int i = 0; i < mLastFrame.N; i++) {
     MapPoint* pMP = lfmps[i];
 
@@ -1718,9 +1734,11 @@ void Tracking::CheckReplacedInLastFrame() {
 #endif
         mLastFrame.ReplaceMapPointMatch(i, pRep);  // if it's replaced by localMapper, use the replaced one
                                                    //        spAlreadyFound.insert(pRep);
+        ++num_pts_replaced;
       }
     }
   }
+  PRINT_DEBUG_INFO("replace num=" << num_pts_replaced << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 }
 
 bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
@@ -2299,6 +2317,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
 #ifndef NO_LBA_THREAD
   mpLocalMapper->InsertKeyFrame(pKF);
 #endif
+  PRINT_DEBUG_INFO("curf is kf" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   mpLocalMapper->SetNotStop(false);
 

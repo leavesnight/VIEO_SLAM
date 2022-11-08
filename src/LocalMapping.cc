@@ -207,7 +207,8 @@ void LocalMapping::ProcessNewKeyFrame() {
   }
 
   // added by zzh, it can also be put in InsertKeyFrame()
-  PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << mpCurrentKeyFrame->mTimeStamp << endl,
+  PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
+                           << mpCurrentKeyFrame->mTimeStamp << endl,
                   imu_tightly_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
@@ -662,7 +663,7 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO_MUTEX("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
 //  if (mbAbortBA) return;
@@ -690,19 +691,24 @@ void LocalMapping::SearchInNeighbors() {
   }
 
   num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_INFO_MUTEX("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
   vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+  size_t num_pts_good = 0;
   for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
     MapPoint *pMP = vpMapPointMatches[i];
     if (pMP) {
       if (!pMP->isBad()) {
         pMP->ComputeDistinctiveDescriptors();
         pMP->UpdateNormalAndDepth();
+        ++num_pts_good;
       }
     }
   }
+  PRINT_DEBUG_INFO(
+      "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
+      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
   // incurrent KF
@@ -942,6 +948,9 @@ void LocalMapping::KeyFrameCulling() {
         }  // must done before pKF->SetBadFlag()!
 
         PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
+        PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+                                         << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();
       }
     }

@@ -629,6 +629,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
+  size_t num_pts_good_bef = 0;
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
     const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
@@ -637,6 +638,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     if (pMP->isBad()) continue;
 
+    ++num_pts_good_bef;
     if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
       vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
@@ -648,11 +650,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     if (pMP->isBad()) continue;
 
+    ++num_pts_good_bef;
     if (e->chi2() > 7.815 || !e->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFStereo[i];
       vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
   }
+  PRINT_DEBUG_INFO("vToErase sz=" << vToErase.size() << ":" << (float)vToErase.size() / num_pts_good_bef << endl,
+                   imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
@@ -1164,7 +1169,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   optimizer.optimize(nIterations);
 
   unique_lock<mutex> lock(pMap->mMutexMapUpdate, defer_lock);
-  if (nLoopKF == 0) { // for safety, later globalbaprv may be called like lbaprv()
+  if (nLoopKF == 0) {  // for safety, later globalbaprv may be called like lbaprv()
     lock.lock();
   }
 
