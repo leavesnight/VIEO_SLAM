@@ -730,6 +730,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 {
     std::chrono::steady_clock::time_point begin= std::chrono::steady_clock::now();
     PRINT_INFO_MUTEX(redSTR "Starting Global Bundle Adjustment" << whiteSTR<<endl);
+    PRINT_INFO_FILE("Starting Global Bundle Adjustment" << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
 
     bool bUseGBAPRV=false;
     int idx =  mnFullBAIdx;
@@ -767,6 +768,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
         {
             PRINT_INFO_MUTEX( "Global Bundle Adjustment finished" << endl);
             PRINT_INFO_MUTEX( "Updating map ..." << endl);
+            PRINT_INFO_FILE("Updating map ..." << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
             mpLocalMapper->RequestStop();//same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
             // Wait until Local Mapping has effectively stopped
 
@@ -867,6 +869,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)//nLoopKF here
 	    if (bUseGBAPRV) mpIMUInitiator->SetInitGBAOver(true);//should be put after 1st visual-inertial full BA!
 
             PRINT_INFO_MUTEX( redSTR<<"Map updated!" <<whiteSTR<< endl);//if GBA/loop correction successed, this word should appear!
+            PRINT_INFO_FILE("Map updated!" << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
 
             cout<<azureSTR"Used time in propagation="<<chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now()-t1).count()<<whiteSTR<<endl;//test time used
         }

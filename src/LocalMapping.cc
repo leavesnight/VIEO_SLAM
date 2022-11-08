@@ -632,9 +632,9 @@ void LocalMapping::SearchInNeighbors() {
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
-#define ORB3_STRATEGY
+//#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
-    //  if (mbAbortBA) return;
+    if (mbAbortBA) return;
 #endif
   }
 
@@ -666,7 +666,7 @@ void LocalMapping::SearchInNeighbors() {
   PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
-//  if (mbAbortBA) return;
+  if (mbAbortBA) return;
 #endif
 
   // Search matches by projection from target KFs in current KF
