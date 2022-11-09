@@ -7,7 +7,7 @@
 
 namespace VIEO_SLAM {
 //#define MUTE_VIEWER
-#define TIMER_FLOW
+//#define TIMER_FLOW
 
 //#define USE_STRATEGY_ABANDON
 #ifndef USE_STRATEGY_ABANDON
