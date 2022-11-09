@@ -678,6 +678,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
 vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r, const int minLevel,
                                         const int maxLevel) const {
   vector<size_t> vIndices;
+  if (vgrids_.empty()) return vIndices;
   vIndices.reserve(N);
 
   const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
@@ -697,8 +698,6 @@ vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float
   for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
     for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
       const vector<size_t> vCell = vgrids_[cami][ix][iy];
-      if (vCell.empty()) continue;
-
       for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
         const cv::KeyPoint &kpUn = (!mpCameras.size() || !usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
         if (bCheckLevels)  // if the octave is out of level range

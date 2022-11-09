@@ -962,6 +962,7 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
 
 vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
   vector<size_t> vIndices;
+  if (vgrids_.empty()) return vIndices;
   vIndices.reserve(N);
 
   const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
