@@ -28,7 +28,7 @@ void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx) {
   //    }
   //    cout << endl;
   //  }
-  assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad());
+  assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad() || mvpMapPoints[idx]->Observations() < 1);
   mvpMapPoints[idx] = pMP;
 }
 

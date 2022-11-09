@@ -1101,7 +1101,6 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
         cout << greenSTR "Relocalization()" whiteSTR << " " << mCurrentFrame.mTimeStamp << " " << mCurrentFrame.mnId
              << " " << (int)bOK << endl;
       }
-      blast_kf2kfpreint_ = false;  // ensure every time frame process after last kf created can set it false!
     } else {
       // Localization Mode: Local Mapping is deactivated
       if (mState == MAP_REUSE) {
@@ -1169,6 +1168,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
         }
       }
     }
+    blast_kf2kfpreint_ = false;  // ensure every time frame process after last kf created can set it false!
 
     // firstly use last mState==OK Frame.mpReferenceKF, maybe use most covisible KF as the (mCurrentFrame.)mpReferenceKF
     // in TrackLocalMap()
