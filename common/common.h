@@ -6,7 +6,7 @@
 #define VIEO_SLAM_COMMON_H
 
 namespace VIEO_SLAM {
-#define MUTE_VIEWER
+//#define MUTE_VIEWER
 #define TIMER_FLOW
 
 //#define USE_STRATEGY_ABANDON
