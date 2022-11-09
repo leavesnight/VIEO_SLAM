@@ -251,6 +251,9 @@ int main(int argc, char **argv) {
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], tmp_configfile_path, VIEO_SLAM::System::STEREO, true);
   g_pSLAM = &SLAM;
+#ifdef MUTE_VIEWER
+  g_pSLAM->ShutdownViewer();
+#endif
 
   // Vector for tracking time statistics
   vector<float> vTimesTrack;

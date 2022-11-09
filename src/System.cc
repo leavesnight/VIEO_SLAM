@@ -840,6 +840,16 @@ void System::Reset()
     mbReset = true;
 }
 
+void System::ShutdownViewer() {
+  if (mpViewer) {
+    mpViewer->RequestFinish();
+    while(!mpViewer->isFinished())
+      usleep(5000);
+
+    cv::destroyAllWindows();
+    pangolin::DestroyWindow("VIEO_SLAM: Map Viewer");
+  }
+}
 void System::Shutdown()
 {
     mpIMUInitiator->SetFinishRequest(true);//zzh
@@ -858,7 +868,7 @@ void System::Shutdown()
     }
 
     if(mpViewer)
-        pangolin::BindToContext("ORB-SLAM2: Map Viewer");
+        pangolin::BindToContext("VIEO_SLAM: Map Viewer");
 }
 
 void System::SaveTrajectoryTUM(const string &filename, const bool imu_info, const bool bgravity_as_w)

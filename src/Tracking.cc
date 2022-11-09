@@ -329,6 +329,9 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   if (nmatches < 10)  // 20)//changed by JingWang
     return false;
 
+#ifdef TIMER_FLOW
+  Timer timer_tmp;
+#endif
   // Pose optimization. false: no need to compute marginalized for current Frame(motion-only), see VIORBSLAM paper
   // (4)~(8)
   int num_inliers;
@@ -355,6 +358,9 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
 #endif
   }
   PRINT_DEBUG_INFO("inliers2 imu=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromInit(6, "tracking_thread_debug.txt", "ba1=");
+#endif
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -472,6 +478,9 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
 
   SearchLocalPoints();
 
+#ifdef TIMER_FLOW
+  Timer timer_tmp;
+#endif
   // Optimize Pose
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
     cout << redSTR "CurF.deltatij==0!In TrackLocalMapWithIMU(), Check!" << whiteSTR << endl;
@@ -494,6 +503,9 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
   }
   // after IMU motion-only BA, we don't change bi to bi+dbi for reason that next Frame may(if imu data exists) still
   // optimize dbi, so it's not necessary to update bi
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromInit(7, "tracking_thread_debug.txt", "ba2=");
+#endif
 
   mnMatchesInliers = 0;
 
@@ -902,8 +914,14 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
     }
   }
 
+#ifdef TIMER_FLOW
+  timer_ = Timer();
+#endif
   mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
                         &preint_imu_kf_, &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_);
+#ifdef TIMER_FLOW
+  timer_.GetDTfromInit(0, "tracking_thread_debug.txt", "tm curf=");
+#endif
 
   Track();
 
@@ -982,6 +1000,9 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
   //   core reason is for local map tracking and mono initialize will call GBA with nloopKF=0
   //   and for AddNewKF should have the same map change id with Preintegration lastF/KF's ns.bgba
   unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+#ifdef TIMER_FLOW
+  timer_.GetDTfromInit(3, "tracking_thread_debug.txt", "get lock fromstart=");
+#endif
 
   // delay control
   {
@@ -1174,6 +1195,9 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     // in TrackLocalMap()
     mCurrentFrame.mpReferenceKF = mpReferenceKF;
 
+#ifdef TIMER_FLOW
+    timer_.GetDTfromInit(4, "tracking_thread_debug.txt", "trackmm fromstart=");
+#endif
     // If we have an initial estimation of the camera pose and matching. Track the local map.
     if (!mbOnlyTracking) {
       if (bOK) {
@@ -1272,9 +1296,14 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
         }
       }
     }
+#ifdef TIMER_FLOW
+    timer_.GetDTfromInit(5, "tracking_thread_debug.txt", "tracklocalmp fromstart=");
+#endif
 
     // Update drawer
+#ifndef MUTE_VIEWER
     mpFrameDrawer->Update(this);
+#endif
 
     // If tracking were good, check if we insert a keyframe
     if (bOK) {
@@ -1289,7 +1318,9 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
         // cout<<redSTR"Error in mVelocity=cv::Mat()"<<whiteSTR<<endl;
       }
 
+#ifndef MUTE_VIEWER
       mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
+#endif
 
       // Clean VO matches, related to Localization mode
       const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1336,7 +1367,9 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     } else if (mState == ODOMOK) {  // if it's lost in Camera mode we use Odom mode
       // not necessary to update motion model for mVelocity is already got through odom data
 
+#ifndef MUTE_VIEWER
       mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
+#endif
 
       // Clean VO matches, related to Localization mode
       const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1495,7 +1528,9 @@ void Tracking::StereoInitialization(cv::Mat img[2]) {
 
     mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 
+#ifndef MUTE_VIEWER
     mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
+#endif
 
     mState = OK;
   }
@@ -1659,7 +1694,9 @@ void Tracking::CreateInitialMapMonocular() {
 
   mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
 
+#ifndef MUTE_VIEWER
   mpMapDrawer->SetCurrentCameraPose(pKFcur->GetPose());
+#endif
 
   mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 

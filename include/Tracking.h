@@ -195,6 +195,9 @@ class Tracking {
   IMUPreintegrator preint_imu_kf_;
   double lasttm_preint_kf_[2];
   Frame mCurrentFrame;
+#ifdef TIMER_FLOW
+  Timer timer_;
+#endif
   vector<cv::Mat> mImGrays = vector<cv::Mat>(1);  // used by FrameDrawer
 
   // Initialization Variables (Monocular)

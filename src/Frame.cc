@@ -364,6 +364,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   vdescriptors_.resize(n_size);
   vvkeys_.resize(n_size);
   num_mono.resize(n_size);
+#ifdef TIMER_FLOW
+  Timer timer_tmp;
+#endif
   for (int i = 0; i < ims.size(); ++i) {
     if (pCamInsts) {
       CV_Assert(ims.size() == pCamInsts->size());
@@ -378,6 +381,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   for (int i = 0; i < ims.size(); ++i) {
     threads[i].join();
   }
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromInit(1, "tracking_thread_debug.txt", "tm cost extractfeats=");
+#endif
 
   if (!pCamInsts) {
     mvKeys = vvkeys_[0];
@@ -398,6 +404,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
     ComputeStereoFishEyeMatches();
     if (!usedistort_) UndistortKeyPoints();
   }
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromLast(2, "tracking_thread_debug.txt", "tm stereomatch=");
+#endif
 
   mvpMapPoints = vector<MapPoint *>(N, static_cast<MapPoint *>(nullptr));
   mvbOutlier = vector<bool>(N, false);

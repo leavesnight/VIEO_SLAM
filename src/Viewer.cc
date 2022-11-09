@@ -224,10 +224,12 @@ bool Viewer::CheckFinish()
     return mbFinishRequested;
 }
 
-void Viewer::SetFinish()
-{
-    unique_lock<mutex> lock(mMutexFinish);
-    mbFinished = true;
+void Viewer::SetFinish() {
+  unique_lock<mutex> lock(mMutexStop);
+  mbStopRequested = false;
+  mbStopped = true;
+  unique_lock<mutex> lock2(mMutexFinish);
+  mbFinished = true;
 }
 
 bool Viewer::isFinished()
@@ -267,10 +269,9 @@ bool Viewer::Stop()
 
 }
 
-void Viewer::Release()
-{
-    unique_lock<mutex> lock(mMutexStop);
-    mbStopped = false;
+void Viewer::Release() {
+  unique_lock<mutex> lock(mMutexStop);
+  if (!isFinished()) mbStopped = false;
 }
 
 }
