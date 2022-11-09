@@ -22,7 +22,7 @@ const std::string imu_tightly_debug_path = "/home/leavesnight/tmp/VIEOSLAM/";  /
 #define PRINT_INFO_BASE(msg, level, foldername, filename)              \
   do {                                                                 \
     if (VIEO_SLAM::PRINT_LEVEL >= level) {                             \
-      if ("" != foldername) {                                          \
+      if (!std::string(foldername).empty()) {                          \
         std::string debug_file = std::string(foldername) + filename;   \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app); \
         fout << msg;                                                   \
@@ -33,7 +33,7 @@ const std::string imu_tightly_debug_path = "/home/leavesnight/tmp/VIEOSLAM/";  /
 #define PRINT_INFO_MUTEX_BASE(msg, level, foldername, filename)        \
   do {                                                                 \
     if (VIEO_SLAM::PRINT_LEVEL >= level) {                             \
-      if ("" != foldername) {                                          \
+      if (!std::string(foldername).empty()) {                          \
         std::unique_lock<std::mutex> lock(VIEO_SLAM::gmutexOUTPUT);    \
         std::string debug_file = std::string(foldername) + filename;   \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app); \

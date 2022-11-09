@@ -92,9 +92,9 @@ class Map : public MutexUsed {
 
   std::vector<KeyFrame*> mvpKeyFrameOrigins;  // pushed pKFini in StereoInitialization() in Tracking for RGBD
 
-  //update KFs' Pose and their mvpMapPoints' Pos and KF&&MP's relation(KF.mvpMapPoints&&MP.mObservations), \
-    // used in Track() && LocalBA in LocalMapping && initialize_imu &&
-  // CorrectLoop()(&& SearchAndFuse()&&PoseGraphOpt.) in LoopClosing && GBA thread
+  // update KFs' Pose and their mvpMapPoints' Pos and KF&&MP's relation(KF.mvpMapPoints&&MP.mObservations), used in
+  // Track() && LocalBA in LocalMapping && initialize_imu && CorrectLoop()(&& SearchAndFuse()&&PoseGraphOpt.) in
+  // LoopClosing && GBA thread
   std::mutex mMutexMapUpdate;
 
   // This avoid that two points are created simultaneously in separate threads (id conflict)

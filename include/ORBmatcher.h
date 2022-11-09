@@ -62,15 +62,17 @@ class ORBmatcher {
 
   // Project MapPoints seen in KeyFrame into the Frame and search matches. Returns number of additional matches
   // Used in relocalisation (Tracking)
+  // rectify CurrentFrame.mvpMapPoints
   int SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const std::set<MapPoint *> &sAlreadyFound, const float th,
-                         const int ORBdist);  // rectify CurrentFrame.mvpMapPoints
+                         const int ORBdist);
 
   // Project MapPoints using a Similarity Transformation and search matches.
   // Used in loop detection (Loop Closing)
+  // rectify vpMatched, return the number of additional matches,
+  // like SBP(Frame,vec<MP*>)+SearchBySim3, notice additional match doesn't need pKF->mvpMapPoints[i] exists && this
+  // func. doesn't check the orientation
   int SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const std::vector<MapPoint *> &vpPoints,
-                         std::vector<MapPoint *> &vpMatched,
-                         int th);  //rectify vpMatched, return the number of additional matches, \
-     like SBP(Frame,vec<MP*>)+SearchBySim3, notice additional match doesn't need pKF->mvpMapPoints[i] exists && this func. doesn't check the orientation
+                         std::vector<MapPoint *> &vpMatched, int th);
 
   // Search matches between MapPoints in a KeyFrame and ORB in a Frame.
   // Brute force constrained to ORB that belong to the same vocabulary node (at a certain level)
@@ -87,11 +89,10 @@ class ORBmatcher {
                               std::vector<int> &vnMatches12, int windowSize = 10);
 
   // Matching to triangulate new MapPoints. Check Epipolar Constraint.
-  int SearchForTriangulation(
-      KeyFrame *pKF1, KeyFrame *pKF2, std::vector<vector<vector<size_t>>> &vMatchedPairs,
-      const bool bOnlyStereo);  //used in CreateNewMapPoints() in LocalMapping thread without checkOri(=false)\
-                               return number of additional matches which haven't been created as MapPoints\
-                               old_vesrion may return some vMatchedPairs with same it->second!
+  // used in CreateNewMapPoints() in LocalMapping thread without checkOri(=false);return number of additional matches
+  // which haven't been created as MapPoints;old_vesrion may return some vMatchedPairs with same it->second!
+  int SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<vector<vector<size_t>>> &vMatchedPairs,
+                             const bool bOnlyStereo);
 
   // Search matches between MapPoints seen in KF1 and KF2 transforming by a Sim3 [s12*R12|t12]
   // In the stereo and RGB-D case, s12=1
@@ -101,18 +102,17 @@ class ORBmatcher {
                                      // pKF1's MPs into pKF2) SBP matching and validation
 
   // Project MapPoints into KeyFrame and search for duplicated MapPoints.
-  int Fuse(
-      KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints,
-      const float th =
-          3.0);  //rectify pKF->mvpMapPoints, and also may rectify vpMapPoints when fusing a better MP by replace(), \
-    Matching method is like SBP but lots of validation is used for safe
+  // rectify pKF->mvpMapPoints, and also may rectify vpMapPoints when fusing a better MP by replace(),
+  // Matching method is like SBP but lots of validation is used for safe
+  int Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th = 3.0);
 
   // Project MapPoints into KeyFrame using a given Sim3 and search for duplicated MapPoints.
-  int Fuse(
-      KeyFrame *pKF, cv::Mat Scw, const std::vector<MapPoint *> &vpPoints, float th,
-      vector<MapPoint *> &vpReplacePoint);  //return number <= the real fused/added matched MPs in pKF->mvpMapPoints, \
-    rectify vpReplacePoint(to be replaced), \
-    matching method is similar to SearchByProjection(KF*,cvScw,vec<MP*>,vec<MP*>), also need lots of validation but no chi2 distr. error check in Fuse(KF*,vec<MP*>)
+  // return number <= the real fused/added matched MPs in pKF->mvpMapPoints,
+  // rectify vpReplacePoint(to be replaced),
+  // matching method is similar to SearchByProjection(KF*,cvScw,vec<MP*>,vec<MP*>), also need lots of validation but no
+  // chi2 distr. error check in Fuse(KF*,vec<MP*>)
+  int Fuse(KeyFrame *pKF, cv::Mat Scw, const std::vector<MapPoint *> &vpPoints, float th,
+           vector<MapPoint *> &vpReplacePoint);
 
  protected:
   bool CheckDistEpipolarLine(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &F12,

@@ -598,7 +598,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate() {  // see VIORBSLAM paper IV
   const cv::Mat gw = mpIMUInitiator->GetGravityVec();
   cv::Mat C = cv::Mat::zeros(3 * (N - 2), 3, CV_32F);
   cv::Mat D = cv::Mat::zeros(3 * (N - 2), 1, CV_32F);
-  for (int i = 0; i < N - 2; i++) {
+  for (int i = 0; i < (int)N - 2; i++) {
     const Frame *pKF2 = mv20pFramesReloc[i + 1], *pKF3 = mv20pFramesReloc[i + 2];
     const IMUPreintegrator &imupreint12 = pKF2->GetIMUPreInt(), &imupreint23 = pKF3->GetIMUPreInt();
     // d means delta
@@ -2365,9 +2365,9 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
 }
 
 void Tracking::SearchLocalPoints() {
-  // Do not search map points already matched (in TrackWithMotionModel()/...), \
-  all of (these) map points created by CreateNewKeyFrame()/StereoInitialization()/{UpdateLastFrame()in Localization mode/\
-  CreateNewMapPoints() in LocalMapping}
+  // Do not search map points already matched (in TrackWithMotionModel()/...),
+  // all of (these) map points created by CreateNewKeyFrame()/StereoInitialization()/{UpdateLastFrame()in Localization
+  // mode/CreateNewMapPoints() in LocalMapping}
   size_t num_maps_ready = 0;
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
   for (size_t i = 0; i < curfmps.size(); ++i) {

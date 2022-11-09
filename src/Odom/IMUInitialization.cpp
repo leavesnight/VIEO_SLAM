@@ -16,10 +16,10 @@ int8_t kCoeffPriorDefault = 1;  // 0 will make coeff_priora/g:1->5e4 */1e6 *
 IMUKeyFrameInit::IMUKeyFrameInit(KeyFrame &kf)
     : timestamp_(kf.timestamp_),
       mTwc(kf.GetPoseInverse()),
-      mTcw(kf.GetPose()),
-      mpPrevKeyFrame(NULL),                // GetPose() already return .clone()
-      mOdomPreIntIMU(kf.GetIMUPreInt()) {  // this func. for IMU Initialization cache of KFs, so need deep copy
-  bg_ = ba_ = Vector3d::Zero();            // as stated in IV-A in VIORBSLAM paper
+      mTcw(kf.GetPose()),                 // GetPose() already return .clone()
+      mOdomPreIntIMU(kf.GetIMUPreInt()),  // this func. for IMU Initialization cache of KFs, so need deep copy
+      mpPrevKeyFrame(nullptr) {
+  bg_ = ba_ = Vector3d::Zero();  // as stated in IV-A in VIORBSLAM paper
   const listeig(IMUData) limu = kf.GetListIMUData();
   mOdomPreIntIMU.SetPreIntegrationList(limu.begin(), limu.end());
 }
@@ -29,7 +29,7 @@ IMUKeyFrameInitFix::IMUKeyFrameInitFix(KeyFrame &kf) : IMUKeyFrameInit(kf) {
   dba_ = ns.mdba;
 }
 
-cv::Mat IMUInitialization::GetGravityVec(void) {
+cv::Mat IMUInitialization::GetGravityVec() {
   // may need mutex for it 1stly calculated in this or gba thread and then it will be a const!
   unique_lock<mutex> lock(mMutexInitIMU);
   return mGravityVec.clone();  // avoid simultaneous operation
@@ -44,7 +44,7 @@ void IMUInitialization::Run() {
   cout << "start VINSInitThread" << endl;
   mbFinish = false;
   static int n_imu_extra_init;
-  while (1) {
+  while (true) {
     if (GetSensorIMU()) {
       if (!GetVINSInited()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
         if (mdStartTime == -1) {
@@ -83,8 +83,8 @@ void IMUInitialization::Run() {
 }
 
 int IMUInitialization::deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit) {
-  for (int h = 0; h < vKFsInit.size(); ++h) {
-    for (int i = 0; i < vKFsInit[h]->size(); ++i) {
+  for (size_t h = 0; h < vKFsInit.size(); ++h) {
+    for (size_t i = 0; i < vKFsInit[h]->size(); ++i) {
       if ((*vKFsInit[h])[i]) delete (*vKFsInit[h])[i];
     }
     delete vKFsInit[h];
@@ -102,7 +102,7 @@ int IMUInitialization::reduceKFs(const vector<char> &reduced_hids, vector<vector
   if (id_cams_ref && (*id_cams_ref).size() == num_handlers) ref_pass = 1;
   for (int i = 0; i < num_handlers; ++i) {
     vKFsInit2.push_back(vKFsInit[reduced_hids[i]]);
-    vKFsInit[reduced_hids[i]] = NULL;
+    vKFsInit[reduced_hids[i]] = nullptr;
     if (ref_pass)
       id_cams[i] = (*id_cams_ref)[i];
     else
@@ -110,12 +110,12 @@ int IMUInitialization::reduceKFs(const vector<char> &reduced_hids, vector<vector
     Ns.push_back(vKFsInit2.back()->size());
   }
   // delete redundant KFsInit
-  for (int h = 0; h < vKFsInit.size(); ++h) {
-    if (NULL != vKFsInit[h]) {
+  for (size_t h = 0; h < vKFsInit.size(); ++h) {
+    if (nullptr != vKFsInit[h]) {
       for (int i = 0; i < vKFsInit[h]->size(); ++i) {
         if ((*vKFsInit[h])[i]) delete (*vKFsInit[h])[i];
       }
-      vKFsInit[h] = NULL;
+      vKFsInit[h] = nullptr;
     }
   }
   vKFsInit.clear();
@@ -124,8 +124,8 @@ int IMUInitialization::reduceKFs(const vector<char> &reduced_hids, vector<vector
 }
 
 // TODO: check se3 approximation error, so3 has been checked
-bool IMUInitialization::TryInitVIO_zzh(
-    void) {  // now it's the version cannot allow the KFs has no inter IMUData in initial 15s!!!
+// now it's the version cannot allow the KFs has no inter IMUData in initial 15s!!!
+bool IMUInitialization::TryInitVIO_zzh() {
   chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
 
   int num_var_opt = mbMonocular ? 4 : 3;
@@ -174,24 +174,24 @@ bool IMUInitialization::TryInitVIO_zzh(
   // see VIORBSLAM paper IV, here N=all KFs in map, not the meaning of local KFs' number
   // Use all KeyFrames in map to compute
   vector<KeyFrame *> vScaleGravityKF = mpMap->GetAllKeyFrames();
-  assert(vScaleGravityKF.size() && (*vScaleGravityKF.begin())->mnId == 0);
+  assert(!vScaleGravityKF.empty() && (*vScaleGravityKF.begin())->mnId == 0);
   if (verbose && (*vScaleGravityKF.begin())->mnId != 0) cerr << "vScaleGrayvityKF begin id !=0!" << endl;
   int NvSGKF = vScaleGravityKF.size();
   KeyFrame *pNewestKF = vScaleGravityKF[NvSGKF - 1];
   // Store initialization-required KeyFrame data
   vector<vector<IMUKeyFrameInit *> *> vKFsInit(1, new vector<IMUKeyFrameInit *>()), vKFsInit2;
-  vector<IMUKeyFrameInit *> lastKFInit(1, NULL);
+  vector<IMUKeyFrameInit *> lastKFInit(1, nullptr);
 
   for (int i = 0; i < NvSGKF; ++i) {
     KeyFrame *pKF = vScaleGravityKF[i];
     char id_cam = 0;  // pKF->id_cam_;
     //     if (pKF->mTimeStamp<pNewestKF->mTimeStamp-15) continue;//15s as the VIORBSLAM paper
-    IMUKeyFrameInit *pkfi = new IMUKeyFrameInit(*pKF);
+    auto pkfi = new IMUKeyFrameInit(*pKF);
     if (id_cam >= vKFsInit.size()) {
       vKFsInit.resize(id_cam + 1);
       vKFsInit.back() = new vector<IMUKeyFrameInit *>();
       lastKFInit.resize(id_cam + 1);
-      lastKFInit.back() = NULL;
+      lastKFInit.back() = nullptr;
     }
     if (lastKFInit[id_cam]) pkfi->mpPrevKeyFrame = lastKFInit[id_cam];
     lastKFInit[id_cam] = pkfi;
@@ -254,7 +254,7 @@ bool IMUInitialization::TryInitVIO_zzh(
   //            cerr<<" "<<SO3exd((*vKFsInit[0])[i]->mOdomPreIntIMU.mRij).log().transpose()<< ", t=" <<
   //            (*vKFsInit[0])[i]->mOdomPreIntIMU.mpij.transpose()<<"; ";
   //        cerr<<endl;
-  reduceKFs(reduced_hids, vKFsInit, vKFsInit2, Ns, num_handlers, id_cams, NULL);
+  reduceKFs(reduced_hids, vKFsInit, vKFsInit2, Ns, num_handlers, id_cams, nullptr);
   //        cerr<<"check reduce bef:"<<vKFsInit2.size()<<" "<<vKFsInit2[0]->size()<<"
   //        "<<(*vKFsInit2[0])[1]->mOdomPreIntIMU.getlOdom().size()<<endl;
   if (verbose) {
@@ -404,7 +404,7 @@ bool IMUInitialization::TryInitVIO_zzh(
     return false;
   }
   MatrixXXcalc u = svdA.matrixU();
-  MatrixXXcalc v = svdA.matrixV();
+  const MatrixXXcalc &v = svdA.matrixV();
   MatrixXXcalc winv = MatrixXXcalc::Identity(w.size(), w.size());
   for (int i = 0; i < num_var_opt; ++i) {
     // too small in sufficient w meaning the linear dependent equations causing the solution is not unique(or
@@ -460,7 +460,7 @@ bool IMUInitialization::TryInitVIO_zzh(
   int num_eq2 = 0;
   for (int h = 0; h < num_handlers; ++h) {
     int num_eq_h = 0;
-    size_t reduced_h = reduced_hids[h];
+    auto reduced_h = (size_t)reduced_hids[h];
     aligned_vector<SO3calc> &Rcbs_h = Rcbs[reduced_h];
     aligned_vector<Vector3calc> &pcbs_h = pcbs[reduced_h];
     for (int i = 0; i < Ns[h] - 2; ++i) {
@@ -533,7 +533,7 @@ bool IMUInitialization::TryInitVIO_zzh(
     return false;
   }
   MatrixXXcalc u2 = svdC.matrixU();
-  MatrixXXcalc v2 = svdC.matrixV();
+  const MatrixXXcalc &v2 = svdC.matrixV();
   MatrixXXcalc w2inv = MatrixXXcalc::Identity(w2.size(), w2.size());
   for (int i = 0; i < w2.size(); ++i) {
     //            if (fabs(w2(i)) < 1e-10) {
@@ -627,8 +627,7 @@ bool IMUInitialization::TryInitVIO_zzh(
       pNewestKF = GetCurrentKeyFrame();
       assert(pNewestKF == vScaleGravityKF.back());  // they must be same for we change the set less func. in Map.h
       // recover right scaled Twc&NavState from old unscaled Twc with scale
-      for (vector<KeyFrame *>::const_iterator vit = vScaleGravityKF.begin(), vend = vScaleGravityKF.end(); vit != vend;
-           ++vit) {
+      for (auto vit = vScaleGravityKF.begin(), vend = vScaleGravityKF.end(); vit != vend; ++vit) {
         KeyFrame *pKF = *vit;
         if (pKF->isBad()) continue;
         // we can SetPose() first even no IMU data
@@ -698,8 +697,7 @@ bool IMUInitialization::TryInitVIO_zzh(
       }
       // Update MPs' Position
       vector<MapPoint *> vpMPs = mpMap->GetAllMapPoints();  // we don't change the vpMPs[i] but change the *vpMPs[i]
-      for (vector<MapPoint *>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; ++vit)
-        (*vit)->UpdateScale(scale);
+      for (auto vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; ++vit) (*vit)->UpdateScale(scale);
       // Now every thing in Map is right scaled & mGravityVec is got
       SetVINSInited(true);
       mpMap->InformNewChange();  // used to notice Tracking thread bMapUpdated
@@ -721,8 +719,8 @@ bool IMUInitialization::TryInitVIO_zzh(
   return bVIOInited;
 }
 
-bool IMUInitialization::TryInitVIO(
-    void) {  // now it's the version cannot allow the KFs has no inter IMUData in initial 15s!!!
+// now it's the version cannot allow the KFs has no inter IMUData in initial 15s!!!
+bool IMUInitialization::TryInitVIO() {
   chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
 
   // at least N>=4
@@ -784,7 +782,7 @@ bool IMUInitialization::TryInitVIO(
   for (int i = 0; i < NvSGKF; ++i) {
     KeyFrame *pKF = vScaleGravityKF[i];
     //     if (pKF->timestamp_<pNewestKF->timestamp_-15) continue;//15s as the VIORBSLAM paper
-    IMUKeyFrameInit *pkfi = new IMUKeyFrameInit(*pKF);
+    auto pkfi = new IMUKeyFrameInit(*pKF);
     if (N > 0) pkfi->mpPrevKeyFrame = vKFInit[N - 1];
     vKFInit.push_back(pkfi);
     ++N;
@@ -1112,8 +1110,7 @@ bool IMUInitialization::TryInitVIO(
       }
       // Update MPs' Position
       vector<MapPoint *> vpMPs = mpMap->GetAllMapPoints();  // we don't change the vpMPs[i] but change the *vpMPs[i]
-      for (vector<MapPoint *>::iterator vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; ++vit)
-        (*vit)->UpdateScale(scale);
+      for (auto vit = vpMPs.begin(), vend = vpMPs.end(); vit != vend; ++vit) (*vit)->UpdateScale((float)scale);
       // Now every thing in Map is right scaled & mGravityVec is got
       if (!mbUsePureVision) SetVINSInited(true);
       mpMap->InformNewChange();  // used to notice Tracking thread bMapUpdated
