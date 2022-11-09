@@ -23,6 +23,7 @@
 #include "ORBmatcher.h"
 #include <mutex>
 #include "common/log.h"
+#include "common/common.h"
 
 namespace VIEO_SLAM {
 
@@ -77,7 +78,22 @@ void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
                                              const typename aligned_list<IMUData>::const_iterator &begin,
                                              const typename aligned_list<IMUData>::const_iterator &end) {
   unique_lock<mutex> lock(mMutexOdomData);
-  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, end);
+  auto stop = end;
+  if (mOdomPreIntIMU.getlOdom().size()) {
+    double tm_ref = mOdomPreIntIMU.getlOdom().begin()->mtm;
+    auto iter = end;
+    for (; iter != begin;) {
+      stop = iter--;
+      if (iter->mtm >= tm_ref) continue;
+      break;
+    }
+    if (iter != end && iter->mtm >= tm_ref) {
+      CV_Assert(0 && "check AppendFrontPreIntegrationList usage!");
+      stop = begin;
+    }
+  }
+  mOdomPreIntIMU.AppendFrontPreIntegrationList(x, begin, stop);
+  if (stop != end) x.erase(stop, end);
 }
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
@@ -91,13 +107,13 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
 #endif
 }
 template <>
-void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
                                                  const typename aligned_list<IMUData>::const_iterator &iteri,
                                                  const typename aligned_list<IMUData>::const_iterator &iterj,
                                                  bool breset, int8_t verbose) {
   NavState ns = plastkf->GetNavState();
   unique_lock<mutex> lock(mMutexOdomData);
-  FrameBase::PreIntegration<IMUData, IMUPreintegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 // for LoadMap()
@@ -152,7 +168,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mpParent(NULL),
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
-      mbBad(false),
       mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mbPrior(false)  //,mbPNChanging(false)//zzh
@@ -316,7 +331,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mpParent(NULL),
       mbNotErase(false),
       mbToBeErased(false),
-      mbBad(false),
       mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mState(state),
@@ -512,7 +526,10 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
     mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
   }
 }
-
+void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {
+  unique_lock<mutex> lock(mMutexFeatures);
+  FrameBase::ReplaceMapPointMatch(idx, pMP);
+}
 std::set<std::pair<MapPoint *, size_t>> KeyFrame::GetMapPointsCami() {
   unique_lock<mutex> lock(mMutexFeatures);
   return FrameBase::GetMapPointsCami();
@@ -550,6 +567,18 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", imu_tightly_debug_path, "debug.txt");
+  // not wise to search replaced too deep if this replace is outlier or max_depth too large
+#ifdef USE_SIMPLE_REPLACE
+  if (!pMP || pMP->isBad()) return;
+#else
+  int depth = 0, depth_thresh = 5;
+  while (pMP && pMP->isBad()) {
+    pMP = pMP->GetReplaced();
+    if (++depth >= depth_thresh) break;
+  }
+  if (!pMP || pMP->isBad()) return;
+#endif
+
   // If there is already a MapPoint replace otherwise add new measurement
   MapPoint *pMPinKF = GetMapPoint(idx);
   if (pMPinKF) {
@@ -889,6 +918,15 @@ void KeyFrame::SetBadFlag(
       mpNextKeyFrame->AppendFrontPreIntegrationList<EncData>(lodom, lodom.begin(), lodom.end());
     }
     // ComputePreInt
+    auto ns_preint_new = mpPrevKeyFrame->GetNavState();
+    {
+      unique_lock<mutex> lock(mMutexNavState);
+      ns_preint_new.mbg = mNavState.mbg + mNavState.mdbg;
+      ns_preint_new.mba = mNavState.mba + mNavState.mdba;
+    }
+    ns_preint_new.mdbg.setZero();
+    ns_preint_new.mdba.setZero();
+    mpPrevKeyFrame->SetNavState(ns_preint_new);
     mpNextKeyFrame->PreIntegration<IMUData>(mpPrevKeyFrame);
     mpNextKeyFrame->PreIntegration<EncData>(mpPrevKeyFrame);
     mpPrevKeyFrame = mpNextKeyFrame = NULL;  // clear this KF's pointer, to check if its prev/next is deleted
@@ -906,7 +944,7 @@ void KeyFrame::SetBadFlag(
 
 bool KeyFrame::isBad() {
   unique_lock<mutex> lock(mMutexConnections);
-  return mbBad;
+  return FrameBase::isBad();
 }
 
 void KeyFrame::EraseConnection(KeyFrame *pKF) {
@@ -924,6 +962,7 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
 
 vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
   vector<size_t> vIndices;
+  if (vgrids_.empty()) return vIndices;
   vIndices.reserve(N);
 
   const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));

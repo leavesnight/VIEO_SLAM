@@ -7,7 +7,7 @@ test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 Camera.delaytoimu: 0.
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
-Camera.delayForPolling: 0.001
+Camera.delayForPolling: 0.005
 
 # 2 differential driving wheels' distance (m)
 Encoder.rc: 0.280
@@ -19,6 +19,9 @@ Encoder.scale: 1.649336143e-4
 Encoder.sigma:
  [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
 
+# mode 0 is normal right order gxgygz/axayaz, 1 means -gy,gxgz/-ay,axaz
+IMU.mode: 0
+
 # Sigma etawi of IMU
 IMU.SigmaI:
  [0.1, 0, 0,
@@ -27,10 +30,11 @@ IMU.SigmaI:
 
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
- [1.6968e-4, 2.e-3, 1.9393e-5, 3.e-3]
-# [1.697e-4, 4.e-2, 1.939e-5, 6.e-2]
+# [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
+# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+ [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
 
-IMU.freq_hz: 200.0
+IMU.freq_hz: 1000.0
 IMU.dt_cov_noise_fix: 1
 
 # acc=acc*IMU.dMultiplyG, if below is 9.80665 meaning acc=acc*9.80665, but internal referenced G used for prior is still 9.810
@@ -38,10 +42,10 @@ IMU.dMultiplyG: 1.
 
 # camera-imu frame transformation, Pi = Tic * Pc; For stereo: it's the rectified left(0) camera's Tbc'=Tbc0*Tc'c0.inv(), notice LEFT.R is Rc'c0(R1) & tc'c0=0
 Camera.Tbc:
- [0.01632106431347947, -0.9998055939694457, 0.01106332348365739, -0.0216401454975,
-  0.9997100876913918, 0.01651340320778997, 0.0175227875128659, -0.064676986768,
-  -0.01770207409877133, 0.01077412554806465, 0.9997852543378366, 0.00981073058949,
-  0, 0, 0, 1]
+ [0.201299353,  0.962888982,  0.179787040,  0.099495763,
+  -0.755935959,  0.269434525, -0.596628748,  0.002507497,
+  -0.622928083, -0.015806508,  0.782119401,  0.006693590,
+  0        ,   0,           0         ,  1]
 
 # imu-encoder frame transformation
 Camera.Tce:
@@ -64,103 +68,106 @@ IMU.SleepTime: 1.0
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10
 GBA.initIterations: 15
-GBA.finalIterations: 20
-
-# if use A looser restriction for LoopClosing(old strategy of Loop KF exludes all covisible KFs), default 0
-Loop.More: 0
+GBA.finalIterations: 0
+GBA.threshMatches : 10
+GBA.threshInliers : 10
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 
-# Camera calibration and distortion parameters (OpenCV) 
-Camera.fx: 435.2046959714599
-Camera.fy: 435.2046959714599
-Camera.cx: 367.4517211914062
-Camera.cy: 252.2008514404297
+Camera.type: "KannalaBrandt8"
+# Camera calibration and distortion parameters (OpenCV)
+Camera.fx: 234.1880629
+Camera.fy: 234.7812
+Camera.cx: 315.7536361 
+Camera.cy: 235.7147846
+Camera.k1: 0.213186433
+Camera.k2: -0.1629277497
+Camera.k3: 0.05754378841
+Camera.k4: -0.008671469663
+Camera2.fx: 236.5673807
+Camera2.fy: 236.7734949
+Camera2.cx: 315.4433573
+Camera2.cy: 233.8171481
+Camera2.k1: 0.2139231601
+Camera2.k2: -0.1654129519
+Camera2.k3: 0.05759914372
+Camera2.k4: -0.008638573905
+Camera3.fx: 237.5684601
+Camera3.fy: 238.3958173
+Camera3.cx: 319.0968645
+Camera3.cy: 233.8469634
+Camera3.k1: 0.2053684704
+Camera3.k2: -0.1571537097
+Camera3.k3: 0.05538060014
+Camera3.k4: -0.008568903558
+Camera4.fx: 235.2586282 
+Camera4.fy: 235.7377231
+Camera4.cx: 317.2162393 
+Camera4.cy: 234.3107724
+Camera4.k1: 0.2091942181
+Camera4.k2: -0.1601806788
+Camera4.k3: 0.05745422052
+Camera4.k4: -0.009171365526
+# Transformation matrix from reference camera to current camera
+Camera2.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ -0.765412313, -0.077148614, -0.638899118, -0.024361251,
+          -0.598934878, -0.277778005,  0.751076821,  0.043226684,
+          -0.235416658,  0.957542412,  0.166407710, -0.039690376]
+Camera3.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ -0.443938298,  0.016072542 ,-0.895913199 ,-0.061367401,
+          0.895245197,  0.050515496 ,-0.442701053 ,-0.119345071,
+          0.038142168, -0.998593941, -0.036814629, -0.067423353]
+Camera4.Trc: !!opencv-matrix
+  rows: 3
+  cols: 4
+  dt: f
+  data: [ 0.921426381,  0.384342650, -0.057045174, -0.021275771,
+          -0.378992063,  0.856646144, -0.350031998, -0.109619463,
+          -0.085664698,  0.344148385,  0.934999170, -0.021441253]
 
-Camera.k1: 0.0
-Camera.k2: 0.0
-Camera.p1: 0.0
-Camera.p2: 0.0
-
-Camera.width: 752
+# Lapping area between images
+Camera.lappingBegin: 0
+Camera.lappingEnd: 639
+Camera2.lappingBegin: 0
+Camera2.lappingEnd: 639
+Camera3.lappingBegin: 0
+Camera3.lappingEnd: 639
+Camera4.lappingBegin: 0
+Camera4.lappingEnd: 639
+Camera.width: 640
 Camera.height: 480
 
 # Camera frames per second 
-Camera.fps: 20.0
-
-# stereo baseline times fx
-Camera.bf: 47.90639384423901
+Camera.fps: 30.0
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
 
+# stereo baseline times fx
+Camera.bf: 15.7801
 # Close/Far threshold. Baseline times.
-ThDepth: 35
-
-#--------------------------------------------------------------------------------------------
-# Stereo Rectification. Only if you need to pre-rectify the images.
-# Camera.fx, .fy, etc must be the same as in LEFT.P
-#--------------------------------------------------------------------------------------------
-LEFT.height: 480
-LEFT.width: 752
-LEFT.D: !!opencv-matrix
-   rows: 1
-   cols: 5
-   dt: d
-   data:[-0.28340811, 0.07395907, 0.00019359, 1.76187114e-05, 0.0]
-LEFT.K: !!opencv-matrix
-   rows: 3
-   cols: 3
-   dt: d
-   data: [458.654, 0.0, 367.215, 0.0, 457.296, 248.375, 0.0, 0.0, 1.0]
-LEFT.R:  !!opencv-matrix
-   rows: 3
-   cols: 3
-   dt: d
-   data: [0.999966347530033, -0.001422739138722922, 0.008079580483432283, 0.001365741834644127, 0.9999741760894847, 0.007055629199258132, -0.008089410156878961, -0.007044357138835809, 0.9999424675829176]
-LEFT.P:  !!opencv-matrix
-   rows: 3
-   cols: 4
-   dt: d
-   data: [435.2046959714599, 0, 367.4517211914062, 0,  0, 435.2046959714599, 252.2008514404297, 0,  0, 0, 1, 0]
-
-RIGHT.height: 480
-RIGHT.width: 752
-RIGHT.D: !!opencv-matrix
-   rows: 1
-   cols: 5
-   dt: d
-   data:[-0.28368365, 0.07451284, -0.00010473, -3.555907e-05, 0.0]
-RIGHT.K: !!opencv-matrix
-   rows: 3
-   cols: 3
-   dt: d
-   data: [457.587, 0.0, 379.999, 0.0, 456.134, 255.238, 0.0, 0.0, 1]
-RIGHT.R:  !!opencv-matrix
-   rows: 3
-   cols: 3
-   dt: d
-   data: [0.9999633526194376, -0.003625811871560086, 0.007755443660172947, 0.003680398547259526, 0.9999684752771629, -0.007035845251224894, -0.007729688520722713, 0.007064130529506649, 0.999945173484644]
-RIGHT.P:  !!opencv-matrix
-   rows: 3
-   cols: 4
-   dt: d
-   data: [435.2046959714599, 0, 367.4517211914062, -47.90639384423901, 0, 435.2046959714599, 252.2008514404297, 0, 0, 0, 1, 0]
+ThDepth: 35.0 # 35
 
 #--------------------------------------------------------------------------------------------
 # ORB Parameters
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 1000
+ORBextractor.nFeatures: 187
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
-ORBextractor.scaleFactor: 1.2
+ORBextractor.scaleFactor: 2.
 
 # ORB Extractor: Number of levels in the scale pyramid	
-ORBextractor.nLevels: 8
+ORBextractor.nLevels: 4
 
 # ORB Extractor: Fast threshold
 # Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
@@ -171,11 +178,11 @@ ORBextractor.minThFAST: 7
 
 #--------------------------------------------------------------------------------------------
 # Viewer Parameters
-#--------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------
 Viewer.KeyFrameSize: 0.05
 Viewer.KeyFrameLineWidth: 1
 Viewer.GraphLineWidth: 0.9
-Viewer.PointSize:2
+Viewer.PointSize: 2
 Viewer.CameraSize: 0.08
 Viewer.CameraLineWidth: 3
 Viewer.ViewpointX: 0

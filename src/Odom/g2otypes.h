@@ -21,7 +21,7 @@
 namespace VIEO_SLAM {
 // TODO: define template NavState<>
 typedef NavState NavStated;
-}
+}  // namespace VIEO_SLAM
 
 namespace g2o {
 
@@ -105,8 +105,8 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   using JacobianXjOplusType =
       typename BaseFixedSizedEdge<D, E, VertexXi, VertexXj>::template JacobianType<D, VertexXj::Dimension>;
 #else
-  using typename Base::HessianBlockType;
   using typename Base::HessianBlockTransposedType;
+  using typename Base::HessianBlockType;
   using typename Base::JacobianXiOplusType;
   using typename Base::JacobianXjOplusType;
 #endif
@@ -270,12 +270,12 @@ class VertexNavState : public BaseVertex<D, NavStated> {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   // default constructor is enough
-  virtual bool read(std::istream &is) { return true; }
+  virtual bool read(std::istream& is) { return true; }
 
-  virtual bool write(std::ostream &os) const { return true; }
+  virtual bool write(std::ostream& os) const { return true; }
 
   void setToOriginImpl() { this->_estimate = NavStated(); }  // virtual
-  void oplusImpl(const double *update_) {
+  void oplusImpl(const double* update_) {
     Eigen::Map<const Matrix<double, D, 1>> update(update_);
     this->_estimate.template IncSmall(update);
   }  // virtual
@@ -283,7 +283,7 @@ class VertexNavState : public BaseVertex<D, NavStated> {
 
 typedef VertexNavState<6> VertexNavStatePR;
 typedef VertexNavState<3> VertexNavStateV;
-typedef VertexNavState<9> VertexNavStatePVR; // TODO: delete this for code simplicity
+typedef VertexNavState<9> VertexNavStatePVR;  // TODO: delete this for code simplicity
 
 /**
  * \brief template Vertex for VertexScale
@@ -338,9 +338,9 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
     if (DE > 2) res[2] = res[0] - bf / x_C[2];
     return res;
   }
-  inline void GetTcw_wX(Matrix3d &Rcw, Vector3d &tcw, Vector3d &Xw, double *pscale = nullptr,
-                        Vector3d *phX_unscale = nullptr, Matrix3d *pRwh = nullptr, Matrix3d *pRwbh = nullptr,
-                        Matrix3d *pRbw = nullptr, Vector3d *ptwh = nullptr) {
+  inline void GetTcw_wX(Matrix3d& Rcw, Vector3d& tcw, Vector3d& Xw, double* pscale = nullptr,
+                        Vector3d* phX_unscale = nullptr, Matrix3d* pRwh = nullptr, Matrix3d* pRwbh = nullptr,
+                        Matrix3d* pRbw = nullptr, Vector3d* ptwh = nullptr) {
     const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xh/Ph
     // Tbs_w, bs is b for slam
     const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
@@ -404,9 +404,9 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   void SetParams(GeometricCamera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
                  const Vector3d tcrb_ = Vector3d::Zero(), const float* bf = NULL) {
     intr_ = intr;
-    auto Tcb = intr_->GetTcr() * Sophus::SE3d(Sophus::SO3exd(Rcrb_), tcrb_);
-    Rcb = Tcb.rotationMatrix();
-    tcb = Tcb.translation();
+    Matrix3d Rccr = intr_->GetTcr().rotationMatrix();
+    Rcb = Rccr * Rcrb_;
+    tcb = Rccr * tcrb_ + intr_->GetTcr().translation();
     if (bf) bf_ = *bf;
   }
   void SetParams(const Matrix3d& Rbch, const Vector3d& tbch) {
@@ -435,6 +435,7 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   Matrix3d Rcw, Rwh, Rwbh, Rbw;
   Vector3d tcw, Ph_unscale, Pw, twh;
   double scale;
+  // TODO(zzh): put it in update
   if (2 != MODE_OPT_VAR)
     GetTcw_wX(Rcw, tcw, Pw, &scale, &Ph_unscale, &Rwh, &Rwbh);
   else
@@ -450,20 +451,30 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0 -fx*x/z^2+bf/z^2]
   if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), Jproj(0, 1), Jproj(0, 2) - bf_ * invz_2;
 
-  // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
-  // corresponding Vertex, so here is the same, a bit dfferent from (21)
-  //        Matrix<double,DE,3> JdPwb = Jproj*(-Rcb);//J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
+    // Jacobian of error w.r.t dPwb = JdPwb=J_e_Pc*J_Pc_dPwb, notcie we use pwb->pwb+dpwb increment model in the
+    // corresponding Vertex, so here is the same, a bit dfferent from (21)
+#ifdef USE_P_PLUS_RDP
+  Matrix<double, DE, 3> JdPwb = Jproj * (-Rcb);  // J_Pc_dPwb = -Rcw*Rwb= -Rcb(p<-p+R*dp)
+#else
   Matrix<double, DE, 3> JdPwb = Jproj * (-Rcw.matrix());  // J_Pc_dPwb = -Rcw(p<-p+dp)
+#endif
 
   // Jacobian of error w.r.t dRwb
   // J_Pc_dRwb=(Rcw*(Pw-twb))^Rcb, using right disturbance model/Rwb->Rwb*Exp(dphi) or Rbw->Exp(-dphi)*Rbw,
   // see Manifold paper (20)
-  Vector3d Paux;
-  if (2 != MODE_OPT_VAR)
-    Paux = Rcw * Pw + (tcw - tcb);
-  else
-    Paux = Rcw * Pw + (tcw - tcb * scale);
-  Matrix<double, DE, 3> JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
+  Matrix<double, DE, 3> JdRwb;
+  {
+    Vector3d Paux;
+    if (2 != MODE_OPT_VAR) {
+      const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
+      const NavStated& ns = vNS->estimate();  // transform Xh to Xc through Tbw&&Tcb
+      Paux = ns.getRwb().transpose() * (Pw - ns.mpwb);
+      JdRwb = Jproj * Rcb * Sophus::SO3exd::hat(Paux);  // Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
+    } else {
+      Paux = Rcw * Pw + (tcw - tcb * scale);
+      JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
+    }
+  }
 
   // Jacobian of error w.r.t NavStatePR, order in 'update_': dP, dPhi
   Matrix<double, DE, DV> JNavState = Matrix<double, DE, DV>::Zero();
@@ -472,8 +483,11 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   _jacobianOplus[1] = JNavState;
 
   // Jacobian of error(-pc) w.r.t dXh/dPh: J_e_dXh=JdXh=J_e_Pc*J_Pc_dPw*J_Pw_dPh=Jproj*Rcw*Rwh=-JdPwb*Rwh
-  //        _jacobianOplus[0] = -JdPwb*Rwb.transpose();//for (p<-p+R*dp)
+#ifdef USE_P_PLUS_RDP
+  _jacobianOplus[0] = Jproj * (Rcw.matrix());  // JdPwb * Rwb.transpose();  // for (p<-p+R*dp)
+#else
   _jacobianOplus[0] = -JdPwb;  // Jproj*Rcb*Rwb.transpose()*Rwh; it's a fast form for (p<-p+dp);Rwh=I for NV==2
+#endif
   if (-1 != offset_Twbh_) {
     // J_e_dPwb = J_e_dXw * J_Xw_dPwbh = Jproj*Rcw*I
     _jacobianOplus[offset_Twbh_].template block<DE, 3>(0, 0) = _jacobianOplus[0];
@@ -508,7 +522,7 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
 }
 
 typedef EdgeReproject<2, 6, 2> EdgeReprojectPR;
-typedef EdgeReproject<2, 6, 3> EdgeReprojectPR3V; // designed for 3d points with known model coordinates
+typedef EdgeReproject<2, 6, 3> EdgeReprojectPR3V;  // designed for 3d points with known model coordinates
 typedef EdgeReproject<3, 6, 2> EdgeReprojectPRStereo;
 typedef EdgeReproject<2, 9, 2> EdgeReprojectPVR;
 typedef EdgeReproject<3, 9, 2> EdgeReprojectPVRStereo;
@@ -528,7 +542,7 @@ class VertexNavStateBias : public BaseVertex<6, NavState> {
 
   void setToOriginImpl() { this->_estimate = NavState(); }  // virtual
   void oplusImpl(const double* update_) {
-    Eigen::Map<const Matrix<double, 6, 1> > update(update_);
+    Eigen::Map<const Matrix<double, 6, 1>> update(update_);
     this->_estimate.IncSmallBias(update);
   }  // virtual
 };
@@ -554,26 +568,8 @@ bool writeEdge(std::ostream& os, const Matrix<double, DE, 1>& measurement, const
   return os.good();
 }
 
-///**
-// * \brief template for EdgeEnc(binary edge)
-// */
-//class EdgeEnc : public BaseBinaryEdge<6, Vector6d, VertexSE3Expmap, VertexSE3Expmap> {
-// public:
-//  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-//
-//  bool read(std::istream& is) { return true; }
-//  bool write(std::ostream& os) const { return true; }
-//
-//  void computeError();
-//  virtual void linearizeOplus();
-//
-//  Quaterniond qRce;
-//  Vector3d pce;
-//
-// protected:
-//};
 template <int DV>
-class EdgeEncNavState : public BaseBinaryEdgeEx<6, Vector6d, VertexNavState<DV>, VertexNavState<DV> > {
+class EdgeEncNavState : public BaseBinaryEdgeEx<6, Vector6d, VertexNavState<DV>, VertexNavState<DV>> {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -596,9 +592,9 @@ void EdgeEncNavState<DV>::computeError() {
   Quaterniond qRiw = nsi.mRwb.inverse().unit_quaternion(), qRwj = nsj.mRwb.unit_quaternion();
   Vector3d pwi = nsi.mpwb, pwj = nsj.mpwb;
   Sophus::SO3exd so3Reiej = Sophus::SO3exd(qRbe.conjugate() * qRiw * qRwj * qRbe);
+  // Log(delta~Rij.t()*Reiej)
   this->_error.template segment<3>(0) =
-      Sophus::SO3exd(Sophus::SO3exd::exp(this->_measurement.template segment<3>(0)).inverse() * so3Reiej)
-          .log();  // Log(delta~Rij.t()*Reiej)
+      Sophus::SO3exd(Sophus::SO3exd::exp(this->_measurement.template segment<3>(0)).inverse() * so3Reiej).log();
   Vector3d deltapij = qRbe.conjugate() *
                       (qRiw * (pwj - pwi) - pbe + qRiw * qRwj * pbe);  // Reb*[Rbiw*(pwbj-pwbi)-pbe+Rbiw*Rbjw.t()*pbe]
   this->_error.template segment<3>(3) = deltapij - this->_measurement.template segment<3>(3);  // deltapij-delta~pij
@@ -620,11 +616,17 @@ void EdgeEncNavState<DV>::linearizeOplus() {
                        qRij.conjugate().toRotationMatrix();  // JeR_dphii=-Jrinv(eR)*(Rbiw*Rwbj*Rbe).t()
   Matrix3d RebRiw = (qRbe.conjugate() * qRiw).toRotationMatrix();
   Matrix3d Jep_dpi = -RebRiw;  // Jep_dpi=-Reb*Rbiw
+#ifdef USE_P_PLUS_RDP
+  Jep_dpi *= nsi.mRwb.matrix();
+#endif
   Matrix3d Jep_dphii =
       Reb * Sophus::SO3exd::hat(qRij * pbe + qRiw * (pwj - pwi));  // Jep_dphii=Reb*[Rbiw*(Rwbj*pbe+pwbj-pwbi)]^
   // calculate Je_dxj xj=ksj=(phij,rhoj)
   Matrix3d JeR_dphij = Sophus::SO3exd::JacobianRInv(eR) * Reb;  // JeR_dphij=Jrinv(eR)*Reb
   Matrix3d Jep_dpj = RebRiw;                                    // Jep_dpj=Reb*Rbiw
+#ifdef USE_P_PLUS_RDP
+  Jep_dpj *= nsj.mRwb.matrix();
+#endif
   Matrix3d Jep_dphij =
       -(qRbe.conjugate() * qRij).toRotationMatrix() * Sophus::SO3exd::hat(pbe);  // Jep_dphij=-Reb*Rbiw*Rwbj*pbe^
 
@@ -647,6 +649,36 @@ typedef EdgeEncNavState<6> EdgeEncNavStatePR;
 typedef EdgeEncNavState<9> EdgeEncNavStatePVR;
 
 /**
+ * @brief The VertexGThetaXYRwI class
+ * For Initial-Only BA, right disturbance model of Theta_wI_xy
+ */
+class VertexGThetaXYRwI : public BaseVertex<2, Sophus::SO3exd> {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  // default constructor is enough
+  bool read(std::istream& is) { return true; }
+  bool write(std::ostream& os) const { return true; }
+
+  void setToOriginImpl() {}
+  void setToOriginImpl(Vector3d& gw) {
+    Vector3d gwn = gw / gw.norm();
+    Vector3d gIn;
+    gIn << 0, 0, 1;
+    Vector3d a_wI = gIn.cross(gwn);
+    Vector3d vhat = a_wI.normalized();  // notice that even norm_gIn=1 and norm_gwn=1, norm_a_wI may not be 1!
+    double theta_wI_val = std::acos(gIn.dot(gwn));         // ORB3 code means acos(gIn.dot(gwn)) is enough
+    _estimate = Sophus::SO3exd::exp(vhat * theta_wI_val);  // RwI=Exp(theta_wI)
+  }
+  void oplusImpl(const double* update) {
+    Vector3d update3;
+    update3 << update[0], update[1], 0;
+    //            estimate << _estimate[0], _estimate[1], _estimate[2];
+    _estimate = _estimate * Sophus::SO3exd::exp(update3);
+  }
+};
+
+/**
  * \brief template for EdgeNavStateI(multi edge)
  */
 template <int NV>
@@ -664,19 +696,21 @@ class EdgeNavStateI : public BaseMultiEdgeEx<9, IMUPreintegrator> {
 
   virtual void linearizeOplus();
 
-  void SetParams(const Vector3d& gw_) { gw = gw_; }
+  void SetParams(const Vector3d& gw) { gw_ = gw; }
 
  protected:
-  Vector3d gw;  // gw: Gravity vector in 'world' frame
-  typedef VertexNavState<(NV >= 5 ? 6 : 9)>
-      VertexNavStateNV;  // NV==5/6 -> <6>PR NV==3 -> <9>PVR, this is very important typedef!
+  Vector3d gw_;  // gw: Gravity vector in 'world' frame
+  // NV==5/6 -> <6>PR NV==3 -> <9>PVR, this is very important typedef!
+  typedef VertexNavState<(NV >= 5 ? 6 : 9)> VertexNavStateNV;
 };
 template <int NV>
 void EdgeNavStateI<NV>::computeError() {
   const VertexNavStateNV* vPRi = static_cast<const VertexNavStateNV*>(_vertices[0]);
   const VertexNavStateNV* vPRj = static_cast<const VertexNavStateNV*>(_vertices[1]);
   const NavState &nsPRi = vPRi->estimate(), &nsPRj = vPRj->estimate(), *pBiasi;
-  const Sophus::SO3exd RiT = nsPRi.mRwb.inverse();
+  // q*p=qpq.conj=15x+15+,Rp=9x+6+,R(q)=24 and we found bad result in hard fast motion dataset for q*p here
+  const Sophus::SO3exd so3RiT = nsPRi.mRwb.inverse();
+  const Matrix3d RiT = nsPRi.getRwb().transpose();
   // get vi,vj,dbi in PRV/PVR situation
   Vector3d vi, vj, dbgi, dbai;
   if (NV >= 5) {                                                              // PRV
@@ -692,19 +726,29 @@ void EdgeNavStateI<NV>::computeError() {
   dbai = pBiasi->mdba;
   double deltat = _measurement.mdeltatij;  // deltatij
 
+  Vector3d gw = gw_;
+  if (6 == NV) {
+    const VertexGThetaXYRwI* vG = static_cast<const VertexGThetaXYRwI*>(_vertices[NV - 1]);
+    gw = vG->estimate() * gw_;  // here gw_ is GI
+  }
+
   // see VIORBSLAM paper (6)/ Manifold (45)
   //  r_deltapij/ep=Rbiw*(pwbj-pwbi-vwbi*deltatij-1/2*gw*deltatij^2)-
   //  (deltapij+J_g_deltap*dbgi+J_a_deltap*dbai),here deltapij=delta~pij(bi_bar)
   _error.segment<3>(0) = RiT * (nsPRj.mpwb - nsPRi.mpwb - vi * deltat - gw * (deltat * deltat / 2)) -
                          (_measurement.mpij + _measurement.mJgpij * dbgi + _measurement.mJapij * dbai);
-  int idR = (NV >= 5) ? 3 : 6;  // if NV==5 then error_PRV else ePVR
+  // if NV==5 then error_PRV else ePVR
+  int idR = (NV >= 5) ? 3 : 6;
+  // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj)
   _error.segment<3>(idR) =
-      ((Sophus::SO3exd(Sophus::SO3exd(_measurement.mRij)) * Sophus::SO3exd::exp(_measurement.mJgRij * dbgi)).inverse() *
-       RiT * nsPRj.mRwb)
-          .log();                                               // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj)
-  _error.segment<3>(9 - idR) = RiT * (vj - vi - gw * deltat) -  // ev=Rwbi.t()*(vwbj-vwbi-gw*deltatij)-
-                               (_measurement.mvij + _measurement.mJgvij * dbgi +
-                                _measurement.mJavij * dbai);  //(deltavij+J_g_deltav*dbgi+J_a_deltav*dbai)
+      ((Sophus::SO3exd(_measurement.mRij) * Sophus::SO3exd::exp(_measurement.mJgRij * dbgi)).inverse() *
+       (so3RiT * nsPRj.mRwb))
+          .log();
+  //  _error.segment<3>(idR) = Sophus::SO3exd::Log(
+  //      (_measurement.mRij * Sophus::SO3exd::Exp(_measurement.mJgRij * dbgi)).transpose() * RiT * nsPRj.getRwb());
+  // ev=Rwbi.t()*(vwbj-vwbi-gw*deltatij)-(deltavij+J_g_deltav*dbgi+J_a_deltav*dbai)
+  _error.segment<3>(9 - idR) =
+      RiT * (vj - vi - gw * deltat) - (_measurement.mvij + _measurement.mJgvij * dbgi + _measurement.mJavij * dbai);
 }
 template <int NV>
 void EdgeNavStateI<NV>::linearizeOplus() {
@@ -738,20 +782,37 @@ void EdgeNavStateI<NV>::linearizeOplus() {
     idV = 3;  // please notice everything after meaning row/col should use idR/idV except bias term!
   }
   Vector3d eR = _error.segment<3>(idR);  // r_deltaRij/eR/r_Phiij
-  // J_rpij_dxi
-  JPRVi.block<3, 3>(0, idR) =
-      Sophus::SO3exd::hat(RiT * (pj - pi - vi * deltat - gw * (deltat * deltat / 2)));  // J_rpij_dPhi_i
-  //   JPRVi.block<3,3>(0,0)=-Matrix3d::Identity();//J_rpij_dpi=-I3x3, notice here use pi<-pi+Ri*dpi
+
+  Vector3d gw = gw_;
+  Matrix<double, 3, 2> RwIGIhat;  // Exp(thetag_wI) * GI^(col:[0,2))
+  if (6 == NV) {
+    const VertexGThetaXYRwI* vG = static_cast<const VertexGThetaXYRwI*>(_vertices[NV - 1]);
+    Sophus::SO3exd RwI = vG->estimate();
+    gw = RwI * gw_;  // here gw_ is GI
+    RwIGIhat = RwI.matrix() * Sophus::SO3exd::hat(gw_).block<3, 2>(0, 0);
+  }
+
+  // J_rpij_dxi; J_rpij_dPhi_i
+  JPRVi.block<3, 3>(0, idR) = Sophus::SO3exd::hat(RiT * (pj - pi - vi * deltat - gw * (deltat * deltat / 2)));
+#ifdef USE_P_PLUS_RDP
+  // J_rpij_dpi=-I3x3, notice here use pi<-pi+Ri*dpi
+  JPRVi.block<3, 3>(0, 0) = -Matrix3d::Identity();
+#else
   // J_rpij_dpi, notice here use pi<-pi+dpi not the form pi<-pi+Ri*dpi in the paper!
   JPRVi.block<3, 3>(0, 0) = -RiT;
+#endif
   JPRVi.block<3, 3>(0, idV) = -RiT * deltat;        // J_rpij_dvi
   JBiasi.block<3, 3>(0, 0) = -_measurement.mJgpij;  // J_rpij_ddbgi
   JBiasi.block<3, 3>(0, 3) = -_measurement.mJapij;  // J_rpij_ddbai
   // J_rpij_dxj
   JPRVj.block<3, 3>(0, idR) = O3x3;  // J_rpij_dPhi_j
-  //   JPRVj.block<3,3>(0,0)=RiT*nsPRj.getRwb();//J_rpij_dpj=Ri.t()*Rj, notice here use pj<-pj+Rj*dpj
+#ifdef USE_P_PLUS_RDP
+  // J_rpij_dpj=Ri.t()*Rj, notice here use pj<-pj+Rj*dpj
+  JPRVj.block<3, 3>(0, 0) = RiT * nsPRj.getRwb();
+#else
   // J_rpij_dpj, notice here use pj<-pj+dpj not the form pj<-pj+Rj*dpj in the paper!
   JPRVj.block<3, 3>(0, 0) = RiT;
+#endif
   JPRVj.block<3, 3>(0, idV) = O3x3;  // J_rpij_dvj
   // J_rvij_dxi
   JPRVi.block<3, 3>(idV, idR) = Sophus::SO3exd::hat(RiT * (vj - vi - gw * deltat));  // J_rvij_dPhi_i
@@ -770,8 +831,8 @@ void EdgeNavStateI<NV>::linearizeOplus() {
   JPRVi.block<3, 3>(idR, idV) = O3x3;  // J_rRij_dvi
   // right is Exp(rdeltaRij).t(), same as Sophus::SO3exd::exp(rPhiij).inverse().matrix()
   //  J_rRij_ddbgi, notice Jr_b=Jr(Jg_deltaR*dbgi)
-  JBiasi.block<3, 3>(idR, 0) = -Jrinv * Sophus::SO3exd::Expmap(-eR) *
-                               Sophus::SO3exd::JacobianR(_measurement.mJgRij * dbgi) * _measurement.mJgRij;
+  JBiasi.block<3, 3>(idR, 0) =
+      -Jrinv * Sophus::SO3exd::Exp(-eR) * Sophus::SO3exd::JacobianR(_measurement.mJgRij * dbgi) * _measurement.mJgRij;
   JBiasi.block<3, 3>(idR, 3) = O3x3;  // J_rRij_ddbai
   // J_rRij_dxj
   JPRVj.block<3, 3>(idR, idR) = Jrinv;  // J_rRij_dPhi_j
@@ -784,15 +845,28 @@ void EdgeNavStateI<NV>::linearizeOplus() {
     _jacobianOplus[2] = JPRVi.block<9, 3>(0, 6);
     _jacobianOplus[3] = JPRVj.block<9, 3>(0, 6);
     _jacobianOplus[4] = JBiasi;  // 9*6
-  } else {                       // J_ePVR_PVRi,PVRj,Bi
+
+    if (6 == NV) {
+      Matrix<double, 9, 2> JG;           // ref ORB3: Inertial-Only Optimization for Visual-Inertial Initialization
+      JG.block<3, 2>(idR, 0).setZero();  // J_rRij_ddthetag_xy = 0
+      // ORB3 use gI(z:-G) but gI'withG is z:G so he has - here, but we don't
+      // J_rvij_ddthetag_xy = Rwbi.t() * delta_tij * Exp(thetag_wI) * GI^(col:[0,2))
+      JG.block<3, 2>(idV, 0) = RiT * deltat * RwIGIhat;
+      // J_rpij_ddthetag_xy = Rwbi.t()/2*delta_tij^2*Exp(thetag_wI) * GI^(col:[0,2))
+      JG.block<3, 2>(0, 0) = RiT * (deltat * deltat / 2.0) * RwIGIhat;
+
+      _jacobianOplus[5] = JG;  // 9*2
+    }
+  } else {  // J_ePVR_PVRi,PVRj,Bi
     _jacobianOplus[0] = JPRVi;
     _jacobianOplus[1] = JPRVj;  // when NV==3 it's JPVRi,JPVRj, 9*9,9*9
     _jacobianOplus[2] = JBiasi;
   }
 }
 
-typedef EdgeNavStateI<5> EdgeNavStatePRV;  // PRi, PRj, Vi, Vj, Bi, total 5 vertices
-typedef EdgeNavStateI<3> EdgeNavStatePVR;  // PVRi, PVRj, Bi, total 3 vertices
+typedef EdgeNavStateI<5> EdgeNavStatePRV;   // PRi, PRj, Vi, Vj, Bi, total 5 vertices
+typedef EdgeNavStateI<6> EdgeNavStatePRVG;  // for Inertial-Only BA, ThetaXY_G added at end
+typedef EdgeNavStateI<3> EdgeNavStatePVR;   // PVRi, PVRj, Bi, total 3 vertices
 // typedef EdgeNavStateI<6> EdgeNavStatePRVBS;//add scale optimization variable(for unscaled pwb)
 // typedef EdgeNavStateI<7> EdgeNavStatePRVBSV;//add scale optimization variable(for unscaled pwb & vwb)
 
@@ -857,27 +931,44 @@ class EdgeGyrBias : public BaseUnaryEdge<3, Vector3d, VertexGyrBias> {
 
   void computeError() {  // part of EdgeNavStateI
     const VertexGyrBias* v = static_cast<const VertexGyrBias*>(_vertices[0]);
-    Vector3d bg = v->estimate();                           // bgi, here we think bg_=0, dbgi=bgi, see VIORBSLAM IV-A
-    Matrix3d dRbg = Sophus::SO3exd::Expmap(JgRij * bg);  // right dR caused by dbgi
-    Sophus::SO3exd errR((deltaRij * dRbg).transpose() * Rwbi.transpose() * Rwbj);  // deltaRij^T * Riw * Rwj
-    _error = errR.log();  // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj), _error.segment<3>(0) is _error itself
+    Vector3d bg = v->estimate();                      // bgi, here we think bg_=0, dbgi=bgi, see VIORBSLAM IV-A
+    Matrix3d dRbg = Sophus::SO3exd::Exp(JgRij * bg);  // right dR caused by dbgi
+    // eR=Log((deltaRij*Exp(Jg_deltaR*dbgi)).t()*Rbiw*Rwbj), _error.segment<3>(0) is _error itself
+    // Exp(eR) = deltaRij^T * Riw * Rwj
+    _error = Sophus::SO3exd::Log((deltaRij * dRbg).transpose() * Rwbi.transpose() * Rwbj);
   }
   virtual void linearizeOplus() {  // I think JingWang may be wrong here?both not best, JW avoids large bg's influence
                                    // but lose variance on Jac(could be used in low freq/cov IMU)
     const VertexGyrBias* v = static_cast<const VertexGyrBias*>(_vertices[0]);
     Vector3d bg = v->estimate();
     Matrix3d Jrinv = Sophus::SO3exd::JacobianRInv(_error);  // JrInv_rPhi/Jrinv_rdeltaRij/Jrinv_eR
-    _jacobianOplusXi =
-        -Jrinv *
-        Sophus::SO3exd::Expmap(
-            -_error) *  // right is Exp(rdeltaRij).t(), same as Sophus::SO3exd::exp(rPhiij).inverse().matrix()
-        Sophus::SO3exd::JacobianR(JgRij * bg) *
-        JgRij;  // J_rRij_ddbgi(3*3), notice Jr_b=Jr(Jg_deltaR*dbgi), here dbgi=bgi or bg
+    // right is Exp(rdeltaRij).t(), same as Sophus::SO3exd::exp(rPhiij).inverse().matrix()
+    // J_rRij_ddbgi(3*3), notice Jr_b=Jr(Jg_deltaR*dbgi), here dbgi=bgi or bg
+    _jacobianOplusXi = -Jrinv * Sophus::SO3exd::Exp(-_error) * Sophus::SO3exd::JacobianR(JgRij * bg) * JgRij;
 
-    //      Sophus::SO3exd errR(deltaRij.transpose()*Rwbi.transpose()*Rwbj);//JW: deltaRij^T * Riw * Rwj, omit the
-    //      dRbg/bg? Matrix3d Jlinv = Sophus::SO3exd::JacobianLInv(errR.log()); _jacobianOplusXi =-Jlinv*JgRij;
+    // Sophus::SO3exd errR(deltaRij.transpose()*Rwbi.transpose()*Rwbj);
+    // JW: deltaRij^T * Riw * Rwj, omit the dRbg/bg?
+    // Matrix3d Jlinv = Sophus::SO3exd::JacobianLInv(errR.log());
+    // _jacobianOplusXi =-Jlinv*JgRij;
   }
 };
+
+/**
+ * \brief EdgeGyrBiasPrior(binary edge)
+ */
+class EdgeGyrBiasPrior : public BaseBinaryEdge<3, IMUPreintegrator, VertexGyrBias, VertexGyrBias> {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  // default constructor is enough
+  bool read(std::istream& is) { return true; }
+
+  bool write(std::ostream& os) const { return true; }
+
+  void computeError();
+
+  virtual void linearizeOplus();
+};  // v0 is Bi, v1 is Bj
 
 // Later part is unused and left undesigned
 /*

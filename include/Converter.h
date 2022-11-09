@@ -25,6 +25,7 @@
 
 #include <Eigen/Dense>
 #include "sophus/se3.hpp"  //TODO: implement se3 by ourself to ensure the accuracy and rightness
+#include "so3_extra.h"
 #ifdef USE_G2O_NEWEST
 #include "g2o/types/sba/types_six_dof_expmap.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
@@ -37,6 +38,7 @@ namespace VIEO_SLAM {
 
 class Converter {
  public:
+  static Eigen::Matrix<double,4,4> toMatrix4d(const Sophus::SE3d &cvMat4);
   static cv::Mat toCvMatInverse(const cv::Mat &T12);  // return T21 fast using Isometry3d's property
 
   static Eigen::Isometry3d toIsometry3d(const cv::Mat &cvMat4);  // transform cv::Mat(4,4,CV_32F) to Eigen::Isometry3d
@@ -78,7 +80,7 @@ Sophus::SE3<Tcalc> Converter::toSE3(const cv::Mat &cvMat4) {  // by zzh
     for (int j = 0; j < 3; ++j) R(i, j) = cvMat4.at<float>(i, j);
     t(i) = cvMat4.at<float>(i, 3);
   }
-  Sophus::SE3<Tcalc> se3(R, t);
+  Sophus::SE3<Tcalc> se3(Sophus::SO3ex<Tcalc>(R), t);
   return se3;
 }
 

@@ -68,6 +68,7 @@ cv::Mat System::TrackOdom(const double &timestamp, const double* odomdata, const
   return Tcw;
 }
 void System::FinalGBA(int nIterations,bool bRobust){
+  if (!nIterations) return;
   if (mpIMUInitiator->GetVINSInited()){//zzh, Full BA, GetVINSInited() instead of GetSensorIMU() for pure-vision+IMU Initialization mode
     Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,mpIMUInitiator->GetGravityVec(),nIterations,NULL,0,bRobust,true);
   }else
@@ -839,6 +840,16 @@ void System::Reset()
     mbReset = true;
 }
 
+void System::ShutdownViewer() {
+  if (mpViewer) {
+    mpViewer->RequestFinish();
+    while(!mpViewer->isFinished())
+      usleep(5000);
+
+    cv::destroyAllWindows();
+    pangolin::DestroyWindow("VIEO_SLAM: Map Viewer");
+  }
+}
 void System::Shutdown()
 {
     mpIMUInitiator->SetFinishRequest(true);//zzh
@@ -857,10 +868,10 @@ void System::Shutdown()
     }
 
     if(mpViewer)
-        pangolin::BindToContext("ORB-SLAM2: Map Viewer");
+        pangolin::BindToContext("VIEO_SLAM: Map Viewer");
 }
 
-void System::SaveTrajectoryTUM(const string &filename)
+void System::SaveTrajectoryTUM(const string &filename, const bool imu_info, const bool bgravity_as_w)
 {
     PRINT_INFO_MUTEX( endl << "Saving camera trajectory to " << filename << " ..." << endl);
     /*if(mSensor==MONOCULAR)
@@ -890,32 +901,52 @@ void System::SaveTrajectoryTUM(const string &filename)
     list<double>::iterator lT = mpTracker->mlFrameTimes.begin();
     list<bool>::iterator lbL = mpTracker->mlbLost.begin();
     for(list<cv::Mat>::iterator lit=mpTracker->mlRelativeFramePoses.begin(),
-        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++)
-    {
-        if(*lbL)
-            continue;
+        lend=mpTracker->mlRelativeFramePoses.end();lit!=lend;lit++, lRit++, lT++, lbL++) {
+      if (*lbL) continue;
 
-        KeyFrame* pKF = *lRit;
-//        if (pKF->isBad()) continue;
+      KeyFrame *pKF = *lRit;
+      //        if (pKF->isBad()) continue;
 
-        cv::Mat Trw = cv::Mat::eye(4,4,CV_32F);
+      cv::Mat Trw = cv::Mat::eye(4, 4, CV_32F);
 
-        // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
-        while(pKF->isBad())
-        {
-            Trw = Trw*pKF->mTcp;
-            pKF = pKF->GetParent();
-        }
+      // If the reference keyframe was culled, traverse the spanning tree to get a suitable keyframe.
+      while (pKF->isBad()) {
+        Trw = Trw * pKF->mTcp;
+        pKF = pKF->GetParent();
+      }
 
-        Trw = Trw*pKF->GetPose()*Two;
+      Trw = Trw * pKF->GetPose() * Two;
 
-        cv::Mat Tcw = (*lit)*Trw;
-        cv::Mat Rwc = Tcw.rowRange(0,3).colRange(0,3).t();
-        cv::Mat twc = -Rwc*Tcw.rowRange(0,3).col(3);
+      cv::Mat Tcw = (*lit) * Trw;
+      cv::Mat Rwc = Tcw.rowRange(0, 3).colRange(0, 3).t();
+      cv::Mat twc = -Rwc * Tcw.rowRange(0, 3).col(3);
 
-        vector<float> q = Converter::toQuaternion(Rwc);
+      vector<float> q = Converter::toQuaternion(Rwc);
 
-        f << setprecision(6) << *lT << " " <<  setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " " << twc.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
+      if (bgravity_as_w && mpIMUInitiator && mpIMUInitiator->GetVINSInited()) {
+        Vector3d gw = Converter::toVector3d(mpIMUInitiator->GetGravityVec());
+        Vector3d gwn = gw / gw.norm();
+        Vector3d gIn;
+        gIn << 0, 0, 1;
+        Vector3d a_wI = gIn.cross(gwn);
+        Vector3d vhat = a_wI.normalized();  // notice that even norm_gIn=1 and norm_gwn=1, norm_a_wI may not be 1!
+        double theta_wI_val = std::acos(gIn.dot(gwn));
+        Sophus::SO3exd RIw = Sophus::SO3exd::exp(vhat * theta_wI_val).inverse();  // RwI=Exp(theta_wI)
+        Rwc = Converter::toCvMat(Matrix3d(RIw.matrix() * Converter::toMatrix3d(Rwc)));
+        q = Converter::toQuaternion(Rwc);
+        twc = Converter::toCvMat(Vector3d((RIw.matrix() * Converter::toVector3d(twc))));
+      }
+
+      f << setprecision(6) << *lT << " " << setprecision(9) << twc.at<float>(0) << " " << twc.at<float>(1) << " "
+        << twc.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3];
+      if (imu_info) {
+        auto ns_kf_ref = pKF->GetNavState();
+        Vector3d bg = ns_kf_ref.mbg + ns_kf_ref.mdbg;
+        f << " " << bg(0) << " " << bg(1) << " " << bg(2);
+        Vector3d ba = ns_kf_ref.mba + ns_kf_ref.mdba;
+        f << " " << ba(0) << " " << ba(1) << " " << ba(2);
+      }
+      f << endl;
     }
     f.close();
     PRINT_INFO_MUTEX( endl << "trajectory saved!" << endl);
@@ -997,7 +1028,7 @@ void System::SaveTrajectoryNavState(const string &filename,bool bUseTbc) {
   PRINT_INFO_MUTEX( endl << "NavState trajectory saved!" << endl);
 }
 
-void System::SaveKeyFrameTrajectoryTUM(const string &filename)
+void System::SaveKeyFrameTrajectoryTUM(const string &filename, const bool bgravity_as_w)
 {
     PRINT_INFO_MUTEX( endl << "Saving keyframe trajectory to " << filename << " ..." << endl);
 
@@ -1031,6 +1062,19 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename)
         cv::Mat R = pKF->GetRotation().t();
         vector<float> q = Converter::toQuaternion(R);
         cv::Mat t = pKF->GetCameraCenter();
+        if (bgravity_as_w && mpIMUInitiator && mpIMUInitiator->GetVINSInited()) {
+          Vector3d gw = Converter::toVector3d(mpIMUInitiator->GetGravityVec());
+          Vector3d gwn = gw / gw.norm();
+          Vector3d gIn;
+          gIn << 0, 0, 1;
+          Vector3d a_wI = gIn.cross(gwn);
+          Vector3d vhat = a_wI.normalized();  // notice that even norm_gIn=1 and norm_gwn=1, norm_a_wI may not be 1!
+          double theta_wI_val = std::acos(gIn.dot(gwn));
+          Sophus::SO3exd RIw = Sophus::SO3exd::exp(vhat * theta_wI_val).inverse();  // RwI=Exp(theta_wI)
+          R = Converter::toCvMat(Matrix3d(RIw.matrix() * Converter::toMatrix3d(R)));
+          q = Converter::toQuaternion(R);
+          t = Converter::toCvMat(Vector3d((RIw.matrix() * Converter::toVector3d(t))));
+        }
         f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << " " << t.at<float>(2)
           << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
 

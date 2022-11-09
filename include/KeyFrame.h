@@ -127,7 +127,22 @@ class KeyFrame : public FrameBase, public MutexUsed {
                                      const typename aligned_list<OdomData>::const_iterator &begin,
                                      const typename aligned_list<OdomData>::const_iterator &end) {
     unique_lock<mutex> lock(mMutexOdomData);
-    mOdomPreIntEnc.AppendFrontPreIntegrationList(x, begin, end);
+    auto stop = end;
+    if (mOdomPreIntEnc.getlOdom().size()) {
+      double tm_ref = mOdomPreIntEnc.getlOdom().begin()->mtm;
+      auto iter = end;
+      for (; iter != begin;) {
+        stop = iter--;
+        if (iter->mtm >= tm_ref) continue;
+        break;
+      }
+      if (iter != end && iter->mtm >= tm_ref) {
+        CV_Assert(0 && "check AppendFrontPreIntegrationList usage!");
+        stop = begin;
+      }
+    }
+    mOdomPreIntEnc.AppendFrontPreIntegrationList(x, begin, stop);
+    if (stop != end) x.erase(stop, end);
   }
   template <class OdomData>
   void PreIntegration(KeyFrame *pLastKF) {
@@ -138,13 +153,13 @@ class KeyFrame : public FrameBase, public MutexUsed {
   //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
   // connect 2KFs preintegration by only preintegrating the final KF2KF period
   template <class OdomData>
-  void PreIntegrationFromLastKF(FrameBase *plastkf, const typename aligned_list<OdomData>::const_iterator &iteri,
+  void PreIntegrationFromLastKF(FrameBase *plastkf, double tmi,
+                                const typename aligned_list<OdomData>::const_iterator &iteri,
                                 const typename aligned_list<OdomData>::const_iterator &iterj, bool breset = false,
                                 int8_t verbose = 0) {
     NavState ns = plastkf->GetNavState();
     unique_lock<mutex> lock(mMutexOdomData);
-    FrameBase::PreIntegration<OdomData, EncPreIntegrator>((*iteri).mtm, mTimeStamp, ns.mbg, ns.mba, iteri, iterj,
-                                                          breset);
+    FrameBase::PreIntegration<OdomData, EncPreIntegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
   }
 
   // for LoadMap() in System.cc
@@ -231,7 +246,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat UnprojectStereo(int i);
 
   // Set/check bad flag
-  bool isBad();  // mbBad
+  bool isBad() override;  // mbBad
   // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF) in mpMap && mpKeyFrameDB;
   // KeepTree=true is used for BadKF's recover in LoadMap()
   void SetBadFlag(bool bKeepTree = false);
@@ -245,6 +260,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   void AddMapPoint(MapPoint *pMP, const size_t &idx) override;  // mvpMapPoints[idx]=pMP
   void EraseMapPointMatch(const size_t &idx) override;          // mvpMapPoints[idx]=nullptr
   void EraseMapPointMatch(MapPoint *pMP);                       // mvpMapPoints[idx corresp. pMP]=nullptr
+  void ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) override;
   std::set<std::pair<MapPoint *, size_t>> GetMapPointsCami() override;
   std::vector<MapPoint *> GetMapPointMatches() override;  // mvpMapPoints
   int TrackedMapPoints(const int &minObs);                // return the number of good mvpMapPoints whose nObs>=minObs
@@ -283,7 +299,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // The following variables are accesed from only 1 thread or never change (no mutex needed).
  public:
   static long unsigned int nNextId;
-  long unsigned int mnId;
 
   const long unsigned int mnFrameId;
 
@@ -352,8 +367,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   // The following variables need to be accessed trough a mutex to be thread safe.
  protected:
-  // Bad flags
-  bool mbBad;
   Map *mpMap;
   // BoW
   KeyFrameDatabase *mpKeyFrameDB;
@@ -415,7 +428,7 @@ void KeyFrame::AppendFrontPreIntegrationList(aligned_list<IMUData> &x,
 template <>
 void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF);
 template <>
-void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf,
+void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
                                                  const typename aligned_list<IMUData>::const_iterator &iteri,
                                                  const typename aligned_list<IMUData>::const_iterator &iterj,
                                                  bool breset, int8_t verbose);

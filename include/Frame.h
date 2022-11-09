@@ -45,11 +45,6 @@ class Frame : public FrameBase {
   IMUPreintegrator *ppreint_imu_kf_;
 
  public:
-  // const Tbc,Tce, so it can be used in multi threads
-  static cv::Mat mTbc, mTce;
-  static Eigen::Matrix3d meigRcb;
-  static Eigen::Vector3d meigtcb;
-
   // For pose optimization/motion-only BA, use as prior and prior information(inverse covariance)
   Matrix<double, 15, 15> mMargCovInv;  // Sigmap in VIORBSLAM paper/prior Hessian matrix for next Frame, notice it's
                                        // unintialized(to infinity/fixedlast)
@@ -76,16 +71,15 @@ class Frame : public FrameBase {
   //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
   // connect 2KFs preintegration by only preintegrating the final KF2KF period
   template <class OdomData>
-  int PreIntegrationFromLastKF(FrameBase *plastkf, FrameBase *plastfb_kf,
+  int PreIntegrationFromLastKF(FrameBase *plastkf, double tmi, double tmj_1,
                                const typename aligned_list<OdomData>::const_iterator &iteri,
                                const typename aligned_list<OdomData>::const_iterator &iterj, bool breset = false,
                                int8_t verbose = 0) {
     CV_Assert(ppreint_enc_kf_);
     NavState ns = plastkf->GetNavState();
-    auto iterj_1 = iterj;
-    --iterj_1;
-    return FrameBase::PreIntegration<OdomData>(breset ? plastfb_kf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg,
-                                               ns.mba, iteri, iterj, breset, ppreint_enc_kf_, verbose);
+    if (breset) CV_Assert(plastkf->mTimeStamp == tmi);
+    return FrameBase::PreIntegration<OdomData>(tmi, tmj_1, ns.mbg, ns.mba, iteri, iterj, breset, ppreint_enc_kf_,
+                                               verbose);
   }
 
   // for LoadMap() in System.cc
@@ -183,7 +177,6 @@ class Frame : public FrameBase {
 
   // Current and Next Frame id.
   static long unsigned int nNextId;
-  long unsigned int mnId;
 
   // Vocabulary used for relocalization.
   ORBVocabulary *mpORBvocabulary;
@@ -288,7 +281,7 @@ class Frame : public FrameBase {
 template <>
 void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom);
 template <>
-int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf,
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, double tmj_1,
                                              const typename aligned_list<IMUData>::const_iterator &iteri,
                                              const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                              int8_t verbose);

@@ -154,7 +154,7 @@ protected:
     float mnCovisibilityConsistencyTh;//here 3
 
     // Loop detector variables
-    KeyFrame* mpCurrentKF;
+    KeyFrame* mpCurrentKF = nullptr; // for NO_GBA_THREAD calling gba
     KeyFrame* mpMatchedKF;//validated loop KF
     std::vector<ConsistentGroup> mvConsistentGroups;//used in DetectLoop()
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;//used in DetectLoop() && ComputeSim3()

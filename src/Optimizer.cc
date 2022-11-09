@@ -32,15 +32,35 @@
 #include "Converter.h"
 
 #include <mutex>
+#include "FrameBase_impl.h"
 
 namespace VIEO_SLAM {  // changed a lot refering to the JingWang's code
 
 using namespace Eigen;
 
 void Optimizer::LocalBAPRVIDP(KeyFrame* pCurKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat& gw) {}
-void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat gw) {
+void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat gw,
+                                                 bool bLarge, bool bRecInit) {
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
+
+  int optit = 5;
+  // limit fixed vertex size to ensure speed
+#define LIMIT_KFS_NUM
+#ifdef LIMIT_KFS_NUM
+  // ref from ORB3
+  const int maxFixKF = 200;
+#endif
+  // TODO(zzh): we hope to do more here, but now no_do_more is more robust
+//#define ORB3_STRATEGY_NO_DO_MORE
+#ifdef ORB3_STRATEGY_NO_DO_MORE
+  if (bLarge) {
+    Nlocal *= 2.5;
+    optit = 4;
+  } else {
+    optit = 10;
+  }
+#endif
 
   // strategy refering the VIORBSLAM paper Fig.3.
   list<KeyFrame*> lLocalKeyFrames;
@@ -53,8 +73,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     lLocalKeyFrames.push_front(pKFlocal);  // notice the order is opposite
     pKFlocal = pKFlocal->GetPrevKeyFrame();
   } while (--Nlocal > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
-                                               << whiteSTR << endl);
   //   assert(pKFlocal!=NULL||pKFlocal==NULL&&pMap->KeyFramesInMap()<=NlocalIni);
 
   // Local MapPoints seen in Local KeyFrames
@@ -95,8 +113,15 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
         pKFi->mnBAFixedForKF = pKF->mnId;
         if (!pKFi->isBad()) lFixedCameras.push_back(pKFi);
       }
+#ifdef LIMIT_KFS_NUM
+      if (lFixedCameras.size() >= maxFixKF) break;
+#endif
     }
   }
+  PRINT_INFO_FILE(blueSTR "Enter OLBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                          << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
+                                          << whiteSTR << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -116,10 +141,15 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   g2o::OptimizationAlgorithmLevenberg* solver =
       new g2o::OptimizationAlgorithmLevenberg(solver_ptr);  // LM descending method
 #endif
+#define ORB3_STRATEGY_LAMBDA
+#ifdef ORB3_STRATEGY_LAMBDA
+  if (bLarge) {
+    solver->setUserLambdaInit(1e-2);  // to avoid iterating for finding optimal lambda
+  } else {
+    solver->setUserLambdaInit(1e0);
+  }
+#endif
   optimizer.setAlgorithm(solver);
-
-  if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
-    optimizer.setForceStopFlag(pbStopFlag);
 
   unsigned long maxKFid = 0;
 
@@ -179,6 +209,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   // Set IMU/KF-KF/PRV(B)+B edges, here (B) means it's not included in error but used to calculate the error
   //  PRVB/IMU & B/RandomWalk edge
+//#define DEBUG_OLBA
+#ifdef DEBUG_OLBA
+  vector<KeyFrame*> debug_kf0s;
+#endif
   vector<g2o::EdgeNavStatePRV*> vpEdgesNavStatePRV;
   vector<g2o::EdgeNavStateBias*> vpEdgesNavStateBias;
   // what does this 10(sigma) mean??? better result?
@@ -203,41 +237,83 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
     CV_Assert(!pKF0->isBad());
     CV_Assert(!pKF1->isBad());
-    if (imupreint.mdeltatij == 0) continue;
-    // IMU_I/PRV(B) edges
+
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
-    g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
-    eprv->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));      // PRi 0
-    eprv->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));      // PRj 1
-    eprv->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 1)));  // Vi 2
-    eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
-    eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
-    eprv->setMeasurement(imupreint);
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
-      eprv->setInformation(imupreint.mSigmaijPRV.inverse() * 1e-2);
-    else
-      eprv->setInformation(imupreint.mSigmaijPRV.inverse());
-    eprv->SetParams(GravityVec);
-    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-    eprv->setRobustKernel(rk);
-    rk->setDelta(thHuberNavStatePRV);
-    optimizer.addEdge(eprv);
-    vpEdgesNavStatePRV.push_back(eprv);  // for robust processing/ erroneous edges' culling
+    bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
+    if (imupreint.mdeltatij) {
+      // IMU_I/PRV(B) edges
+      g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
+      eprv->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));      // PRi 0
+      eprv->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));      // PRj 1
+      eprv->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 1)));  // Vi 2
+      eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
+      eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
+      eprv->setMeasurement(imupreint);
+      Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
+#define ORB3_STRATEGY_IMU_EDGE
+#ifdef ORB3_STRATEGY_IMU_EDGE
+      if (bfixedkf || bRecInit) {
+        if (bfixedkf) {
+          eprv->setInformation(InfoijPRV * 1e-2);
+        } else
+          eprv->setInformation(InfoijPRV);
+
+        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+        eprv->setRobustKernel(rk);
+        rk->setDelta(thHuberNavStatePRV);
+      } else
+        eprv->setInformation(InfoijPRV);
+#else
+      if (bfixedkf) {
+        eprv->setInformation(InfoijPRV * 1e-2);
+      } else
+        eprv->setInformation(InfoijPRV);
+      g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+      eprv->setRobustKernel(rk);
+      rk->setDelta(thHuberNavStatePRV);
+#endif
+      eprv->SetParams(GravityVec);
+      optimizer.addEdge(eprv);
+      vpEdgesNavStatePRV.push_back(eprv);  // for robust processing/ erroneous edges' culling
+    }
     // IMU_RW/Bias edge
     g2o::EdgeNavStateBias* ebias = new g2o::EdgeNavStateBias();
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
-      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij * 1e-2);
-    else
-      // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
-    rk = new g2o::RobustKernelHuber;
+    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
+    // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
+#ifdef ORB3_STRATEGY_IMU_EDGE
+    // we found bias also expands will improve the track stability, where mainly ba adjusted more robust
+#define USE_ZZH_IMU_EDGE
+#ifdef USE_ZZH_IMU_EDGE
+    if (bfixedkf || bRecInit) {
+      if (bfixedkf) {
+        ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
+      } else
+        ebias->setInformation(InvCovBgaRW / deltatij);
+
+      g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+      ebias->setRobustKernel(rk);
+      rk->setDelta(thHuberNavStateBias);
+    } else
+#endif
+      ebias->setInformation(InvCovBgaRW / deltatij);
+#else
+    if (bfixedkf) {
+      ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
+    } else
+      ebias->setInformation(InvCovBgaRW / deltatij);
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
     ebias->setRobustKernel(rk);
     rk->setDelta(thHuberNavStateBias);
+#endif
     optimizer.addEdge(ebias);
     vpEdgesNavStateBias.push_back(ebias);
+
+#ifdef DEBUG_OLBA
+    debug_kf0s.push_back(pKF0);
+#endif
 
     // Set Enc edge(binary edge) between LastF-Frame
     const EncPreIntegrator encpreint = pKF1->GetEncPreInt();
@@ -253,8 +329,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     else
       // no vbgba problem(camera could not give enough restriction on vbgba) but
       eEnc->setInformation(encpreint.mSigmaEij.inverse());
-    // calibration for enc is worse so we add robust kernel here
+      // calibration for enc is worse so we add robust kernel here
+#ifdef ORB3_STRATEGY_IMU_EDGE
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+#else
     rk = new g2o::RobustKernelHuber;
+#endif
     eEnc->setRobustKernel(rk);
     rk->setDelta(sqrt(12.592));  // chi2(0.05,6)=12.592//chi2(0.05,3)=7.815
     eEnc->qRbe = qRbe;
@@ -266,7 +346,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
 
-  vector<g2o::EdgeReprojectPR*> vpEdgesMono;
+  typedef struct _BaseEdgeMono {
+    g2o::EdgeReprojectPR* pedge;
+    size_t idx;
+  } BaseEdgeMono;
+  vector<BaseEdgeMono> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFMono;
   vpEdgeKFMono.reserve(nExpectedSize);
@@ -280,14 +364,16 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   vector<MapPoint*> vpMapPointEdgeStereo;
   vpMapPointEdgeStereo.reserve(nExpectedSize);
 
-  const float thHuberMono = sqrt(5.991);    // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block),
-  const float thHuberStereo = sqrt(7.815);  // chi2(0.05,3)
+  const float chi2Mono = 5.991;
+  const float thHuberMono = sqrt(chi2Mono);  // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block),
+  const float thHuberStereo = sqrt(7.815);   // chi2(0.05,3)
   Pinhole CamInst;
   bool binitcaminst = false;
   // Extrinsics
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
 
+  float thresh_depth_close = 10;
   for (list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; ++lit) {
     // Set MP vertices
     MapPoint* pMP = *lit;
@@ -306,8 +392,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
          ++mit) {
       KeyFrame* pKFi = mit->first;
 
+#ifdef LIMIT_KFS_NUM
+      if (pKFi->mnBALocalForKF != pKF->mnId && pKFi->mnBAFixedForKF != pKF->mnId) continue;
+#endif
+
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
+        if (thresh_depth_close < pKFi->mThDepth) thresh_depth_close = pKFi->mThDepth;
         bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
         auto idxs = mit->second;
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
@@ -346,7 +437,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             }
 
             optimizer.addEdge(e);
-            vpEdgesMono.push_back(e);
+            vpEdgesMono.push_back(BaseEdgeMono());
+            BaseEdgeMono& pbaseedgemono = vpEdgesMono.back();
+            pbaseedgemono.pedge = e;
+            pbaseedgemono.idx = idx;
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
           } else                                // Stereo observation
@@ -391,31 +485,89 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       }
     }
   }
+  PRINT_INFO_FILE("factor_visual num=" << vpEdgesMono.size() << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
 
-  if (pbStopFlag)     // true in LocalMapping
-    if (*pbStopFlag)  // if mbAbortBA
+  //#ifndef ORB3_STRATEGY
+  if (pbStopFlag)       // true in LocalMapping
+    if (*pbStopFlag) {  // if mbAbortBA
+      PRINT_INFO_FILE("Aborted OLBA!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
       return;
+    }
+  //#endif
 
   optimizer.initializeOptimization();
-  optimizer.optimize(5);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+  // ref from ORB3
+  optimizer.computeActiveErrors();
+  float err = optimizer.activeRobustChi2();
+#ifdef DEBUG_OLBA
+  if (err > 1e6) {
+    double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
+    PRINT_INFO_FILE("2 PRVedge: ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    for (size_t i = 0, iend = vpEdgesNavStatePRV.size(); i < iend; i++) {
+      g2o::EdgeNavStatePRV* e = vpEdgesNavStatePRV[i];
 
+      // if chi2 error too big(5% wrong) then outlier
+      if (e->chi2() > th_chi2) {
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ",tm=" << debug_kf0s[i]->mTimeStamp
+                                << ",tmn=" << debug_kf0s[i]->GetNextKeyFrame()->mTimeStamp
+                                << ",dt=" << debug_kf0s[i]->GetNextKeyFrame()->GetIMUPreInt().mdeltatij << ". ",
+                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
+      }
+    }
+    PRINT_INFO_FILE(endl << "2 Biasedge ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
+    for (size_t i = 0, iend = vpEdgesNavStateBias.size(); i < iend; i++) {
+      g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
+
+      if (e->chi2() > th_chi2) {
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ", imu_tightly_debug_path,
+                        "localmapping_thread_debug.txt");
+      }
+    }
+    PRINT_INFO_FILE(endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  }
+#endif
+  if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
+    optimizer.setForceStopFlag(pbStopFlag);
+//#define FIND_LAMBDA_AVG
+#ifdef FIND_LAMBDA_AVG
+  PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
+#endif
+  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+#ifdef FIND_LAMBDA_AVG
+  static double lambda_avg = 0;
+  static unsigned long num_lambda = 0;
+  double lambda = solver->currentLambda();
+  lambda_avg += lambda;
+  ++num_lambda;
+  PRINT_INFO_FILE("after=" << lambda << ",avg=" << lambda_avg / num_lambda << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
+#endif
+
+#ifdef ORB3_STRATEGY_NO_DO_MORE
+  bool bDoMore = false;
+#else
   bool bDoMore = true;
-
   if (pbStopFlag)
     if (*pbStopFlag)  // judge mbAbortBA again
       bDoMore = false;
+#endif
 
   if (bDoMore) {
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-      g2o::EdgeReprojectPR* e = vpEdgesMono[i];
+      g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
+      // ref from ORB3
+      bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
 
       if (pMP->isBad())  // why this can be true?
         continue;
 
-      if (e->chi2() > 5.991 || !e->isDepthPositive())  // if chi2 error too big(5% wrong) or Zc<=0 then outlier
-      {
+      // if chi2 error too big(5% wrong) or Zc<=0 then outlier
+      if (e->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e->isDepthPositive()) {
         e->setLevel(1);
       }
 
@@ -440,33 +592,6 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<pair<KeyFrame*, MapPoint*>> vToErase;
-  vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
-
-  // Check inlier observations
-  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    g2o::EdgeReprojectPR* e = vpEdgesMono[i];
-    MapPoint* pMP = vpMapPointEdgeMono[i];
-
-    if (pMP->isBad()) continue;
-
-    if (e->chi2() > 5.991 || !e->isDepthPositive()) {
-      KeyFrame* pKFi = vpEdgeKFMono[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in monocular edges
-    }
-  }
-  for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
-    MapPoint* pMP = vpMapPointEdgeStereo[i];
-
-    if (pMP->isBad()) continue;
-
-    if (e->chi2() > 7.815 || !e->isDepthPositive()) {
-      KeyFrame* pKFi = vpEdgeKFStereo[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in stereo edges
-    }
-  }
-
 #ifndef NDEBUG
   {
     double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
@@ -475,8 +600,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                               imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
     }
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
@@ -484,22 +609,72 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO_MUTEX("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                               imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
     }
   }
 #endif
+
+  // ref from ORB3
+  float err_end = optimizer.activeRobustChi2();
+  PRINT_INFO_FILE("check err:" << err << ",end=" << err_end << endl, imu_tightly_debug_path,
+                  "localmapping_thread_debug.txt");
+  if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
+    PRINT_INFO_FILE("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    return;
+  }
+
+  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
+  vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
+
+  // Check inlier observations
+  size_t num_pts_good_bef = 0;
+  for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
+    const BaseEdgeMono& e = vpEdgesMono[i];
+    MapPoint* pMP = vpMapPointEdgeMono[i];
+    // ref from ORB3
+    bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
+
+    if (pMP->isBad()) continue;
+
+    ++num_pts_good_bef;
+    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
+      KeyFrame* pKFi = vpEdgeKFMono[i];
+      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
+    }
+  }
+  for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
+    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
+    MapPoint* pMP = vpMapPointEdgeStereo[i];
+
+    if (pMP->isBad()) continue;
+
+    ++num_pts_good_bef;
+    if (e->chi2() > 7.815 || !e->isDepthPositive()) {
+      KeyFrame* pKFi = vpEdgeKFStereo[i];
+      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
+    }
+  }
+  PRINT_DEBUG_INFO("vToErase sz=" << vToErase.size() << ":" << (float)vToErase.size() / num_pts_good_bef << endl,
+                   imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
   if (!vToErase.empty()) {  // erase the relation between outliers of pKFi(matched mvpMapPoints) && pMP(mObservations)
     for (size_t i = 0; i < vToErase.size(); i++) {
-      KeyFrame* pKFi = vToErase[i].first;
-      MapPoint* pMPi = vToErase[i].second;
-      pKFi->EraseMapPointMatch(pMPi);
-      pMPi->EraseObservation(pKFi);  // here may erase pMP in mpMap
+      KeyFrame* pKFi = get<0>(vToErase[i]);
+      MapPoint* pMPi = get<1>(vToErase[i]);
+      auto idx = get<2>(vToErase[i]);
+
+      // here may erase pMP in mpMap
+//#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+      ErasePairObs(pKFi, pMPi, -1);
+#else
+      ErasePairObs(pKFi, pMPi, idx);
+#endif
     }
   }
 
@@ -534,13 +709,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   pMap->InformNewChange();  // zzh
 }
 
-void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, int nIterations, bool* pbStopFlag,
-                                                  const unsigned long nLoopKF, const bool bRobust, bool bScaleOpt) {
+int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw, int nIterations, bool* pbStopFlag,
+                                                 const unsigned long nLoopKF, const bool bRobust, bool bScaleOpt,
+                                                 IMUInitialization* pimu_initiator) {
   vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
   vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
 
   // Gravity vector in world frame
-  Vector3d GravityVec = Converter::toVector3d(gw);
+  Vector3d wg = Converter::toVector3d(cvgw);
 
   vector<bool> vbNotIncludedMP;  // true means this MP can not be used to optimize some KFs' Pose/is not added into
                                  // optimizer/is not optimized
@@ -565,7 +741,7 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   if (pbStopFlag)                            // if mbStopGBA exists
     optimizer.setForceStopFlag(pbStopFlag);  //_forceStopFlag=&mbStopGBA
 
-  long unsigned int maxKFid = 0;
+  long unsigned int maxKFid = 0, id_scale, id_g, id_mp_beg;
 
   // Set KeyFrame vertices
   for (size_t i = 0; i < vpKFs.size(); i++) {
@@ -584,13 +760,14 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     g2o::VertexNavStateV* vNSV = new g2o::VertexNavStateV();
     vNSV->setEstimate(ns);
     vNSV->setId(idKF + 1);
-    vNSV->setFixed(bFixed);
+    auto bvbgba_fixed = (!bFixed || pimu_initiator) ? false : true;
+    vNSV->setFixed(bvbgba_fixed);
     optimizer.addVertex(vNSV);
     // Vertex of Bias
     g2o::VertexNavStateBias* vNSBias = new g2o::VertexNavStateBias();
     vNSBias->setEstimate(ns);
     vNSBias->setId(idKF + 2);
-    vNSBias->setFixed(bFixed);
+    vNSBias->setFixed(bvbgba_fixed);
     optimizer.addVertex(vNSBias);
     if (idKF + 2 > maxKFid) maxKFid = idKF + 2;  // update maxKFid
   }
@@ -598,10 +775,65 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   if (bScaleOpt) {  // if dInitialScale>0 the Full BA includes scale's optimization
     g2o::VertexScale* pvScale = new g2o::VertexScale();
     pvScale->setEstimate(1.);
-    pvScale->setId(++maxKFid);
+    id_scale = maxKFid + 1;
+    pvScale->setId(id_scale);
     pvScale->setFixed(false);
     optimizer.addVertex(pvScale);
   }
+  // opt GDir
+  Vector3d GI;
+  bool init_prior = false;
+  if (pimu_initiator) {
+    g2o::VertexGThetaXYRwI* vG = new g2o::VertexGThetaXYRwI();
+    GI = Vector3d(0, 0, 1) * wg.norm();
+    vG->setToOriginImpl(wg);
+    id_g = maxKFid + 2;
+    vG->setId(id_g);
+    vG->setFixed(false);
+    optimizer.addVertex(vG);
+    init_prior = true;
+  }
+  vector<bool> vadd_prior_bias;
+  vector<FrameBase*> pvvnsbias_beg;
+  if (init_prior) {
+    for (vector<KeyFrame*>::const_iterator lit = vpKFs.begin(), lend = vpKFs.end(); lit != lend; lit++) {
+      FrameBase* const& pFBi = *lit;
+      if (pFBi->isBad()) continue;
+
+      if (1) {  //! pFBi->only_PR_in_BA_
+        int8_t id_cam = pFBi->id_cam_;
+        if (vadd_prior_bias.size() <= id_cam) {
+          vadd_prior_bias.resize(id_cam + 1, true);
+        }
+        if (0) {  // pFBi->fixed_vbgba_in_BA_
+          vadd_prior_bias[id_cam] = false;
+        }
+        if (!vadd_prior_bias[id_cam]) continue;
+        if (pvvnsbias_beg.size() <= id_cam) {
+          pvvnsbias_beg.resize(id_cam + 1, nullptr);
+        }
+        if (!pvvnsbias_beg[id_cam] || pFBi->timestamp_ < pvvnsbias_beg[id_cam]->timestamp_) {
+          pvvnsbias_beg[id_cam] = pFBi;
+        }
+      }
+    }
+    for (int i = 0; i < pvvnsbias_beg.size(); ++i) {
+      auto pFBtmp = pvvnsbias_beg[i];
+      assert(!pFBtmp || i == pFBtmp->id_cam_);
+      if (!pFBtmp || !vadd_prior_bias[i]) continue;
+
+      g2o::VertexNavStateBias* vPriorBias = new g2o::VertexNavStateBias();
+      NavStated ns(pFBtmp->GetNavState());
+      vPriorBias->setEstimate(ns);
+      vPriorBias->setId(maxKFid + 3 + i);
+      vPriorBias->setFixed(true);
+      optimizer.addVertex(vPriorBias);
+    }
+    id_mp_beg = maxKFid + 3 + pvvnsbias_beg.size();
+  } else {
+    id_mp_beg = maxKFid + 3;
+  }
+  vector<double> sum_dt_tmp(pvvnsbias_beg.size(), 0);
 
   // Set IMU/KF-KF/PRV(B)+B edges
   // what does this 10(sigma) mean??? better result?
@@ -625,43 +857,62 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     notice we don't exclude the situation that KFi has no imupreint but KFj has for KFi's NavState is updated in TrackLocalMapWithIMU()
     if (!pKF0) continue;
     IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
-    while (!pKF1->isBad() && pKF0->isBad()) { // to ensure imupreint is matched with pKF0
+    while (!pKF1->isBad() && pKF0->isBad()) {  // to ensure imupreint is matched with pKF0
       pKF0 = pKF1->GetPrevKeyFrame();
       imupreint = pKF1->GetIMUPreInt();
     }
     // don't add the bad KFs to optimizer
-    if (pKF1->isBad()) continue; // way0
-    if (imupreint.mdeltatij == 0) continue; // way1
-    // IMU_I/PRV(B) edges
+    if (pKF1->isBad()) continue;  // way0
+
+    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
+    size_t device = pKF1->id_cam_;
+    if (sum_dt_tmp.size() && vadd_prior_bias[device]) {
+      sum_dt_tmp[device] += deltatij;
+      //      ++num_dt_tmp[device];
+    }
+
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
-    g2o::EdgeNavStatePRV* eprv = new g2o::EdgeNavStatePRV();
-    eprv->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));      // PRi 0
-    eprv->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));      // PRj 1
-    eprv->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 1)));  // Vi 2
-    eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
-    eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
-    eprv->setMeasurement(imupreint);
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
-      eprv->setInformation(imupreint.mSigmaijPRV.inverse() * 1e-2);
-    else
-      eprv->setInformation(imupreint.mSigmaijPRV.inverse());
-    eprv->SetParams(GravityVec);
-    if (bRobust) {
-      g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-      eprv->setRobustKernel(rk);
-      rk->setDelta(thHuberNavStatePRV);
-    }  // here false
-    optimizer.addEdge(eprv);
+    if (imupreint.mdeltatij) {
+      // IMU_I/PRV(B) edges
+      using BaseEdgeIMUnb = g2o::BaseMultiEdgeEx<9, IMUPreintegrator>;
+      BaseEdgeIMUnb* eprv = new g2o::EdgeNavStatePRV();
+      if (pimu_initiator) {
+        eprv = new g2o::EdgeNavStatePRVG();
+        eprv->setVertex(5, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id_g)));
+        ((g2o::EdgeNavStatePRVG*)eprv)->SetParams(GI);
+      } else {
+        eprv = new g2o::EdgeNavStatePRV();
+        ((g2o::EdgeNavStatePRV*)eprv)->SetParams(wg);
+      }
+      eprv->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));      // PRi 0
+      eprv->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));      // PRj 1
+      eprv->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 1)));  // Vi 2
+      eprv->setVertex(3, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 1)));  // Vj 3
+      eprv->setVertex(4, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 4
+      eprv->setMeasurement(imupreint);
+      Matrix9d InfoijPRV = imupreint.GetProcessedInfoijPRV();  // mSigmaijPRV.inverse();
+      if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2))->fixed())
+        eprv->setInformation(InfoijPRV * 1e-2);
+      else
+        eprv->setInformation(InfoijPRV);
+      if (bRobust) {
+        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+        eprv->setRobustKernel(rk);
+        rk->setDelta(thHuberNavStatePRV);
+      }  // here false
+      optimizer.addEdge(eprv);
+    }
+    // else way1
     // IMU_RW/Bias edge
     g2o::EdgeNavStateBias* ebias = new g2o::EdgeNavStateBias();
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed())
-      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij * 1e-2);
+    if (dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2))->fixed())
+      ebias->setInformation(InvCovBgaRW / deltatij * 1e-2);
     else
       // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-      ebias->setInformation(InvCovBgaRW / imupreint.mdeltatij);
+      ebias->setInformation(InvCovBgaRW / deltatij);
     if (bRobust) {
       g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
       ebias->setRobustKernel(rk);
@@ -671,7 +922,7 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
 
     // Set Enc edge(binary edge) between LastF-Frame
     EncPreIntegrator encpreint = pKF1->GetEncPreInt();
-    while (!pKF1->isBad() && pKF0->isBad()) { // to ensure encpreint is matched with pKF0
+    while (!pKF1->isBad() && pKF0->isBad()) {  // to ensure encpreint is matched with pKF0
       pKF0 = pKF1->GetPrevKeyFrame();
       idKF0 = 3 * pKF0->mnId;
       encpreint = pKF1->GetEncPreInt();
@@ -696,6 +947,41 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     }
     optimizer.addEdge(eEnc);
   }
+  if (init_prior) {
+    const double coeff_deltat_prior = 1, coeff_deltat_priorg = 1;
+    for (int i = 0; i < pvvnsbias_beg.size(); ++i) {
+      auto pFBtmp = pvvnsbias_beg[i];
+      if (pFBtmp && i != pFBtmp->id_cam_) {
+        PRINT_DEBUG_INFO_MUTEX(
+            redSTR << "Wrong pFBtmp: i,idcam=" << i << "," << pFBtmp->id_cam_ << ", check!" << whiteSTR << endl,
+            imu_tightly_debug_path, "common_thread_debug.txt");
+      }
+      assert(!pFBtmp || i == pFBtmp->id_cam_);
+      if (!pFBtmp || !vadd_prior_bias[i] || pFBtmp->isBad()) continue;
+
+      g2o::EdgeNavStateBias* epb = new g2o::EdgeNavStateBias();
+      epb->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(maxKFid + 3 + i)));
+      int idFB = 3 * pFBtmp->mnId;  // mapfb2i[pFBtmp];
+      epb->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idFB + 2)));
+      Matrix6d InfoBias;
+      InfoBias.setZero();
+      double dtmp = sum_dt_tmp[i] * coeff_deltat_priorg;
+      size_t device = pFBtmp->id_cam_;
+      // assert(pFBtmp->GetIMUPreInt().device_ == device);
+      InfoBias.block<3, 3>(0, 0) = IMUData::mInvSigmabg2 /*[device]*/ / dtmp * Matrix3d::Identity();
+      dtmp = sum_dt_tmp[i] * coeff_deltat_prior;
+      InfoBias.block<3, 3>(3, 3) = IMUData::mInvSigmaba2 /*[device]*/ / dtmp * Matrix3d::Identity();
+      epb->setInformation(InfoBias);
+
+      //      if (kRobustFull == robust) {
+      //        g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+      //        epb->setRobustKernel(rk);
+      //        rk->setDelta(sqrt_chi2_sig5_6);
+      //      }
+
+      optimizer.addEdge(epb);
+    }
+  }
 
   const float thHuber2D = sqrt(5.99);   // chi2(0.05,2), sqrt(e'*Omega*e)<=delta, here unused
   const float thHuber3D = sqrt(7.815);  // chi2(0.05,3)
@@ -705,13 +991,14 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
 
+  int nInitialCorrespondences = 0;
   // Set MapPoint vertices
   for (size_t i = 0; i < vpMP.size(); i++) {
     MapPoint* pMP = vpMP[i];
     if (pMP->isBad()) continue;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
     vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
-    const int id = pMP->mnId + maxKFid + 1;  // same as localBA
+    const int id = pMP->mnId + id_mp_beg;  // same as localBA
     vPoint->setId(id);
     // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
     // [B-E*C^(-1)*E.t()]*deltaXc=v-E*C^(-1)*w, H*deltaX=g=[v;w]; used in Sparse solver
@@ -747,7 +1034,7 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
             e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
-            if (bRobust) {   // here false
+            if (bRobust) {  // here false
               g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
               e->setRobustKernel(rk);
               rk->setDelta(thHuber2D);  // Mono in localBA
@@ -771,7 +1058,7 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
             g2o::EdgeReprojectPRS* e = new g2o::EdgeReprojectPRS();
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId * 3)));
-            e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(maxKFid)));
+            e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id_scale)));
             e->setMeasurement(obs);
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
             e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
@@ -832,10 +1119,10 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
 
             optimizer.addEdge(e);
           } else {  // unscaled Xw but scaled pwb
-            g2o::EdgeReprojectPRSStereo * e = new g2o::EdgeReprojectPRSStereo();
+            g2o::EdgeReprojectPRSStereo* e = new g2o::EdgeReprojectPRSStereo();
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId * 3)));
-            e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(maxKFid)));
+            e->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id_scale)));
             e->setMeasurement(obs);
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
             e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
@@ -861,6 +1148,8 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
             optimizer.addEdge(e);
           }
         }
+
+        ++nInitialCorrespondences;
       }
     }
 
@@ -879,12 +1168,30 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
   // maybe stopped by next CorrectLoop() in LoopClosing
   optimizer.optimize(nIterations);
 
+  unique_lock<mutex> lock(pMap->mMutexMapUpdate, defer_lock);
+  if (nLoopKF == 0) {  // for safety, later globalbaprv may be called like lbaprv()
+    lock.lock();
+  }
+
   // Recover optimized data in an intermediate way
+  if (pimu_initiator) {
+    g2o::VertexGThetaXYRwI* vG = static_cast<g2o::VertexGThetaXYRwI*>(optimizer.vertex(id_g));
+    bool verbose = true;
+    if (verbose) {
+      PRINT_INFO_FILE("before gw=" << wg.transpose() << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+    }
+    pimu_initiator->SetGravityVec(Converter::toCvMat(vG->estimate() * GI));
+    if (verbose) {
+      PRINT_INFO_FILE("after gw=" << pimu_initiator->GetGravityVec().t() << endl, imu_tightly_debug_path,
+                      "gba_thread_debug.txt");
+    }
+  }
   // Scale for Xw
   double scale = 1.;
   if (bScaleOpt) {
-    scale = static_cast<g2o::VertexScale*>(optimizer.vertex(maxKFid))->estimate();
-    PRINT_INFO_MUTEX( azureSTR "Recovered scale is " << scale << whiteSTR << endl);
+    scale = static_cast<g2o::VertexScale*>(optimizer.vertex(id_scale))->estimate();
+    PRINT_INFO_FILE(azureSTR "Recovered scale is " << scale << whiteSTR << endl, imu_tightly_debug_path,
+                    "gba_thread_debug.txt");
   }
 
   // Keyframes
@@ -923,6 +1230,11 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
 
       pKFi->mnBAGlobalForKF = nLoopKF;
     }
+    if (!pKFi->mnId) {
+      PRINT_INFO_FILE("recovered kf0 bgba=" << (ns_recov.mbg + ns_recov.mdbg).transpose()
+                                            << (ns_recov.mba + ns_recov.mdba).transpose() << endl,
+                      imu_tightly_debug_path, "gba_thread_debug.txt");
+    }
   }
 
   // Points
@@ -934,11 +1246,11 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
     MapPoint* pMP = vpMP[i];
 
     if (pMP->isBad()) continue;
-    g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId + maxKFid + 1));
+    g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId + id_mp_beg));
 
     if (!bScaleOpt) {
-      if (nLoopKF == 0)  // it's for final Full BA
-      {
+      // it's for initial/final Full BA
+      if (nLoopKF == 0) {
         pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
         pMP->UpdateNormalAndDepth();
       } else {
@@ -958,6 +1270,10 @@ void Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& gw, 
       }
     }
   }
+
+  if (pimu_initiator) pMap->InformNewChange();
+
+  return nInitialCorrespondences;
 }
 
 // created by zzh over.
@@ -971,7 +1287,7 @@ void Optimizer::GlobalBundleAdjustment(Map* pMap, int nIterations, bool* pbStopF
 
 void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<MapPoint*>& vpMP, int nIterations,
                                  bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust, const bool bEnc) {
-  PRINT_INFO_MUTEX( redSTR << "Enter GBA" << whiteSTR << endl);
+  PRINT_INFO_MUTEX(redSTR << "Enter GBA" << whiteSTR << endl);
   vector<bool> vbNotIncludedMP;  // true means this MP can not be used to optimize some KFs' Pose/is not added into
                                  // optimizer/is not optimized
   vbNotIncludedMP.resize(vpMP.size());
@@ -1003,7 +1319,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     if (pKF->isBad()) continue;
 
     g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();  // 6*1 vertex
-    // here g2o vertex uses Twb(different in default VertexSE3 using EdgeSE3); edge/measurement formula input R&p(<-p+dp)
+    // here g2o vertex uses Twb(different in default VertexSE3 using EdgeSE3); edge/measurement formula input
+    // R&p(<-p+dp)
     pKF->UpdateNavStatePVRFromTcw();
     vns->setEstimate(pKF->GetNavState());
     vns->setId(pKF->mnId);
@@ -1020,12 +1337,12 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     Vector3d tbe = Converter::toVector3d(Tbe.rowRange(0, 3).col(3));  // for Enc
 
     for (size_t i = 0; i < vpKFs.size(); i++) {
-      KeyFrame* pKF1 = vpKFs[i];  // KFj, store the Enc pre-integration between previous-current
+      KeyFrame* pKF1 = vpKFs[i];                 // KFj, store the Enc pre-integration between previous-current
       KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
       // if no KFi/EncPreInt's info, this EncPreInt edge cannot be added for lack of vertices i / edge ij
       if (!pKF0) continue;
       EncPreIntegrator encpreint = pKF1->GetEncPreInt();
-      while (!pKF1->isBad() && pKF0->isBad()) { // to ensure encpreint is matched with pKF0
+      while (!pKF1->isBad() && pKF0->isBad()) {  // to ensure encpreint is matched with pKF0
         pKF0 = pKF1->GetPrevKeyFrame();
         encpreint = pKF1->GetEncPreInt();
       }
@@ -1096,12 +1413,12 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
           Eigen::Matrix<double, 2, 1> obs;
           obs << kpUn.pt.x, kpUn.pt.y;
 
-          g2o::EdgeReprojectPR * e = new g2o::EdgeReprojectPR();
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));         // 0 is point
+          g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
+          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));          // 0 is point
           e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));  // 1 is pose
           e->setMeasurement(obs);
           const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];  // 1/sigma^2
-          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);   // Omega=Sigma^(-1)=(here)=I/sigma^2
+          e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);    // Omega=Sigma^(-1)=(here)=I/sigma^2
 
           if (bRobust)  // here false
           {
@@ -1130,7 +1447,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
           const float kp_ur = pKFi->mvuRight[idx];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
-          g2o::EdgeReprojectPRStereo * e = new g2o::EdgeReprojectPRStereo();
+          g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
           e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
           e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
           e->setMeasurement(obs);
@@ -1187,9 +1504,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     NavStated ns = vns_recov->estimate();
     // I think this impossible for mpCurrentKF in LoopClosing cannot be id0 KF but used for final
     // Full BA and initial GBA(Mono)
-    if (nLoopKF == 0)
-    {
-      pKF->SetNavState(ns); // update posematrices of pFrame, mainly Twb/Tcw
+    if (nLoopKF == 0) {
+      pKF->SetNavState(ns);  // update posematrices of pFrame, mainly Twb/Tcw
     } else {
       pKF->mTcwGBA.create(4, 4, CV_32F);
 
@@ -1262,7 +1578,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   Matrix3d Rcb = pFrame->meigRcb;
   Vector3d tcb = pFrame->meigtcb;
 
-  if (pLastF != NULL && pFrame->GetEncPreInt().mdeltatij > 0 && !pLastF->GetTcwRef().empty()) {
+  if (pLastF != NULL && pFrame->GetEncPreInt().mdeltatij && !pLastF->GetTcwRef().empty()) {
     // Set LastFrame vertex
     g2o::VertexNavStatePR* vnslast = new g2o::VertexNavStatePR();
     pLastF->UpdateNavStatePVRFromTcw();
@@ -1317,7 +1633,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints
     int id_mp_beg = 2;
 
-    const auto &frame_mps = pFrame->GetMapPointMatches();
+    const auto& frame_mps = pFrame->GetMapPointMatches();
     for (int i = 0; i < N; i++) {
       MapPoint* pMP = frame_mps[i];
       if (pMP) {
@@ -1329,7 +1645,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         vPoint->setFixed(true);
         optimizer.addVertex(vPoint);
 
-        nInitialCorrespondences++;
+        ++nInitialCorrespondences;
         pFrame->mvbOutlier[i] = false;
 
         // Monocular observation
@@ -1516,8 +1832,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       pKFlocal = pKFlocal->GetPrevKeyFrame();
     } while (--NlocalCnt > 0 && pKFlocal != NULL);  // maybe less than N KFs in pMap
   }
-  PRINT_INFO_MUTEX(blueSTR "Enter local BA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size() << whiteSTR
-       << endl);
 
   // Local MapPoints seen in Local KeyFrames
   list<MapPoint*> lLocalMapPoints;
@@ -1562,6 +1876,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       }
     }
   }
+  PRINT_INFO_FILE(blueSTR "Enter LBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
+                                         << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
+                                         << whiteSTR << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -1591,19 +1909,19 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   // Set Local KeyFrame vertices
   for (list<KeyFrame*>::iterator lit = lLocalKeyFrames.begin(), lend = lLocalKeyFrames.end(); lit != lend; lit++) {
     KeyFrame* pKFi = *lit;
-    g2o::VertexNavStatePR *vns = new g2o::VertexNavStatePR();
-    pKFi->UpdateNavStatePVRFromTcw(); //TODO: delete this
+    g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();
+    pKFi->UpdateNavStatePVRFromTcw();  // TODO: delete this
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
     if (pKFi->mnId == 0) ++num_fixed_kf;
-    vns->setFixed(pKFi->mnId == 0); // only fix the vertex of initial KF(KF.mnId==0)
+    vns->setFixed(pKFi->mnId == 0);  // only fix the vertex of initial KF(KF.mnId==0)
     optimizer.addVertex(vns);
     if (pKFi->mnId > maxKFid) maxKFid = pKFi->mnId;
   }
   // Set Fixed KeyFrame vertices
   for (list<KeyFrame*>::iterator lit = lFixedCameras.begin(), lend = lFixedCameras.end(); lit != lend; lit++) {
     KeyFrame* pKFi = *lit;
-    g2o::VertexNavStatePR *vns = new g2o::VertexNavStatePR();
+    g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();
     pKFi->UpdateNavStatePVRFromTcw();
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
@@ -1631,7 +1949,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       CV_Assert(!pKF1->isBad());
       // Enc edges
       int idKF0 = pKF0->mnId, idKF1 = pKF1->mnId;
-      g2o::EdgeEncNavStatePR *eEnc = new g2o::EdgeEncNavStatePR();
+      g2o::EdgeEncNavStatePR* eEnc = new g2o::EdgeEncNavStatePR();
       eEnc->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0)));  // Ti 0
       eEnc->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1)));  // Tj 1
       eEnc->setMeasurement(encpreint.mdelxEij);
@@ -1652,8 +1970,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   // Set MapPoint vertices && MPs-KFs' edges
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
-
-  vector<g2o::EdgeReprojectPR*> vpEdgesMono;
+  typedef struct _BaseEdgeMono {
+    g2o::EdgeReprojectPR* pedge;
+    size_t idx;
+  } BaseEdgeMono;
+  vector<BaseEdgeMono> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
 
   vector<KeyFrame*> vpEdgeKFMono;
@@ -1671,8 +1992,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   vector<MapPoint*> vpMapPointEdgeStereo;
   vpMapPointEdgeStereo.reserve(nExpectedSize);
 
-  const float thHuberMono = sqrt(5.991); // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block)
-  const float thHuberStereo = sqrt(7.815); // chi2(0.05,3)
+  const float thHuberMono = sqrt(5.991);    // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block)
+  const float thHuberStereo = sqrt(7.815);  // chi2(0.05,3)
 
   Pinhole CamInst;
   bool binitcaminst = false;
@@ -1737,7 +2058,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             }
 
             optimizer.addEdge(e);
-            vpEdgesMono.push_back(e);
+            vpEdgesMono.push_back(BaseEdgeMono());
+            BaseEdgeMono& pbaseedgemono = vpEdgesMono.back();
+            pbaseedgemono.pedge = e;
+            pbaseedgemono.idx = idx;
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
           } else                                // Stereo observation
@@ -1799,7 +2123,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   if (bDoMore) {
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-      g2o::EdgeReprojectPR *e = vpEdgesMono[i];
+      g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
 
       if (pMP->isBad())  // why this can be true?
@@ -1814,7 +2138,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     }
 
     for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-      g2o::EdgeReprojectPRStereo *e = vpEdgesStereo[i];
+      g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
       MapPoint* pMP = vpMapPointEdgeStereo[i];
 
       if (pMP->isBad()) continue;
@@ -1833,31 +2157,31 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     optimizer.optimize(10);  // 10 steps same as motion-only BA
   }
 
-  vector<pair<KeyFrame*, MapPoint*> > vToErase;
+  vector<tuple<KeyFrame*, MapPoint*, size_t>> vToErase;
   vToErase.reserve(vpEdgesMono.size() + vpEdgesStereo.size());
 
   // Check inlier observations
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    g2o::EdgeReprojectPR *e = vpEdgesMono[i];
+    const BaseEdgeMono& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
 
     if (pMP->isBad()) continue;
 
-    if (e->chi2() > 5.991 || !e->isDepthPositive()) {
+    if (e.pedge->chi2() > 5.991 || !e.pedge->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in monocular edges
+      vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
     }
   }
 
   for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-    g2o::EdgeReprojectPRStereo *e = vpEdgesStereo[i];
+    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
     MapPoint* pMP = vpMapPointEdgeStereo[i];
 
     if (pMP->isBad()) continue;
 
     if (e->chi2() > 7.815 || !e->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFStereo[i];
-      vToErase.push_back(make_pair(pKFi, pMP));  // ready to erase outliers of pKFi && pMP in stereo edges
+      vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
   }
 
@@ -1867,7 +2191,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
       g2o::EdgeEncNavStatePR* e = vpEdgesEnc[i];
       // if chi2 error too big(5% wrong)
       if (e->chi2() > 12.592) {
-        PRINT_INFO_MUTEX( "Enc edge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ");
+        PRINT_INFO_MUTEX("Enc edge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ");
       }
     }
   }
@@ -1879,10 +2203,16 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   if (!vToErase.empty())  // erase the relation between outliers of pKFi(matched mvpMapPoints) && pMP(mObservations)
   {
     for (size_t i = 0; i < vToErase.size(); i++) {
-      KeyFrame* pKFi = vToErase[i].first;
-      MapPoint* pMPi = vToErase[i].second;
-      pKFi->EraseMapPointMatch(pMPi);
-      pMPi->EraseObservation(pKFi);  // here may erase pMP in mpMap
+      KeyFrame* pKFi = get<0>(vToErase[i]);
+      MapPoint* pMPi = get<1>(vToErase[i]);
+      auto idx = get<2>(vToErase[i]);
+
+      // here may erase pMP in mpMap
+#ifdef ORB3_STRATEGY
+      ErasePairObs(pKFi, pMPi, -1);  // idx);
+#else
+      ErasePairObs(pKFi, pMPi, idx);
+#endif
     }
   }
 
@@ -1891,7 +2221,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   // Keyframes update(Pose Tcw...)
   for (list<KeyFrame*>::iterator lit = lLocalKeyFrames.begin(), lend = lLocalKeyFrames.end(); lit != lend; lit++) {
     KeyFrame* pKF = *lit;
-    g2o::VertexNavStatePR *vns = static_cast<g2o::VertexNavStatePR*>(optimizer.vertex(pKF->mnId));
+    g2o::VertexNavStatePR* vns = static_cast<g2o::VertexNavStatePR*>(optimizer.vertex(pKF->mnId));
     pKF->SetNavState(vns->estimate());
   }
 
@@ -1910,7 +2240,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
                                        const LoopClosing::KeyFrameAndPose& NonCorrectedSim3,
                                        const LoopClosing::KeyFrameAndPose& CorrectedSim3,
-                                       const map<KeyFrame*, set<KeyFrame*> >& LoopConnections,
+                                       const map<KeyFrame*, set<KeyFrame*>>& LoopConnections,
                                        const bool& bFixScale)  // can be improved by adding IMU edges
 {
   // Setup optimizer
@@ -1939,10 +2269,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
   const unsigned int nMaxKFid = pMap->GetMaxKFid();
 
-  vector<g2o::Sim3, Eigen::aligned_allocator<g2o::Sim3> > vScw(
+  vector<g2o::Sim3, Eigen::aligned_allocator<g2o::Sim3>> vScw(
       nMaxKFid + 1);  //+1 for id is from 0, Eigen::aligned_allocator is for Eigen::Quaterniond in g2o::Sim3, vScw used
                       // mainly for all MPs' correction
-  vector<g2o::Sim3, Eigen::aligned_allocator<g2o::Sim3> > vCorrectedSwc(nMaxKFid + 1);
+  vector<g2o::Sim3, Eigen::aligned_allocator<g2o::Sim3>> vCorrectedSwc(nMaxKFid + 1);
   // vector<g2o::VertexSim3Expmap*> vpVertices(nMaxKFid+1);//unused here
 
   const int minFeat = 100;  // min loop edges' covisible MPs' number threshold
@@ -1985,7 +2315,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     // vpVertices[nIDi]=VSim3;
   }
 
-  set<pair<long unsigned int, long unsigned int> > sInsertedEdges;
+  set<pair<long unsigned int, long unsigned int>> sInsertedEdges;
 
   const Eigen::Matrix<double, 7, 7> matLambda =
       Eigen::Matrix<double, 7,
@@ -1994,7 +2324,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     so maybe we can use erroneous edges' concept in RGBDSLAM2 here!
 
   // Set Loop edges, these cannot be pure odom edges
-  for (map<KeyFrame*, set<KeyFrame*> >::const_iterator mit = LoopConnections.begin(), mend = LoopConnections.end();
+  for (map<KeyFrame*, set<KeyFrame*>>::const_iterator mit = LoopConnections.begin(), mend = LoopConnections.end();
        mit != mend; mit++) {
     KeyFrame* pKF = mit->first;
     const long unsigned int nIDi = pKF->mnId;
@@ -2047,13 +2377,13 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         }
         // notice matLambda((2,2)&(3,3)) used in other edges means the camera(+encoder) accuracy of (phi,p) which should
         // be close to encoder(here use 1), and different unit has different base!
-        double dTmp=encpreint.mSigmaEij(2,2);
+        double dTmp = encpreint.mSigmaEij(2, 2);
         if (dEncBase[0] > dTmp) {  // phi
           dEncBase[0] = dTmp;
         }
         // intuitively we choose sqrt(sigma2x^2+sigma2y^2) or p, makes (Sigma_p,0) to be (1,0) but (Sigma_p/2,
         // Sigma_p/2) to be near (1, 1)
-        dTmp = encpreint.mSigmaEij.block<2,2>(3,3).norm();
+        dTmp = encpreint.mSigmaEij.block<2, 2>(3, 3).norm();
         if (dEncBase[1] > dTmp) {
           dEncBase[1] = dTmp;
         }
@@ -2131,9 +2461,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
                                       i);  // this Information Matrix can help solve the dropping problem of our dataset
           }
           e->information() = matLambdaEnc;
-          PRINT_INFO_MUTEX( matLambdaEnc << endl);
+          PRINT_INFO_MUTEX(matLambdaEnc << endl);
         }
-        PRINT_INFO_MUTEX( "Weight0/Odom link: " << pParentKF->mnId << " " << pKF->mnId << " " << pKF->GetWeight(pParentKF) << endl);
+        PRINT_INFO_MUTEX("Weight0/Odom link: " << pParentKF->mnId << " " << pKF->mnId << " "
+                                               << pKF->GetWeight(pParentKF) << endl);
       }
       optimizer.addEdge(e);
     }
@@ -2206,7 +2537,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
       }
     }
   }
-  PRINT_INFO_MUTEX( "Spanning tree edge end!" << endl);
+  PRINT_INFO_MUTEX("Spanning tree edge end!" << endl);
 
   // Optimize!
   optimizer.initializeOptimization();  // optimize all KFs' Pose Siw by new loop edges and normal edges
@@ -2270,8 +2601,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     pMP->UpdateNormalAndDepth();  // update MP's normal for its position changed
   }
-  // don't call pMap->InformNewChange(); for it's done outside
-  PRINT_INFO_MUTEX( "PoseGraph end!" << endl);
+  PRINT_INFO_MUTEX("PoseGraph end!" << endl);
+
+  // call pMap->InformNewChange()
+  pMap->InformNewBigChange();
 }
 
 int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& vpMatches1, g2o::Sim3& g2oS12,

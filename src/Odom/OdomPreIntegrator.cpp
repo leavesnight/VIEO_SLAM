@@ -32,22 +32,48 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
     Matrix2d eigSigmaeta(EncData::mSigma);
     Matrix6d eigSigmaetam(EncData::mSigmam);
     double rc(EncData::mrc);
+
+    // for iterBegin!=iterEnd, here iter_stop can no init
+    typename listeig(EncData)::const_iterator iter_start = iterBegin, iter_stop;
+    bool border_back = timeStampi > timeStampj;
+    using Ttime = double;
+    Ttime timemin = timeStampi, timemax = timeStampj;
+    using std::swap;
+    if (border_back) swap(timemin, timemax);
+    for (auto iterj = iterBegin; iterj != iterEnd && iterj->mtm <= timemin; iter_start = iterj++) {
+    }
+    for (auto iterj = iterEnd; iterj != iterBegin;) {
+      iter_stop = iterj--;
+      if (iterj->mtm >= timemax) continue;
+      break;
+    }
+    if (border_back) {
+      if (iter_stop == iterEnd) {
+        --iter_stop;
+      }
+      swap(iter_start, iter_stop);
+      if ((iter_stop)->mtm > timemin) {
+        assert(iter_stop == iterBegin);
+        iter_stop = iterEnd;
+      }
+    }
     
-    for (listeig(EncData)::const_iterator iterj=iterBegin;iterj!=iterEnd;){//start iterative method from i/iteri->tm to j/iter->tm
-      listeig(EncData)::const_iterator iterjm1=iterj++;//iterj-1
+    for (listeig(EncData)::const_iterator iterj=iter_start;iterj!=iter_stop;){//start iterative method from i/iteri->tm to j/iter->tm
+      listeig(EncData)::const_iterator iterjm1 = iterj; // iterj-1
+      if (border_back) {
+        if (iterj == iterBegin) {
+          iterj = iter_stop;
+        } else
+          --iterj;
+      } else
+        ++iterj;
       
       double deltat,tj,tj_1;//deltatj-1j
-      if (iterjm1==iterBegin) tj_1=timeStampi; else tj_1=iterjm1->mtm;
-      if (iterj==iterEnd) {
-        //        if (timeStampj - tj_1 > 0)
-        //          tj = timeStampj;
-        //        else
-        //          break;
+      if (iterjm1==iter_start) tj_1=timeStampi; else tj_1=iterjm1->mtm;
+      if (iterj==iter_stop) {
         tj = timeStampj;
       }else {
         tj = iterj->mtm;
-        // assert(tj-tj_1>=0);
-        //        if (tj > timeStampj) tj = timeStampj;
       }
       deltat=tj-tj_1;
       if (deltat==0) continue;
@@ -58,7 +84,7 @@ int EncPreIntegrator::PreIntegration(const double &timeStampi,const double &time
       double vl,vr;//vlj-1,vrj-1
       vl=iterjm1->mv[0];vr=iterjm1->mv[1];//this way seems to be more precise than the following one (arithmatical average) for Corridor004
       /*
-      if (iterj!=iterEnd){
+      if (iterj!=iter_stop){
 	vl=(iterjm1->mv[0]+iterj->mv[0])/2,vr=(iterjm1->mv[1]+iterj->mv[1])/2;
 // 	if (iterj->mtm>timeStampj){
 // 	  vl=(iterjm1->mv[0]+(iterjm1->mv[0]*(iterj->mtm-timeStampj)+iterj->mv[0]*deltat)/(iterj->mtm-iterjm1->mtm))/2;

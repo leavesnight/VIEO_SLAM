@@ -27,11 +27,6 @@
 #include "common/common.h"
 
 namespace VIEO_SLAM {
-
-cv::Mat Frame::mTbc, Frame::mTce;
-Eigen::Matrix3d Frame::meigRcb;
-Eigen::Vector3d Frame::meigtcb;
-
 // For stereo fisheye matching
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
 bool Frame::usedistort_ = false;
@@ -76,16 +71,14 @@ void Frame::DeepMovePreintOdomFromLastKF(IMUPreintegrator &preint_odom) {
   preint_odom.AppendFrontPreIntegrationList(lodom, lodom.begin(), lodom.end());
 }
 template <>
-int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, FrameBase *plastfb_kf,
+int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, double tmj_1,
                                              const typename aligned_list<IMUData>::const_iterator &iteri,
                                              const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                              int8_t verbose) {
   CV_Assert(ppreint_imu_kf_);
   NavState ns = plastkf->GetNavState();
-  auto iterj_1 = iterj;
-  --iterj_1;
-  return FrameBase::PreIntegration<IMUData>(breset ? plastfb_kf->mTimeStamp : (*iteri).mtm, (*iterj_1).mtm, ns.mbg,
-                                            ns.mba, iteri, iterj, breset, ppreint_imu_kf_, verbose);
+  if (breset) CV_Assert(plastkf->mTimeStamp == tmi);
+  return FrameBase::PreIntegration<IMUData>(tmi, tmj_1, ns.mbg, ns.mba, iteri, iterj, breset, ppreint_imu_kf_, verbose);
 }
 // zzh
 
@@ -309,7 +302,6 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
       mBowVec(frame.mBowVec),
       mFeatVec(frame.mFeatVec),
       mvbOutlier(frame.mvbOutlier),
-      mnId(frame.mnId),
       mpReferenceKF(frame.mpReferenceKF),
       mnScaleLevels(frame.mnScaleLevels),
       mfScaleFactor(frame.mfScaleFactor),
@@ -372,6 +364,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   vdescriptors_.resize(n_size);
   vvkeys_.resize(n_size);
   num_mono.resize(n_size);
+#ifdef TIMER_FLOW
+  Timer timer_tmp;
+#endif
   for (int i = 0; i < ims.size(); ++i) {
     if (pCamInsts) {
       CV_Assert(ims.size() == pCamInsts->size());
@@ -386,6 +381,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   for (int i = 0; i < ims.size(); ++i) {
     threads[i].join();
   }
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromInit(1, "tracking_thread_debug.txt", "tm cost extractfeats=");
+#endif
 
   if (!pCamInsts) {
     mvKeys = vvkeys_[0];
@@ -406,6 +404,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
     ComputeStereoFishEyeMatches();
     if (!usedistort_) UndistortKeyPoints();
   }
+#ifdef TIMER_FLOW
+  timer_tmp.GetDTfromLast(2, "tracking_thread_debug.txt", "tm stereomatch=");
+#endif
 
   mvpMapPoints = vector<MapPoint *>(N, static_cast<MapPoint *>(nullptr));
   mvbOutlier = vector<bool>(N, false);
@@ -607,14 +608,9 @@ void Frame::UpdatePoseMatrices() {
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   bool bret = false;
   size_t n_cams = !mpCameras.size() ? 1 : mpCameras.size();
-  pMP->mbTrackInView = bret;
-  pMP->vbtrack_inview.clear();
-  pMP->vbtrack_inview.resize(n_cams, false);
-  for (int i = 0; i < 3; ++i) {
-    pMP->vtrack_proj[i].resize(n_cams, -1);
-  }
-  pMP->vtrack_scalelevel.resize(n_cams);
-  pMP->vtrack_viewcos.resize(n_cams);
+
+  auto &trackinfo = pMP->GetTrackInfoRef();
+  trackinfo.Reset();
 
   // 3D in absolute coordinates
   cv::Mat wP = pMP->GetWorldPos();
@@ -624,7 +620,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   cv::Mat Rcrw = Tcw_.rowRange(0, 3).colRange(0, 3);
   // 3D in camera coordinates
   const cv::Mat Pcr = mRcw * wP + mtcw;
-  pMP->vtrack_cami.clear();
+  float sum_depth = 0;
   for (size_t cami = 0; cami < n_cams; ++cami) {
     // TODO: unify this cycle with SBP to one func
     Vector3d Pc = Converter::toVector3d(Pcr);
@@ -672,16 +668,18 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
     const int nPredictedLevel = pMP->PredictScale(dist3D, this);
 
     // Data used by the tracking
-    pMP->vbtrack_inview[cami] = true;
-    pMP->vtrack_proj[0][cami] = u;
-    pMP->vtrack_proj[1][cami] = v;
-    pMP->vtrack_proj[2][cami] = u - mbf * invz;  // ur=ul-b*fx/dl
-    pMP->vtrack_scalelevel[cami] = nPredictedLevel;
-    pMP->vtrack_viewcos[cami] = viewCos;
-    pMP->vtrack_cami.push_back(cami);
+
+    trackinfo.vtrack_proj_[0].push_back(u);
+    trackinfo.vtrack_proj_[1].push_back(v);
+    trackinfo.vtrack_proj_[2].push_back(u - mbf * invz);  // ur=ul-b*fx/dl
+    trackinfo.vtrack_scalelevel_.push_back(nPredictedLevel);
+    trackinfo.vtrack_viewcos_.push_back(viewCos);
+    trackinfo.vtrack_cami_.push_back(cami);
+    sum_depth += dist3D;
     bret = true;
   }
-  pMP->mbTrackInView = bret;
+  if (bret) trackinfo.track_depth_ = sum_depth / trackinfo.vtrack_cami_.size();
+  trackinfo.btrack_inview_ = bret;
 
   return bret;
 }
@@ -689,6 +687,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
 vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r, const int minLevel,
                                         const int maxLevel) const {
   vector<size_t> vIndices;
+  if (vgrids_.empty()) return vIndices;
   vIndices.reserve(N);
 
   const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
@@ -708,8 +707,6 @@ vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float
   for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
     for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
       const vector<size_t> vCell = vgrids_[cami][ix][iy];
-      if (vCell.empty()) continue;
-
       for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
         const cv::KeyPoint &kpUn = (!mpCameras.size() || !usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
         if (bCheckLevels)  // if the octave is out of level range
@@ -999,7 +996,8 @@ void Frame::ComputeStereoFishEyeMatches() {
   for (int i = 0; i < n_cams - 1; ++i) {
     for (int j = i + 1; j < n_cams; ++j) {
       allmatches.push_back(vector<vector<cv::DMatch>>());
-      if (vdescriptors_[i].empty() || vdescriptors_[j].empty()) continue;
+      if (num_mono[i] >= vdescriptors_[i].rows || num_mono[j] >= vdescriptors_[j].rows) continue;
+      CV_Assert(!vdescriptors_[i].empty() && !vdescriptors_[j].empty());
       BFmatcher.knnMatch(vdescriptors_[i].rowRange(num_mono[i], vdescriptors_[i].rows),
                          vdescriptors_[j].rowRange(num_mono[j], vdescriptors_[j].rows), allmatches.back(), 2);
     }
@@ -1087,7 +1085,7 @@ void Frame::ComputeStereoFishEyeMatches() {
         goodmatches_[i] = false;
     }
   }
-  PRINT_DEBUG_INFO_MUTEX("match num=" << nMatches << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("match num=" << nMatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
 
   CV_Assert(!mvDepth.size() && !mvuRight.size());
   size_t num_pt_added = 0;

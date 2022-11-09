@@ -4,7 +4,7 @@
 test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 
 # Timestamp shift(s) Timage = Timu/Tenc + image_delay
-Camera.delaytoimu: 0.
+Camera.delaytoimu: -0.0035
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
 Camera.delayForPolling: 0.005
@@ -19,9 +19,6 @@ Encoder.scale: 1.649336143e-4
 Encoder.sigma:
  [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
 
-# mode 0 is normal right order gxgygz/axayaz, 1 means -gy,gxgz/-ay,axaz
-IMU.mode: 0
-
 # Sigma etawi of IMU
 IMU.SigmaI:
  [0.1, 0, 0,
@@ -31,8 +28,9 @@ IMU.SigmaI:
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
 # [4.887e-5, 6.867e-4, 1.e-6, 1.e-5]
-# [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
- [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+ [4.887e-5, 6.8e-3, 1.e-5, 1.e-3]
+# [ 4.887e-5, 6.8e-2, 1.e-5, 1.e-2]
+# [ 4.887e-5, 6.8e-3, 1.e-5, 1.e-2]
 
 IMU.freq_hz: 1000.0
 IMU.dt_cov_noise_fix: 1
@@ -42,10 +40,10 @@ IMU.dMultiplyG: 1.
 
 # camera-imu frame transformation, Pi = Tic * Pc; For stereo: it's the rectified left(0) camera's Tbc'=Tbc0*Tc'c0.inv(), notice LEFT.R is Rc'c0(R1) & tc'c0=0
 Camera.Tbc:
- [0.201299353,  0.962888982,  0.179787040,  0.099495763,
-  -0.755935959,  0.269434525, -0.596628748,  0.002507497,
-  -0.622928083, -0.015806508,  0.782119401,  0.006693590,
-  0        ,   0,           0         ,  1]
+ [-9.6363997320283556e-02, -7.5615026411056552e-01,-6.4726405593542613e-01, -2.9115176000000000e-03,
+  -9.8197996071561411e-01, -3.3989384410187951e-02,1.8590341175023498e-01, 7.8778505999999998e-02,
+  -1.6257102070608190e-01, 6.5351472809183009e-01,-7.3924905369817284e-01, -4.0902784999999999e-03,
+  0, 0, 0, 1]
 
 # imu-encoder frame transformation
 Camera.Tce:
@@ -62,8 +60,8 @@ ErrIMUImg: 0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
 IMU.InitTime: 0
-IMU.FinalTime: 15
-IMU.SleepTime: 1.0
+IMU.FinalTime: 3
+IMU.SleepTime: 0.030
 
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10
@@ -77,71 +75,44 @@ GBA.threshInliers : 10
 #--------------------------------------------------------------------------------------------
 
 Camera.type: "KannalaBrandt8"
-# Camera calibration and distortion parameters (OpenCV)
-Camera.fx: 234.1880629
-Camera.fy: 234.7812
-Camera.cx: 315.7536361 
-Camera.cy: 235.7147846
-Camera.k1: 0.213186433
-Camera.k2: -0.1629277497
-Camera.k3: 0.05754378841
-Camera.k4: -0.008671469663
-Camera2.fx: 237.5684601
-Camera2.fy: 238.3958173
-Camera2.cx: 319.0968645
-Camera2.cy: 233.8469634
-Camera2.k1: 0.2053684704
-Camera2.k2: -0.1571537097
-Camera2.k3: 0.05538060014
-Camera2.k4: -0.008568903558
-Camera3.fx: 236.5673807
-Camera3.fy: 236.7734949
-Camera3.cx: 315.4433573
-Camera3.cy: 233.8171481
-Camera3.k1: 0.2139231601
-Camera3.k2: -0.1654129519
-Camera3.k3: 0.05759914372
-Camera3.k4: -0.008638573905
-Camera4.fx: 235.2586282 
-Camera4.fy: 235.7377231
-Camera4.cx: 317.2162393 
-Camera4.cy: 234.3107724
-Camera4.k1: 0.2091942181
-Camera4.k2: -0.1601806788
-Camera4.k3: 0.05745422052
-Camera4.k4: -0.009171365526
+
+# Camera calibration and distortion parameters (OpenCV) 
+Camera.fx: 233.9814
+Camera.fy: 233.9814
+Camera.cx: 318.0158
+Camera.cy: 241.5793
+
+Camera.k1: 2.6363848000000001e-01
+Camera.k2: -2.1819395999999999e-01
+Camera.k3: 8.2745500999999999e-02
+Camera.k4: -1.2741687000000000e-02
+
+Camera2.fx: 236.0976
+Camera2.fy: 236.0976
+Camera2.cx: 316.1707
+Camera2.cy: 242.6773
+
+Camera2.k1: 2.4842847000000001e-01
+Camera2.k2: -1.9732686999999999e-01
+Camera2.k3: 7.2565018999999994e-02
+Camera2.k4: -1.1509480000000001e-02
+
 # Transformation matrix from reference camera to current camera
-Camera3.Trc: !!opencv-matrix
-  rows: 3
-  cols: 4
-  dt: f
-  data: [ -0.765412313, -0.077148614, -0.638899118, -0.024361251,
-          -0.598934878, -0.277778005,  0.751076821,  0.043226684,
-          -0.235416658,  0.957542412,  0.166407710, -0.039690376]
 Camera2.Trc: !!opencv-matrix
   rows: 3
   cols: 4
   dt: f
-  data: [ -0.443938298,  0.016072542 ,-0.895913199 ,-0.061367401,
-          0.895245197,  0.050515496 ,-0.442701053 ,-0.119345071,
-          0.038142168, -0.998593941, -0.036814629, -0.067423353]
-Camera4.Trc: !!opencv-matrix
-  rows: 3
-  cols: 4
-  dt: f
-  data: [ 0.921426381,  0.384342650, -0.057045174, -0.021275771,
-          -0.378992063,  0.856646144, -0.350031998, -0.109619463,
-          -0.085664698,  0.344148385,  0.934999170, -0.021441253]
+  data: [ 9.3711135463334361e-01, -2.3698596326409072e-02, 3.4822511165260595e-01, 8.5948570845292657e-02,
+       2.9693507956804692e-02, 9.9948835889868681e-01, -1.1887860548441391e-02, 3.0374860575213018e-03,
+       -3.4776520575008091e-01, 2.1480272442993192e-02, 9.3733557664809275e-01, -1.6647932271534618e-02]
 
 # Lapping area between images
 Camera.lappingBegin: 0
 Camera.lappingEnd: 639
+
 Camera2.lappingBegin: 0
 Camera2.lappingEnd: 639
-Camera3.lappingBegin: 0
-Camera3.lappingEnd: 639
-Camera4.lappingBegin: 0
-Camera4.lappingEnd: 639
+
 Camera.width: 640
 Camera.height: 480
 
@@ -161,7 +132,7 @@ ThDepth: 35.0 # 35
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 187
+ORBextractor.nFeatures: 375
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
 ORBextractor.scaleFactor: 2.

@@ -27,6 +27,7 @@
 #include <mutex>
 #include <set>
 #include <map>
+#include <list>
 
 namespace VIEO_SLAM {
 
@@ -35,6 +36,28 @@ class Map;
 class Frame;
 
 class MapPoint {
+ protected:
+  template <typename _Tp>
+  using list = std::list<_Tp>;
+  using FrameId = unsigned long;
+  typedef struct _TrackFastMatchInfo {
+    // avg depth, for fast motion close scene
+    float track_depth_ = INFINITY;
+    // true for those in curf Frustum but last Frame untracked local map points
+    bool btrack_inview_;
+    static constexpr int NUM_PROJ = 3;
+    list<float> vtrack_proj_[NUM_PROJ];  // X/Y/XR
+    list<size_t> vtrack_cami_;
+    list<float> vtrack_viewcos_;   // for r judge at lv0
+    list<int> vtrack_scalelevel_;  // for r expansion lv judge and fast match search
+    // for UpdateLocalPoints
+    FrameId track_ref_frameid_;  // for plocalmappoints_
+    FrameId last_seen_frameid_;  // for mp.IncreaseVisible()
+
+    void Reset(Frame* pf = nullptr);
+  } TrackFastMatchInfo;
+  TrackFastMatchInfo trackinfo_ = {.track_ref_frameid_ = 0, .last_seen_frameid_ = 0};
+
  public:
   void UpdateScale(const float& scale);
 
@@ -50,12 +73,13 @@ class MapPoint {
   MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF);  // used in localization mode tracking
 
   cv::Mat GetWorldPos();
-  void SetWorldPos(const cv::Mat& Pos);  // Pos.copyTo(mWorldPos)
+  void SetWorldPos(const cv::Mat& Pos, bool block = true);  // Pos.copyTo(mWorldPos)
 
   // if map is large, for single search time cost stability, please use map instead of unordered_map
   std::map<KeyFrame*, std::set<size_t>> GetObservations();  // mObservations
   void AddObservation(KeyFrame* pKF, size_t idx);           // mObservations[pKF]=idx;nObs+=2/1;
-  void EraseObservation(KeyFrame* pKF);  // mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
+  // mObservations.erase(pKF), update nObs and when nObs<=2 ->SetBadFlag()
+  void EraseObservation(KeyFrame* pKF, size_t idx = -1);
   std::set<size_t> GetIndexInKeyFrame(KeyFrame* pKF);                   // mObservations[pKF](empty() unfound)
   int Observations();                                                   // nObs
   bool IsInKeyFrame(KeyFrame* pKF, size_t idx = -1, size_t cami = -1);  // mObservations.count(pKF)
@@ -87,14 +111,7 @@ class MapPoint {
   long int mnFirstKFid;
 
   // Variables used by the tracking
-  bool mbTrackInView;
-  std::vector<bool> vbtrack_inview;
-  std::vector<float> vtrack_proj[3];  // X/Y/XR
-  std::vector<size_t> vtrack_cami;
-  std::vector<float> vtrack_viewcos;
-  std::vector<int> vtrack_scalelevel;
-  long unsigned int mnTrackReferenceForFrame;
-  long unsigned int mnLastFrameSeen;
+  TrackFastMatchInfo& GetTrackInfoRef() { return trackinfo_; }
 
   // Variables used by local mapping
   long unsigned int mnBALocalForKF;        // local BA in LocalMapping

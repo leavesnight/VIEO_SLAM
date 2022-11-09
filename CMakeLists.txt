@@ -139,7 +139,7 @@ add_library(${PROJECT_NAME} SHARED
         src/Sim3Solver.cc
         src/Initializer.cc
         src/Viewer.cc
-        src/log.cpp
+        common/log.cpp
 
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp

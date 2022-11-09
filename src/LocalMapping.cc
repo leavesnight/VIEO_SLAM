@@ -27,6 +27,7 @@
 #include <mutex>
 
 //#define NO_GBA_THREAD
+//#define NO_LOCALMAP_PROCESS
 
 namespace VIEO_SLAM {
 
@@ -68,23 +69,42 @@ void LocalMapping::Run() {
 
     // Check if there are keyframes in the queue
     if (CheckNewKeyFrames()) {
+      chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
       // BoW conversion and insertion in Map
       PRINT_DEBUG_INFO_MUTEX("Processing New KF...", imu_tightly_debug_path, "debug.txt");
       ProcessNewKeyFrame();
       PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
+      PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
+#ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
       MapPointCulling();
+      PRINT_INFO_FILE(blueSTR "Used time in MapCulling()="
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       // Triangulate new MapPoints
       CreateNewMapPoints();
+      PRINT_INFO_FILE(blueSTR "Used time in CreateNewMP()="
+                          << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                          << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
         // Find more matches in neighbor keyframes and fuse point duplications
         SearchInNeighbors();
+        PRINT_INFO_FILE(blueSTR "Used time in SIN()="
+                            << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
+                            << whiteSTR << endl,
+                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
       }
+#endif
 
       mbAbortBA = false;
 
@@ -104,23 +124,47 @@ void LocalMapping::Run() {
                 Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap,
                                                  mnLocalWindowSize);  // local BA
             }
-          } else {  // maybe it needs transition when initialized with a few imu edges<N
-            Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
-                                                        mpIMUInitiator->GetGravityVec());
-            // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
+          } else {
+            // maybe it needs transition when initialized with a few imu edges<N
+            const bool bno_imu_lba = false;  // true;  //
+            if (!bno_imu_lba) {
+              // bLarge/bRecInit ref from ORB3
+              const bool bLarge = false;
+              //                  mpTracker->Getnum_track_inliers_() > mpTracker->mSensor == System::MONOCULAR ? 75 :
+              //                  100;
+              const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
+              Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
+                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
+              // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
+            }
           }
-          PRINT_INFO_MUTEX(blueSTR "Used time in localBA="
-                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count()
-                           << whiteSTR << endl);
+          static double dt_olba_avg = 0;
+          static unsigned long num_olba_avg = 0;
+          double dt_olba = chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count();
+          dt_olba_avg += dt_olba;
+          ++num_olba_avg;
+          PRINT_INFO_FILE(
+              blueSTR "Used time in localBA=" << dt_olba << ",avg=" << dt_olba_avg / num_olba_avg << whiteSTR << endl,
+              imu_tightly_debug_path, "localmapping_thread_debug.txt");
         }
 
+#ifndef NO_LOCALMAP_PROCESS
         // Check redundant local Keyframes
         KeyFrameCulling();
+#endif
       }
 
 #ifndef NO_GBA_THREAD
       mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
 #endif
+      static double dt_lbathread_avg = 0;
+      static unsigned long num_lbathread_avg = 0;
+      double dt_lbathread = chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count();
+      dt_lbathread_avg += dt_lbathread;
+      ++num_lbathread_avg;
+      PRINT_INFO_FILE(blueSTR "Used time in localmapping=" << dt_lbathread << ",avg="
+                                                           << dt_lbathread_avg / num_lbathread_avg << whiteSTR << endl,
+                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
       while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction
@@ -163,13 +207,15 @@ void LocalMapping::ProcessNewKeyFrame() {
   }
 
   // added by zzh, it can also be put in InsertKeyFrame()
+  PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
+                           << mpCurrentKeyFrame->mTimeStamp << endl,
+                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
     if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->mnId <= mnLastOdomKFId + 5) {
       // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
-      if (!mpIMUInitiator->GetCopyInitKFs()) {
-        mpIMUInitiator->SetCopyInitKFs(true);
+      if (mpIMUInitiator->SetCopyInitKFs(true)) {
         KeyFrame *pLastKF = mpCurrentKeyFrame;
         vector<KeyFrame *> vecEraseKF;
         if (mpIMUInitiator->GetVINSInited()) {
@@ -381,7 +427,19 @@ void LocalMapping::CreateNewMapPoints() {
   // Retrieve neighbor keyframes in covisibility graph
   int nn = 10;
   if (mbMonocular) nn = 20;
-  const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+  vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+
+  // ref from ORB3
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited()) {
+    KeyFrame *pKF = mpCurrentKeyFrame;
+    int count = 0;
+    while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
+      vector<KeyFrame *>::iterator it = std::find(vpNeighKFs.begin(), vpNeighKFs.end(), pKF->GetPrevKeyFrame());
+      if (it == vpNeighKFs.end()) vpNeighKFs.push_back(pKF->GetPrevKeyFrame());
+      pKF = pKF->GetPrevKeyFrame();
+    }
+  }
 
   ORBmatcher matcher(0.6, false);
 
@@ -558,17 +616,41 @@ void LocalMapping::SearchInNeighbors() {
       continue;
     vpTargetKFs.push_back(pKFi);
     pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+  }
 
-    // Extend to some second neighbors
-    const vector<KeyFrame *> vpSecondNeighKFs = pKFi->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
+  // Add some covisible of covisible
+  // Extend to some second neighbors
+  for (int i = 0, imax = vpTargetKFs.size(); i < imax; i++) {
+    const vector<KeyFrame *> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
     for (vector<KeyFrame *>::const_iterator vit2 = vpSecondNeighKFs.begin(), vend2 = vpSecondNeighKFs.end();
          vit2 != vend2; vit2++) {
       KeyFrame *pKFi2 = *vit2;
+      // avoid bad,duplications && itself(KF now)
       if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->mnId ||
-          pKFi2->mnId == mpCurrentKeyFrame->mnId)  // avoid bad,duplications && itself(KF now)
+          pKFi2->mnId == mpCurrentKeyFrame->mnId)
         continue;
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
+    }
+//#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+    if (mbAbortBA) return;
+#endif
+  }
+
+  // ref from ORB3
+  // Extend to temporal neighbors
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited()) {
+    KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
+    while (vpTargetKFs.size() < 20 && pKFi) {
+      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {
+        pKFi = pKFi->GetPrevKeyFrame();
+        continue;
+      }
+      vpTargetKFs.push_back(pKFi);
+      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+      pKFi = pKFi->GetPrevKeyFrame();
     }
   }
 
@@ -581,7 +663,11 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO_MUTEX("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+
+#ifdef ORB3_STRATEGY
+  if (mbAbortBA) return;
+#endif
 
   // Search matches by projection from target KFs in current KF
   vector<MapPoint *> vpFuseCandidates;
@@ -605,19 +691,24 @@ void LocalMapping::SearchInNeighbors() {
   }
 
   num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_INFO_MUTEX("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
   vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+  size_t num_pts_good = 0;
   for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
     MapPoint *pMP = vpMapPointMatches[i];
     if (pMP) {
       if (!pMP->isBad()) {
         pMP->ComputeDistinctiveDescriptors();
         pMP->UpdateNormalAndDepth();
+        ++num_pts_good;
       }
     }
   }
+  PRINT_DEBUG_INFO(
+      "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
+      imu_tightly_debug_path, "localmapping_thread_debug.txt");
 
   // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
   // incurrent KF
@@ -693,8 +784,7 @@ void LocalMapping::InterruptBA() { mbAbortBA = true; }
 
 void LocalMapping::KeyFrameCulling() {
   // during the copying KFs' stage in IMU Initialization, don't cull any KF!
-  if (mpIMUInitiator->GetCopyInitKFs()) return;
-  mpIMUInitiator->SetCopyInitKFs(true);
+  if (!mpIMUInitiator->SetCopyInitKFs(true)) return;
 
   // Check redundant keyframes (only local keyframes)
   // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
@@ -745,7 +835,8 @@ void LocalMapping::KeyFrameCulling() {
           // solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in
           // other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
-            PRINT_INFO_MUTEX(pKF->mnId << " " << (int)pKF->isBad() << endl);
+            int bkfbad = (int)pKF->isBad();
+            PRINT_INFO_MUTEX(pKF->mnId << " " << bkfbad << endl);
             vbEntered[vi] = true;
             continue;
           }
@@ -771,7 +862,8 @@ void LocalMapping::KeyFrameCulling() {
       // cannot erase last ODOMOK & first ODOMOK's parent!
       KeyFrame *pNextKF = pKF->GetNextKeyFrame();
       if (pNextKF == NULL) {
-        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << (int)pKF->isBad() << endl);
+        int bkfbad = (int)pKF->isBad();
+        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << bkfbad << endl);
         continue;
       }
       // solved old bug
@@ -856,6 +948,9 @@ void LocalMapping::KeyFrameCulling() {
         }  // must done before pKF->SetBadFlag()!
 
         PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
+        PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+                                         << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
+                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();
       }
     }

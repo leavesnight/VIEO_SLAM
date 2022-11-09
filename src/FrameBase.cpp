@@ -9,6 +9,10 @@ using namespace VIEO_SLAM;
 using std::pair;
 using std::set;
 
+cv::Mat FrameBase::mTbc, FrameBase::mTce;
+Eigen::Matrix3d FrameBase::meigRcb;
+Eigen::Vector3d FrameBase::meigtcb;
+
 const Sophus::SE3d FrameBase::GetTwc() { return GetTcw().inverse(); }
 const Sophus::SE3d FrameBase::GetTcw() { return GetTcwCst(); }
 
@@ -24,7 +28,7 @@ void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx) {
   //    }
   //    cout << endl;
   //  }
-  assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad());
+  assert(!mvpMapPoints[idx] || mvpMapPoints[idx]->isBad() || mvpMapPoints[idx]->Observations() < 1);
   mvpMapPoints[idx] = pMP;
 }
 
