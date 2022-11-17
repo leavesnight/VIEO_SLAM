@@ -540,16 +540,16 @@ void LocalMapping::CreateNewMapPoints() {
       if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
           (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {
         const double thresh_cosdisparity = 1. - 1e-6;
-        if (!pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).size())
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
           continue;
       } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
         CV_Assert(bStereos[0]);
         x3D = pKF1->UnprojectStereo(idxs1.front());
-        pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
         CV_Assert(bStereos[1]);
         x3D = pKF2->UnprojectStereo(idxs2.front());
-        pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true);
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else
         continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax
                    // angle>=90 degrees with >=1 stereo point
@@ -601,6 +601,7 @@ void LocalMapping::CreateNewMapPoints() {
       nnew++;
     }
   }
+  // cout << "newmpsnum=" << nnew << endl;
 }
 
 void LocalMapping::SearchInNeighbors() {

@@ -2057,7 +2057,7 @@ bool Tracking::TrackLocalMap() {
     threInliers = 15;
   }
   threInliers = 15;  // TODO: check
-  if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc) return false;
+  if (mnLastRelocFrameId && mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc) return false;
 
   if (mnMatchesInliers < threInliers)  // notice it's a class data member
     return false;
@@ -2169,7 +2169,7 @@ bool Tracking::NeedNewKeyFrame() {
   // Thresholds
   float thRefRatio = 0.75f;
   // it's necessary for this stricter enough distance threshold! in my dataset Corridor004, like nKFs<=2!
-  if (nKFs < 2 || mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2) thRefRatio = 0.4f;
+  if (nKFs <= 2 || (mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2)) thRefRatio = 0.4f;
 
   if (mSensor == System::MONOCULAR) thRefRatio = 0.9f;  // JingWang uses 0.8f
 
@@ -2554,7 +2554,7 @@ void Tracking::UpdateLocalKeyFrames() {
     CV_Assert(!pParent);
 #endif
     if (pParent) {
-      if (pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
+      if (!pParent->isBad() && pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(pParent);
         pParent->mnTrackReferenceForFrame = mCurrentFrame.mnId;
         // break;
@@ -2570,7 +2570,7 @@ void Tracking::UpdateLocalKeyFrames() {
     const int Nd = 20;
     for (int i = 0; i < Nd; i++) {
       if (!tempKeyFrame) break;
-      if (tempKeyFrame->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
+      if (!tempKeyFrame->isBad() && tempKeyFrame->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(tempKeyFrame);
         tempKeyFrame->mnTrackReferenceForFrame = mCurrentFrame.mnId;
         tempKeyFrame = tempKeyFrame->GetPrevKeyFrame();
