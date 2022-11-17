@@ -61,7 +61,7 @@ class KannalaBrandt8 final : public Pinhole {
   std::vector<int> mvLappingArea = {0, INT_MAX};
 
  private:
-  const float precision = 1e-6;
+  const float precision = 1e-6;  // 1e-8;
 };
 }  // namespace VIEO_SLAM
 
