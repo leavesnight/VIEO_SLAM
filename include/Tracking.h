@@ -346,8 +346,10 @@ bool Tracking::iterijFind(const listeig(EncData) & mlOdomEnc, const double &cur_
   typename listeig(EncData)::const_iterator iter1;  // iter-1 or iter+1
   double minErr;                                    //=err_odomimg+1;
   if (bSearchBack) {                                // should==mlOdomEnc.end()
-    while (iter != mlOdomEnc.begin()) {             // begin is min >= lastKFTime-err
-      if ((--iter)->mtm <= cur_time) break;         // get max <= cur_time+0
+    if (iter == mlOdomEnc.end() || iter->mtm > cur_time) {
+      while (iter != mlOdomEnc.begin()) {      // begin is min >= lastKFTime-err
+        if ((--iter)->mtm <= cur_time) break;  // get max <= cur_time+0
+      }
     }
     // Notice mlOdomEnc.empty()==false!
     //     if (iter!=mlOdomEnc.end()){//find a nearest iter to cur_time
