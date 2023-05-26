@@ -5,7 +5,9 @@ if [[ $1 != ""  ]]; then
 fi
 SHELLNAME="./SetEuRoCVIO_Once.sh"
 
-cd ~/zzh/VIEO_SLAM/Examples/RunEuRoC
+curPath=$(dirname $(readlink -f "$0"))
+echo curPath_Files=$curPath
+cd $curPath
 
 OFFSET=0.
 EUROCFILE=V101easy
