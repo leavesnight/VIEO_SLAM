@@ -11,7 +11,7 @@ Examples/ROS/*/Stereo
 Examples/ROS/*/build/
 Examples/Stereo/stereo_euroc
 Examples/Stereo/stereo_kitti
-Examples/Stereo/stereo_yvr
+Examples/Stereo/stereo_vr
 KeyFrameTrajectory*.txt
 Thirdparty/DBoW2/build/
 Thirdparty/DBoW2/lib/

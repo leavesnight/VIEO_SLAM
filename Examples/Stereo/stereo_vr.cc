@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
       PRINT_INFO_MUTEX("OdomThread created!" << endl);
     } break;
     default:
-      cerr << endl << "Usage: ./stereo_yvr path_to_vocabulary path_to_settings path_to_folder (VIO)" << endl;
+      cerr << endl << "Usage: ./stereo_vr path_to_vocabulary path_to_settings path_to_folder (VIO)" << endl;
       return 1;
   }
   if (mode != "VIO" && mode != "VO") {
@@ -806,7 +806,7 @@ void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, s
   // output all_settings
   const string input_config = tmp_configfile_path;
   size_t pos_dir = tmp_configfile_path.rfind("/") + 1;
-  tmp_configfile_path = tmp_configfile_path.substr(0, pos_dir) + "YVR_tmp.yaml";
+  tmp_configfile_path = tmp_configfile_path.substr(0, pos_dir) + "VR_tmp.yaml";
   exfstream fs_tmp(tmp_configfile_path, ios::out);
   if (!fs_tmp.is_open()) {
     cerr << "ERROR: Wrong path to tmp_config" << endl;

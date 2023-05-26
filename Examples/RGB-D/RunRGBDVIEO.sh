@@ -1,20 +1,27 @@
 #!/bin/bash
-#OURFILE=~/dataset/Lab001easy
-#OURFILE=~/dataset/Lab002medium
-#OURFILE=~/dataset/Lab003difficult
-#OURFILE=~/dataset/Lab004difficult
-#OURFILE=~/dataset/Corridor001easy
-#OURFILE=~/dataset/Corridor002medium
-OURFILE=~/dataset/Corridor003difficult
-#OURFILE=~/dataset/Corridor004difficult
-#OURFILE=~/dataset/Farm002medium
-#OURFILE=~/dataset/test_research_control
-#EUROCFILE2=V203
+ourds_path=~/dataset/master_VIEO
+#OURFILE=$ourds_path/Lab001easy
+#OURFILE=$ourds_path/Lab002medium
+#OURFILE=$ourds_path/VIEO_datasets_highfreq/Lab15_200Hz
+#OURFILE=$ourds_path/Lab003difficult
+#OURFILE=$ourds_path/VIEO_datasets_lowfreq/Lab7_15Hz
+#OURFILE=$ourds_path/Lab004difficult
+#OURFILE=$ourds_path/Corridor001easy
+#OURFILE=$ourds_path/Corridor002medium
+#OURFILE=$ourds_path/Corridor003difficult
+OURFILE=$ourds_path/VIEO_datasets_highfreq/Corridor15_200Hz
+#OURFILE=$ourds_path/Corridor004difficult
+#OURFILE=$ourds_path/VIEO_datasets_lowfreq/Corridor7_15Hz
+#OURFILE=$ourds_path/Farm002medium
+#OURFILE=$ourds_path/test_research_control
 
 CAMTYPE=RGBD
 SUBFILE=""
 
-slam_path="${HOME}/zzh/VIEO_SLAM/Examples/RGB-D"
+curPath=$(dirname $(readlink -f "$0"))
+curPath_Examples=$curPath/..
+echo curPath_Examples_Run=$curPath_Examples
+slam_path="$curPath_Examples/RGB-D"
 transform_path="${HOME}/zzh/UsefulToolsForVIEORBSLAM2/get_estimatedtraj_cryst/build"
 evaluate_path="${HOME}/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools"
 

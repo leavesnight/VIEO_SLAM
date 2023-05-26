@@ -1219,7 +1219,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
 #ifdef DEBUG_STRATEGY
         else {
           static set<string> opened_paths;
-          string path = "/data_1/home/leavesnight/dataset/yvr/5/realtime_trajBE_ham.txt";
+          string path = "/data_1/home/leavesnight/dataset/vr/5/realtime_trajBE_ham.txt";
           ofstream fout(path, (opened_paths.count(path) ? ios::app : ios::out));
           opened_paths.insert(path);
           fout << fixed << setprecision(9);
