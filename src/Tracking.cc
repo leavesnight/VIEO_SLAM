@@ -718,6 +718,8 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   cv::FileNode fnT[2] = {fSettings["Camera.Tbc"], fSettings["Camera.Tce"]};
   Eigen::Matrix3d eigRtmp;
   mTbc = cv::Mat::eye(4, 4, CV_32F);
+  mTce = cv::Mat::eye(4, 4, CV_32F);
+  Frame::mTce = mTce.clone();
   for (int i = 0; i < 2; ++i) {
     if (fnT[i].empty()) {
       PRINT_INFO_MUTEX(redSTR "No Tbc/Tce, please check if u wanna use VIO!" << whiteSTR << endl);

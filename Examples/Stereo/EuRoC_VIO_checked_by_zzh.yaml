@@ -9,16 +9,6 @@ Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
 Camera.delayForPolling: 0.001
 
-# 2 differential driving wheels' distance (m)
-Encoder.rc: 0.280
-
-# encoder coefficient to m/s : vscaleforhall=2.0/ppr*M_PI*wheelradius/datatime=2.0/400*M_PI*0.105/10
-Encoder.scale: 1.649336143e-4
-
-# encoder_sigma[8]: el,er,em[6](vx,vy,vz,wx,wy,wz) [m/s/sqrt(Hz),model: m/s^2/sqrt(Hz)]
-Encoder.sigma:
- [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
-
 # Sigma etawi of IMU
 IMU.SigmaI:
  [0.1, 0, 0,
@@ -43,13 +33,6 @@ Camera.Tbc:
   -0.01770207409877133, 0.01077412554806465, 0.9997852543378366, 0.00981073058949,
   0, 0, 0, 1]
 
-# imu-encoder frame transformation
-Camera.Tce:
- [0.000000000, -1.000000000,  0.000000000,  -0.015000000,
-  0.000000000,  0.000000000, -1.000000000,  0.473000000,
-  1.000000000,  0.000000000,  0.000000000, -0.518000000,
-  0.000000000,  0.000000000,  0.000000000,  1.000000000]
-
 # Local Window size(0 means pure-vision+IMU Initialzation but no IMU error in BA): JW is 20, VIORBSLAM paper uses 10, but 5 for V203 in my PC
 LocalMapping.LocalWindowSize: 10
 
@@ -65,9 +48,6 @@ IMU.SleepTime: 1.0
 GBA.iterations: 10
 GBA.initIterations: 15
 GBA.finalIterations: 20
-
-# if use A looser restriction for LoopClosing(old strategy of Loop KF exludes all covisible KFs), default 0
-Loop.More: 0
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
@@ -175,7 +155,7 @@ ORBextractor.minThFAST: 7
 Viewer.KeyFrameSize: 0.05
 Viewer.KeyFrameLineWidth: 1
 Viewer.GraphLineWidth: 0.9
-Viewer.PointSize:2
+Viewer.PointSize: 2
 Viewer.CameraSize: 0.08
 Viewer.CameraLineWidth: 3
 Viewer.ViewpointX: 0
