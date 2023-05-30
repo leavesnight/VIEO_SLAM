@@ -8,10 +8,11 @@ Examples/ROS/*/Mono
 Examples/ROS/*/MonoAR
 Examples/ROS/*/RGBD
 Examples/ROS/*/Stereo
+Examples/ROS/*/Stereo_Inertial
 Examples/ROS/*/build/
 Examples/Stereo/stereo_euroc
 Examples/Stereo/stereo_kitti
-Examples/Stereo/stereo_yvr
+Examples/Stereo/stereo_vr
 KeyFrameTrajectory*.txt
 Thirdparty/DBoW2/build/
 Thirdparty/DBoW2/lib/

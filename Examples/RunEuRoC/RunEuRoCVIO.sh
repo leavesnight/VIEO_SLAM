@@ -12,9 +12,12 @@ fi
 echo "CAMTYPE="$CAMTYPE
 echo "EUROCFILE="$EUROCFILE
 echo "EUROCFILE2="$EUROCFILE2
-cd ~/zzh/VIEO_SLAM/Examples/${CAMTYPE%VIO}
+curPath=$(dirname $(readlink -f "$0"))
+curPath_Examples=$curPath/..
+echo curPath_Examples_Run=$curPath_Examples
+cd $curPath_Examples/${CAMTYPE%VIO}
 if [[ $CAMTYPE == "StereoVIO" ]]; then
-    ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO_dist.yaml ~/dataset/EuRoC/$EUROCFILE/mav0/cam0/data ~/dataset/EuRoC/$EUROCFILE/mav0/cam1/data ./EuRoC_TimeStamps/$EUROCFILE2.txt ~/dataset/EuRoC/$EUROCFILE/mav0/imu0/data.csv
+    ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO_dist_fast.yaml ~/dataset/EuRoC/$EUROCFILE/mav0/cam0/data ~/dataset/EuRoC/$EUROCFILE/mav0/cam1/data ./EuRoC_TimeStamps/$EUROCFILE2.txt ~/dataset/EuRoC/$EUROCFILE/mav0/imu0/data.csv
 elif [[ $CAMTYPE == "MonocularVIO" ]]; then
     ./mono_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml ~/dataset/EuRoC/$EUROCFILE/mav0/cam0/data ./EuRoC_TimeStamps/$EUROCFILE2.txt ~/dataset/EuRoC/$EUROCFILE/mav0/imu0/data.csv
 elif [[ $CAMTYPE == "Stereo" ]]; then

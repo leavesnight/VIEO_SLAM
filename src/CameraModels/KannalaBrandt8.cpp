@@ -82,7 +82,7 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
 Eigen::Vector2d KannalaBrandt8::project(const Eigen::Vector3d &v3D) {
   const double x2_plus_y2 = v3D[0] * v3D[0] + v3D[1] * v3D[1];
   double r = sqrtf(x2_plus_y2);
-  const double theta = atan2(sqrtf(x2_plus_y2), v3D[2]);  // notice theta could be [pi/2,pi]
+  const double theta = atan2(r, v3D[2]);  // notice theta could be [pi/2,pi]
   const double theta2 = theta * theta, theta4 = theta2 * theta2, theta6 = theta4 * theta2, theta8 = theta4 * theta4;
   const double thetad = theta * (1 + mvParameters[4] * theta2 + mvParameters[5] * theta4 + mvParameters[6] * theta6 +
                                  mvParameters[7] * theta8);
@@ -153,13 +153,18 @@ Eigen::Matrix<double, 2, 3> KannalaBrandt8::projectJac(const Eigen::Vector3d &v3
 bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                        const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel, const float unc,
                                        bool bkp_distort) {
+  return Pinhole::epipolarConstrain(pCamera2, kp1, kp2, R12, t12, sigmaLevel, unc, bkp_distort);
+  // ORB3 st. is worse then ORB2 st.
+  /*
   CV_Assert(bkp_distort);
   aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(kp1.pt.x, kp1.pt.y), Eigen::Vector2d(kp2.pt.x, kp2.pt.y)};
-  auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, {sigmaLevel, unc});
+  float thresh_cosdisparity = 0.9998;  // 1. - 1e-6;
+  auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, {sigmaLevel, unc}, nullptr,
+                                     thresh_cosdisparity);
   if (zs.empty()) return false;
   for (auto z : zs)
     if (z <= 0.0001f) return false;
-  return true;
+  return true;*/
 }
 
 //    bool KannalaBrandt8::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const

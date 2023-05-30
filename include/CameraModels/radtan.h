@@ -19,7 +19,7 @@ class Radtan : public Pinhole {
       : Pinhole(fSettings, id, bmiss_param) {
     CV_Assert((DistCoef.total() == 4 || DistCoef.total() == 5) && DistCoef.elemSize() == sizeof(float));
     mvParameters.resize(4 + DistCoef.total());
-    for (int i = 0; i < DistCoef.total(); ++i) {
+    for (size_t i = 0; i < DistCoef.total(); ++i) {
       mvParameters[4 + i] = DistCoef.at<float>(i);
     }
     mnType = CAM_RADTAN;

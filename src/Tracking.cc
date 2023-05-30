@@ -598,7 +598,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate() {  // see VIORBSLAM paper IV
   const cv::Mat gw = mpIMUInitiator->GetGravityVec();
   cv::Mat C = cv::Mat::zeros(3 * (N - 2), 3, CV_32F);
   cv::Mat D = cv::Mat::zeros(3 * (N - 2), 1, CV_32F);
-  for (int i = 0; i < N - 2; i++) {
+  for (int i = 0; i < (int)N - 2; i++) {
     const Frame *pKF2 = mv20pFramesReloc[i + 1], *pKF3 = mv20pFramesReloc[i + 2];
     const IMUPreintegrator &imupreint12 = pKF2->GetIMUPreInt(), &imupreint23 = pKF3->GetIMUPreInt();
     // d means delta
@@ -718,6 +718,8 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   cv::FileNode fnT[2] = {fSettings["Camera.Tbc"], fSettings["Camera.Tce"]};
   Eigen::Matrix3d eigRtmp;
   mTbc = cv::Mat::eye(4, 4, CV_32F);
+  mTce = cv::Mat::eye(4, 4, CV_32F);
+  Frame::mTce = mTce.clone();
   for (int i = 0; i < 2; ++i) {
     if (fnT[i].empty()) {
       PRINT_INFO_MUTEX(redSTR "No Tbc/Tce, please check if u wanna use VIO!" << whiteSTR << endl);
@@ -1219,7 +1221,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
 #ifdef DEBUG_STRATEGY
         else {
           static set<string> opened_paths;
-          string path = "/data_1/home/leavesnight/dataset/yvr/5/realtime_trajBE_ham.txt";
+          string path = "/data_1/home/leavesnight/dataset/vr/5/realtime_trajBE_ham.txt";
           ofstream fout(path, (opened_paths.count(path) ? ios::app : ios::out));
           opened_paths.insert(path);
           fout << fixed << setprecision(9);
@@ -2057,7 +2059,7 @@ bool Tracking::TrackLocalMap() {
     threInliers = 15;
   }
   threInliers = 15;  // TODO: check
-  if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc) return false;
+  if (mnLastRelocFrameId && mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc) return false;
 
   if (mnMatchesInliers < threInliers)  // notice it's a class data member
     return false;
@@ -2169,7 +2171,7 @@ bool Tracking::NeedNewKeyFrame() {
   // Thresholds
   float thRefRatio = 0.75f;
   // it's necessary for this stricter enough distance threshold! in my dataset Corridor004, like nKFs<=2!
-  if (nKFs < 2 || mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2) thRefRatio = 0.4f;
+  if (nKFs <= 2 || (mState == OK && mpLastKeyFrame->mnId < mnLastOdomKFId + 2)) thRefRatio = 0.4f;
 
   if (mSensor == System::MONOCULAR) thRefRatio = 0.9f;  // JingWang uses 0.8f
 
@@ -2365,9 +2367,9 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
 }
 
 void Tracking::SearchLocalPoints() {
-  // Do not search map points already matched (in TrackWithMotionModel()/...), \
-  all of (these) map points created by CreateNewKeyFrame()/StereoInitialization()/{UpdateLastFrame()in Localization mode/\
-  CreateNewMapPoints() in LocalMapping}
+  // Do not search map points already matched (in TrackWithMotionModel()/...),
+  // all of (these) map points created by CreateNewKeyFrame()/StereoInitialization()/{UpdateLastFrame()in Localization
+  // mode/CreateNewMapPoints() in LocalMapping}
   size_t num_maps_ready = 0;
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
   for (size_t i = 0; i < curfmps.size(); ++i) {
@@ -2554,7 +2556,7 @@ void Tracking::UpdateLocalKeyFrames() {
     CV_Assert(!pParent);
 #endif
     if (pParent) {
-      if (pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
+      if (!pParent->isBad() && pParent->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(pParent);
         pParent->mnTrackReferenceForFrame = mCurrentFrame.mnId;
         // break;
@@ -2570,7 +2572,7 @@ void Tracking::UpdateLocalKeyFrames() {
     const int Nd = 20;
     for (int i = 0; i < Nd; i++) {
       if (!tempKeyFrame) break;
-      if (tempKeyFrame->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
+      if (!tempKeyFrame->isBad() && tempKeyFrame->mnTrackReferenceForFrame != mCurrentFrame.mnId) {
         mvpLocalKeyFrames.push_back(tempKeyFrame);
         tempKeyFrame->mnTrackReferenceForFrame = mCurrentFrame.mnId;
         tempKeyFrame = tempKeyFrame->GetPrevKeyFrame();

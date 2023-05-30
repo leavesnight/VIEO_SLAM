@@ -15,19 +15,19 @@ if [[ $4 != "" ]]; then
 fi
 
 curPath=$(dirname $(readlink -f "$0"))
-echo curPath=$curPath
+echo curPath_Once=$curPath
 
-cd ~/zzh/VIEO_SLAM/Examples/RunEuRoC
+cd $curPath
 source ./RunEuRoCVIO.sh $CAMTYPE $EUROCFILE $EUROCFILE2
-#cd ~/zzh/VIEO_SLAM/Examples/RunEuRoC
+#cd $curPath
 #SUBFILE=VIO/NoLoopMore_0.2
 #source ./EvaluateEuRoC_Evaluate.sh
-cd ~/zzh/VIEO_SLAM/Examples/RunEuRoC
+cd $curPath
 SUBFILE=$CAMTYPE
 source ./EvaluateEuRoC_Copy.sh
 source ./EvaluateEuRoC_Evaluate.sh
 
-cd ~/zzh/VIEO_SLAM/Examples/RunEuRoC
+cd $curPath
 if [[ ${CAMTYPE:0:9} == "Monocular" ]]; then
     source ./printResultATE.sh $EUROCFILE $SUBFILE GT
 else

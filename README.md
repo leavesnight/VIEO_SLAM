@@ -16,46 +16,66 @@ it's not too difficult to implement and we have considered that the Initializati
 6.We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor currently.
 We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
 
-Dec. 26
-----------------------------------------
-Tested on:
+## Test
 
-EuRoC ASL Dataset Format: (All Clear!) V101(1.4cm),V102(1.8),V103(4.4),V201(1.2),V202(1.3),V203(2.6),MH01(6.7),MH02(5.7),MH03(6.3),MH04(5.9),MH05(9.4).
-(Available GT RMSE(cm) of Full BA VIORBSLAM)
+### EuRoC ASL Dataset Format
 
+*WithFull BA VIORBSLAM:*
 
-Usage:
+**ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
+```
+V101(1.4cm),V102(1.8),V103(4.4),V201(1.2),V202(1.3),V203(2.6),MH01(6.7),MH02(5.7),MH03(6.3),MH04(5.9),MH05(9.4)
+PS: Dec. 26
+```
+**ATE Random 1 test StereoVIO Res(m,Leica|Est\*);feat num 1000->375(default):**
 
-Build with build.sh. Notice the version requirement of Eigen3 & OpenCV in CMakeLists.txt.
+**With XXX_distXXX.yaml--With XXX.yaml(undist as ref)**
+```
+V101 0.019|0.037 ->0.019|0.036 --0.019|0.036
+V102 0.023|0.018 ->0.020|0.014 --0.023|0.018
+V103 0.039|0.023 ->0.039|0.017 --0.040|0.021+
+V201 0.014|0.014 ->0.017|0.016 --0.030|0.030
+V202 0.016|0.014 ->0.013|0.011+--0.014|0.011
+V203 0.017|0.016 ->0.018|0.014 --0.026|0.024-
+MH01 0.060|0.016+->0.061|0.010 --0.069|0.024
+MH02 0.047|0.015 ->0.049|0.014 --0.051|0.017
+MH03 0.078|0.025 ->0.078|0.021 --0.076|0.024
+MH04 0.081|0.044 ->0.075|0.052 --0.093|0.054-
+MH05 0.100|0.039 ->0.133|0.067---0.117|0.057+
+Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->25 --62
+PS:May.26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
+Single MH05 test: 0.092|0.038 ->0.122|0.061 --0.106|0.048+
+tm cost(ms): 41 ->20 --30
+```
 
-Modify the path in Examples/Monocular/EuRoC_VIO.yaml
+## Usage
 
+1. Build with build.sh. Notice the version requirement of Eigen3 & OpenCV in CMakeLists.txt.
+2. Modify the path in Examples/Monocular/EuRoC_VIO.yaml
+3. Normally use it like:
 
-Normally use it like: 
+   Monocular: `cd ~/zzh/VIEO_SLAM/Examples/Monocular`
 
-  Monocular: cd ~/zzh/VIEO_SLAM/Examples/Monocular 
-  
-  Stereo: cd ~/zzh/VIEO_SLAM/Examples/Stereo
-  
-  VIO:(LocalWindowSize<=0 for Monocular ORB-SLAM in that paper: ORB-SLAM+IMU Initialization)
-  
+   Stereo: `cd ~/zzh/VIEO_SLAM/Examples/Stereo`
+
+   VIO:(LocalWindowSize<=0 for Monocular ORB-SLAM in that paper: ORB-SLAM+IMU Initialization)
+   ```
     ./mono_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml ~/dataset/EuRoC/V202medium/mav0/cam0/data ./EuRoC_TimeStamps/V202.txt ~/dataset/EuRoC/V202medium/mav0/imu0/data.csv 
     ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml  ~/dataset/EuRoC/V103difficult/mav0/cam0/data ~/dataset/EuRoC/V103difficult/mav0/cam1/data ./EuRoC_TimeStamps/V103.txt ~/dataset/EuRoC/V103difficult/mav0/imu0/data.csv
-    
-  ORBSLAM2:(you can also use ./EuRoC.yaml with Tbc is default I)
-  
+   ```
+   ORBSLAM2:(you can also use ./EuRoC.yaml with Tbc is default I)
+   ```
     ./mono_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml ~/dataset/EuRoC/V202medium/mav0/cam0/data ./EuRoC_TimeStamps/V202.txt 
     ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml  ~/dataset/EuRoC/V203difficult/mav0/cam0/data ~/dataset/EuRoC/V203difficult/mav0/cam1/data ./EuRoC_TimeStamps/V203.txt
-
-  VEORBSLAM2 or VIEORBSLAM2: (you may refer to the kinect2_qhd.yaml, later we may publish our dataset containing encoders & IMU data)
-  
+   ```
+   VEORBSLAM2 or VIEORBSLAM2: (you may refer to the kinect2_qhd.yaml, later we may publish our dataset containing encoders & IMU data)
+   ```
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/EncSensor.txt
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt(path to IMU data file) 9(number of IMU data: (Accelerator,Magnetic,Gyroscope) for our dataset) 0(RGBD SLAM) $OURFILE/EncSensor.txt(path to encoder data file)
+   ```
+*PS: Please contact zhuzhanghao9331@yahoo.co.jp for more details.*
 
-
-Please contact zhuzhanghao9331@yahoo.co.jp for more details.
-
-### Related Publications:
+## Related Publications:
 
 [IMU, Encoders and Stereo/RGB-D] Zhanghao Zhu, Yutaka Kaizu, Kenichi Furuhashi and Kenji Imou. **Visual-Inertial RGB-D SLAM with Encoders for a Differential Wheeled Robot**. *IEEE Sensors Journal,* vol. 22, pp. 5360-5371, 2022. **(https://ieeexplore.ieee.org/document/9502133)**
 
@@ -127,22 +147,30 @@ If you use VIEOS2 (Stereo or RGB-D) in an academic work, please cite:
      }
 
 # 2. Prerequisites
-We have tested the library in **Ubuntu 12.04**, **14.04** and **16.04**, but it should be easy to compile in other platforms. A powerful computer (e.g. i7) will ensure real-time performance and provide more stable and accurate results.
+We have tested the library in **Ubuntu 20.04**, but it should be easy to compile in other platforms. A powerful computer (e.g. i7) will ensure real-time performance and provide more stable and accurate results.
 
 ## C++11 or C++0x Compiler
 We use the new thread and chrono functionalities of C++11.
 
-## Pangolin
-We use [Pangolin](https://github.com/stevenlovegrove/Pangolin) for visualization and user interface. Dowload and install instructions can be found at: https://github.com/stevenlovegrove/Pangolin.
+## Pangolin+Sophus
+We use [Pangolin](https://github.com/stevenlovegrove/Pangolin) for visualization and user interface. Dowload and install instructions can be found at: https://github.com/stevenlovegrove/Pangolin. **Tested with commit id 86eb4975fc4f.**
+
+We use [Sophus](https://github.com/strasdat/Sophus) for more compact translation and rotation operation. **Tested with commit id 780cd0fce405.**
 
 ## OpenCV
-We use [OpenCV](http://opencv.org) to manipulate images and features. Dowload and install instructions can be found at: http://opencv.org. **Required at leat 2.4.3. Tested with OpenCV 2.4.11 and OpenCV 3.2**.
+We use [OpenCV](http://opencv.org) to manipulate images and features. Dowload and install instructions can be found at: http://opencv.org. **Required at leat 2.4.3. Tested with OpenCV 4.5/3.2.0**.
 
 ## Eigen3
-Required by g2o (see below). Download and install instructions can be found at: http://eigen.tuxfamily.org. **Required at least 3.1.0**.
+Required by g2o (see below). Download and install instructions can be found at: http://eigen.tuxfamily.org. **Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10**.
 
 ## DBoW2 and g2o (Included in Thirdparty folder)
 We use modified versions of the [DBoW2](https://github.com/dorian3d/DBoW2) library to perform place recognition and [g2o](https://github.com/RainerKuemmerle/g2o) library to perform non-linear optimizations. Both modified libraries (which are BSD) are included in the *Thirdparty* folder.
+
+## cholmod
+ubuntu: sudo apt-get install libsuitesparse-dev
+
+## PCL (optional)
+We use [pcl](https://github.com/PointCloudLibrary/pcl) for VEO/VIEO mode. **Tested with 1.10.0/1.9.0**.
 
 ## ROS (optional)
 We provide some examples to process the live input of a monocular, stereo or RGB-D camera using [ROS](ros.org). Building these examples is optional. In case you want to use ROS, a version Hydro or newer is needed.

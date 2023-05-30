@@ -105,30 +105,34 @@ class Optimizer {
       const bool bRobust = true,
       const bool bEnc = false);  // pass all KFs && MPs in pMap to BundleAdjustment(KFs,MPs...)
 
-  void static LocalBundleAdjustment(
-      KeyFrame *pKF, bool *pbStopFlag, Map *pMap,
-      int Nlocal =
-          0);  //local BA, pKF && its covisible neighbors->SetPose(optimizer,vertex(KFid)), pMPs->SetWorldPos(optimizer.vertex(pMP->mnId+maxKFid+1));\
-    (all 1st layer covisibility KFs as rectifying KFs(vertices1), MPs seen in these KFs as rectifying MPs(vertices0),\
-    left KFs observing MPs as fixed KFs(vertices1,fixed), connecting edges between MPs && KFs as mono/stereo(KF has >=0 ur) edges, after addition of vertices and edges it still can return by pbStopFlag\
-    optimize(5)(can be stopped by pbStopFlag), then if mbAbortBA==false-> optimize only inliers(10), update KFs' Pose && MPs' Pos,normal)
-  int static PoseOptimization(Frame *pFrame,
-                              Frame *pLastF = NULL);  // motion-only BA, rectify pFrame->mvbOutlier &&
-                                                      // pFrame->SetPose(optimizer.vertex(0)), return number of inliers
+  // local BA, pKF && its covisible neighbors->SetPose(optimizer,vertex(KFid)),
+  // pMPs->SetWorldPos(optimizer.vertex(pMP->mnId+maxKFid+1));
+  // (all 1st layer covisibility KFs as rectifying KFs(vertices1), MPs seen in these KFs as rectifying MPs(vertices0),
+  // left KFs observing MPs as fixed KFs(vertices1,fixed), connecting edges between MPs && KFs as mono/stereo(KF has >=0
+  // ur) edges, after addition of vertices and edges it still can return by pbStopFlag; optimize(5)(can be stopped by
+  // pbStopFlag), then if mbAbortBA==false-> optimize only inliers(10), update KFs' Pose && MPs' Pos,normal)
+  void static LocalBundleAdjustment(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int Nlocal = 0);
+  // motion-only BA, rectify pFrame->mvbOutlier && pFrame->SetPose(optimizer.vertex(0)), return number of inliers
+  int static PoseOptimization(Frame *pFrame, Frame *pLastF = NULL);
 
   // if bFixScale is true, 6DoF optimization (stereo,rgbd), 7DoF otherwise (mono)
-  void static OptimizeEssentialGraph(
-      Map *pMap, KeyFrame *pLoopKF, KeyFrame *pCurKF, const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
-      const LoopClosing::KeyFrameAndPose &CorrectedSim3, const map<KeyFrame *, set<KeyFrame *>> &LoopConnections,
-      const bool &
-          bFixScale);  //PoseGraph Opt., update all KFs' (in pMap) Pose && all MPs' Pos to optimized one and pLoopKF's Pose is fixed(so id0 KF's Pose may be changed a bit); \
-    add new loop edges(including pCurKF-pLoopKF as previous loop edges next time entering this function) && normal far edges(spanning tree edges/previous loop edges/far part of covisibility graph edges); \
-    notice there is validation adding LoopConnections as new loop edges and optimization gives more believe on new loop edges if its number is more
+  // PoseGraph Opt., update all KFs' (in pMap) Pose && all MPs' Pos to optimized one and pLoopKF's Pose is fixed(so id0
+  // KF's Pose may be changed a bit);
+  // add new loop edges(including pCurKF-pLoopKF as previous loop edges next time entering this function) && normal far
+  // edges(spanning tree edges/previous loop edges/far part of covisibility graph edges); notice there is validation
+  // adding LoopConnections as new loop edges and optimization gives more believe on new loop edges if its number is
+  // more
+  void static OptimizeEssentialGraph(Map *pMap, KeyFrame *pLoopKF, KeyFrame *pCurKF,
+                                     const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
+                                     const LoopClosing::KeyFrameAndPose &CorrectedSim3,
+                                     const map<KeyFrame *, set<KeyFrame *>> &LoopConnections, const bool &bFixScale);
 
   // if bFixScale is true, optimize SE3 (stereo,rgbd), Sim3 otherwise (mono)
+  // relativeMotionS12-only BA(fixed MPs' vertices);
+  // rectify vpMatches1[i](erase outliers) && g2oS12(to optimized S12), return the number of inliers;
+  // th2=chi2(1-proba_right,2), vpMatches1[i] matched to pKF1->mvpMapPoints[i]
   static int OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, std::vector<MapPoint *> &vpMatches1, g2o::Sim3 &g2oS12,
-                          const float th2, const bool bFixScale);  //relativeMotionS12-only BA(fixed MPs' vertices); \
-    rectify vpMatches1[i](erase outliers) && g2oS12(to optimized S12), return the number of inliers; th2=chi2(1-proba_right,2), vpMatches1[i] matched to pKF1->mvpMapPoints[i]
+                          const float th2, const bool bFixScale);
 };
 
 // created by zzh
