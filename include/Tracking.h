@@ -180,7 +180,7 @@ class Tracking {
   double lasttm_preint_kf_[2];
   Frame mCurrentFrame;
 #ifdef TIMER_FLOW
-  Timer timer_;
+  mlog::Timer timer_;
 #endif
   vector<cv::Mat> mImGrays = vector<cv::Mat>(1);  // used by FrameDrawer
 

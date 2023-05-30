@@ -2,18 +2,6 @@
 #ifndef IMUINITIALIZATION_H
 #define IMUINITIALIZATION_H
 
-// zzh defined color cout, must after include opencv2
-#define redSTR "\033[31m"
-#define brightredSTR "\033[31;1m"
-#define greenSTR "\e[32m"
-#define brightgreenSTR "\e[32;1m"
-#define blueSTR "\e[34m"
-#define brightblueSTR "\e[34;1m"
-#define yellowSTR "\e[33;1m"
-#define brownSTR "\e[33m"
-#define azureSTR "\e[36;1m"
-#define whiteSTR "\e[0m"
-
 // #include <list>
 #include <mutex>
 #include <string>
@@ -29,8 +17,7 @@
 #include "common/common.h"
 
 #include <unistd.h>
-
-typedef enum kVerboseLevel { kVerbRel, kVerbDeb, kVerbFull };
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 
@@ -120,47 +107,7 @@ class IMUInitialization {  // designed for multi threads
  public:
   bool mbUsePureVision;  // for pure-vision+IMU Initialization mode!
 
-  IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath)
-      : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false), verbose(0) {
-    mbSensorEnc = false;
-    mdStartTime = -1;
-    mbSensorIMU = false;
-    mpCurrentKeyFrame = NULL;
-    mbVINSInited = false;
-    mbCopyInitKFs = false;
-    mbInitGBA = false;
-    mbInitGBAOver = false;
-
-    cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
-    cv::FileNode fnStr = fSettings["test.InitVIOTmpPath"];
-    if (!fnStr.empty())
-      fnStr >> mTmpfilepath;
-    else
-      cout << "Nothing recorded for analysis!" << endl;
-    // load mbUsePureVision
-    cv::FileNode fnSize = fSettings["LocalMapping.LocalWindowSize"];
-    if (fnSize.empty()) {
-      mbUsePureVision = true;
-      cout << redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR << endl;
-    } else {
-      if ((int)fnSize < 1) {
-        mbUsePureVision = true;
-        cout << blueSTR "mnLocalWindowSize<1, we use pure-vision+IMU Initialization mode!" << whiteSTR << endl;
-      } else
-        mbUsePureVision = false;
-    }
-    cv::FileNode fnTime[3] = {fSettings["IMU.InitTime"], fSettings["IMU.SleepTime"], fSettings["IMU.FinalTime"]};
-    if (fnTime[0].empty() || fnTime[1].empty() || fnTime[2].empty()) {
-      mdInitTime = 0;
-      mnSleepTime = 1e6;
-      mdFinalTime = 15;
-      cout << redSTR "No IMU.InitTime&SleepTime&FinalTime, we use default 0s & 1s & 15s!" << whiteSTR << endl;
-    } else {
-      mdInitTime = fnTime[0];
-      mnSleepTime = (double)fnTime[1] * 1e6;
-      mdFinalTime = fnTime[2];
-    }
-  }
+  IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath);
 
   void Run();
 
@@ -189,7 +136,7 @@ class IMUInitialization {  // designed for multi threads
                        vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
                        vector<char> &id_cams, vector<char> *id_cams_ref);
 
-  char verbose = kVerbDeb;  // kVerbRel; //
+  char verbose = mlog::kVerbDeb;  // mlog::kVerbRel; //
 };
 
 class IMUKeyFrameInit {  // a simple/base version of KeyFrame just used for IMU Initialization, not designed for multi

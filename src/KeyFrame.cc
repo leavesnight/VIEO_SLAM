@@ -6,7 +6,7 @@
 #include "Converter.h"
 #include "ORBmatcher.h"
 #include <mutex>
-#include "common/log.h"
+#include "common/mlog/log.h"
 #include "common/common.h"
 
 namespace VIEO_SLAM {
@@ -340,10 +340,10 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
-  PRINT_DEBUG_INFO_MUTEX("checkkf" << mnId << " ", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   size_t i = 0;
   for (auto iter : mvpMapPoints) {
-    if (iter) PRINT_DEBUG_INFO_MUTEX(i << ":" << iter->mnId << ",", imu_tightly_debug_path, "debug.txt");
+    if (iter) PRINT_DEBUG_INFO_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
     ++i;
   }
 }
@@ -550,7 +550,7 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 }
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
-  PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
 #ifdef USE_SIMPLE_REPLACE
   if (!pMP || pMP->isBad()) return;
@@ -576,7 +576,7 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
   {
     pMP->AddObservation(this, idx);
-    PRINT_DEBUG_INFO_MUTEX("addmp3" << endl, imu_tightly_debug_path, "debug.txt");
+    PRINT_DEBUG_INFO_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
     AddMapPoint(pMP, idx);
   }
 }

@@ -14,7 +14,7 @@
 
 #include <mutex>
 #include <thread>
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 void LoopClosing::CreateGBA() {
@@ -146,7 +146,7 @@ bool LoopClosing::DetectLoop() {
       return false;
     }
     PRINT_DEBUG_INFO_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-                           imu_tightly_debug_path, "debug.txt");
+                           mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetNotErase();
   }
 
@@ -156,7 +156,7 @@ bool LoopClosing::DetectLoop() {
     mpKeyFrameDB->add(mpCurrentKF);  // add CurrentKF into KFDataBase
     PRINT_DEBUG_INFO_MUTEX(
         "Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        imu_tightly_debug_path, "debug.txt");
+        mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetErase();  // allow CurrentKF to be erased
     return false;
   }
@@ -188,7 +188,7 @@ bool LoopClosing::DetectLoop() {
                    // validation/roubst loop detection->restart mvConsistentGroups' counter
     PRINT_DEBUG_INFO_MUTEX(
         "Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        imu_tightly_debug_path, "debug.txt");
+        mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetErase();
     return false;
   }
@@ -266,13 +266,13 @@ bool LoopClosing::DetectLoop() {
   if (mvpEnoughConsistentCandidates.empty()) {
     PRINT_DEBUG_INFO_MUTEX(
         "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        imu_tightly_debug_path, "debug.txt");
+        mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetErase();
     return false;
   } else  // if any candidate group is enough(counter >=3) consistent with any previous group
   {       // first some detection()s won't go here
     PRINT_DEBUG_INFO_MUTEX("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-                           imu_tightly_debug_path, "debug.txt");
+                           mlog::vieo_slam_debug_path, "debug.txt");
     return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
   }
 }
@@ -407,7 +407,7 @@ bool LoopClosing::ComputeSim3() {
   {
     PRINT_DEBUG_INFO_MUTEX(
         "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        imu_tightly_debug_path, "debug.txt");
+        mlog::vieo_slam_debug_path, "debug.txt");
     for (int i = 0; i < nInitialCandidates; i++)
       mvpEnoughConsistentCandidates[i]->SetErase();  // allow loop candidate KFs && mpCurrentKF to be erased for
                                                      // KF.mspLoopEdges is only added in CorrectLoop()
@@ -585,7 +585,7 @@ void LoopClosing::CorrectLoop() {
         MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];  // matched MP of pCurMP
         MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i);
         if (pCurMP) {
-          PRINT_DEBUG_INFO_MUTEX("cl" << endl, imu_tightly_debug_path, "debug.txt");
+          PRINT_DEBUG_INFO_MUTEX("cl" << endl, mlog::vieo_slam_debug_path, "debug.txt");
           pCurMP->Replace(pLoopMP);  // use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected
                                      // by Sim3Motion-only BA optimized S12
         } else                       // may happen for additional matched MPs by last SBP() in ComputeSim3()
@@ -671,7 +671,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose& CorrectedPosesMap) {
     for (int i = 0; i < nLP; i++) {
       MapPoint* pRep = vpReplacePoints[i];
       if (pRep) {
-        PRINT_DEBUG_INFO_MUTEX("saf" << endl, imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("saf" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pRep->Replace(
             mvpLoopMapPoints[i]);  // replace vpReplacePoints[i]/pKF->mvpMapPoints[bestIdx] by mvpLoopMapPoints[i]
       }
@@ -710,7 +710,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 {
   std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
   PRINT_INFO_MUTEX(redSTR "Starting Global Bundle Adjustment" << whiteSTR << endl);
-  PRINT_INFO_FILE("Starting Global Bundle Adjustment" << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+  PRINT_INFO_FILE("Starting Global Bundle Adjustment" << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
 
   bool bUseGBAPRV = false;
   int idx = mnFullBAIdx;
@@ -719,7 +719,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
   if (mpIMUInitiator->GetVINSInited()) {
     if (!mpIMUInitiator
              ->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
-      PRINT_INFO_FILE(redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl, imu_tightly_debug_path,
+      PRINT_INFO_FILE(redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl, mlog::vieo_slam_debug_path,
                       "gba_thread_debug.txt");
       // 15 written in V-B of VIORBSLAM paper
       // NOW we will opt gravity dir and with bgba prior here~
@@ -752,7 +752,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
     {
       PRINT_INFO_MUTEX("Global Bundle Adjustment finished" << endl);
       PRINT_INFO_MUTEX("Updating map ..." << endl);
-      PRINT_INFO_FILE("Updating map ..." << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+      PRINT_INFO_FILE("Updating map ..." << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
 
@@ -861,7 +861,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 
       PRINT_INFO_MUTEX(redSTR << "Map updated!" << whiteSTR
                               << endl);  // if GBA/loop correction successed, this word should appear!
-      PRINT_INFO_FILE("Map updated!" << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+      PRINT_INFO_FILE("Map updated!" << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
 
       cout << azureSTR "Used time in propagation="
            << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t1).count() << whiteSTR

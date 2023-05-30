@@ -6,7 +6,7 @@
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <mutex>
 
@@ -55,14 +55,14 @@ void LocalMapping::Run() {
     if (CheckNewKeyFrames()) {
       chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
       // BoW conversion and insertion in Map
-      PRINT_DEBUG_INFO_MUTEX("Processing New KF...", imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
       ProcessNewKeyFrame();
-      PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
 #ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
@@ -70,14 +70,14 @@ void LocalMapping::Run() {
       PRINT_INFO_FILE(blueSTR "Used time in MapCulling()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
       // Triangulate new MapPoints
       CreateNewMapPoints();
       PRINT_INFO_FILE(blueSTR "Used time in CreateNewMP()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
@@ -86,7 +86,7 @@ void LocalMapping::Run() {
         PRINT_INFO_FILE(blueSTR "Used time in SIN()="
                             << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                             << whiteSTR << endl,
-                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                        mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
 #endif
 
@@ -129,7 +129,7 @@ void LocalMapping::Run() {
           ++num_olba_avg;
           PRINT_INFO_FILE(
               blueSTR "Used time in localBA=" << dt_olba << ",avg=" << dt_olba_avg / num_olba_avg << whiteSTR << endl,
-              imu_tightly_debug_path, "localmapping_thread_debug.txt");
+              mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         }
 
 #ifndef NO_LOCALMAP_PROCESS
@@ -148,7 +148,7 @@ void LocalMapping::Run() {
       ++num_lbathread_avg;
       PRINT_INFO_FILE(blueSTR "Used time in localmapping=" << dt_lbathread << ",avg="
                                                            << dt_lbathread_avg / num_lbathread_avg << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
       while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction
@@ -193,7 +193,7 @@ void LocalMapping::ProcessNewKeyFrame() {
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
                            << mpCurrentKeyFrame->mTimeStamp << endl,
-                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                  mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
@@ -566,7 +566,7 @@ void LocalMapping::CreateNewMapPoints() {
       // Triangulation is succesfull
       MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
 
-      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       for (auto idx : idxs1) {
         if (-1 == idx) continue;
         pMP->AddObservation(pKF1, idx);
@@ -648,7 +648,7 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
   if (mbAbortBA) return;
@@ -676,7 +676,7 @@ void LocalMapping::SearchInNeighbors() {
   }
 
   num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
   vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
@@ -693,7 +693,7 @@ void LocalMapping::SearchInNeighbors() {
   }
   PRINT_DEBUG_INFO(
       "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
-      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
   // incurrent KF
@@ -935,7 +935,7 @@ void LocalMapping::KeyFrameCulling() {
         // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
         PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
-                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();
       }
     }

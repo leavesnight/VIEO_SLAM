@@ -15,7 +15,7 @@
 
 #include "Pinhole.h"
 #include "Converter.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 #include "common/common.h"
 
 using namespace std;
@@ -35,7 +35,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
   bool usedistort = pKF->mpCameras.size() && Frame::usedistort_;
   bool only1match = !(SBPMatchMultiCam & mode), fuselater = SBPFuseLater & mode;
   CV_Assert(!fuselater || pvnMatch1);
-  PRINT_DEBUG_INFO_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, mlog::vieo_slam_debug_path, "debug.txt");
   size_t N1 = vpMapPoints1.size();
   if (pvnMatch1) {
     pvnMatch1->clear();
@@ -182,14 +182,14 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
           //            }
           //            if (!check) {
           //              for (auto iter = idxsOf1mp.begin(), iterend = idxsOf1mp.end(); iter != iterend; ++iter) {
-          //                PRINT_DEBUG_INFO_MUTEX("iter=" << *iter << " ", imu_tightly_debug_path, "debug.txt");
+          //                PRINT_DEBUG_INFO_MUTEX("iter=" << *iter << " ", mlog::vieo_slam_debug_path, "debug.txt");
           //              }
           //              PRINT_DEBUG_INFO_MUTEX(
           //                  pKF->mnId << "kfidx" << idx << "mpid" << pMP2->mnId << ";check kf bad=" <<
           //                  (int)pKF->isBad()
           //                            << ";check mpobs=" << pMP2->Observations() << "/" <<
           //                            pMP2->GetObservations().size() << endl,
-          //                  imu_tightly_debug_path, "debug.txt");
+          //                  mlog::vieo_slam_debug_path, "debug.txt");
           //            }
           //            CV_Assert(check);
           //          }
@@ -323,7 +323,7 @@ int ORBmatcher::SearchByProjection(
         // if bestDist/bestDist2 <= threshold then this bestIdx can be matched with this MP
         if (bestLevel == bestLevel2 && bestDist > mfNNratio * bestDist2) continue;
 
-        PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
         F.AddMapPoint(pMP, bestIdx);
         nmatches++;
         nmatches_cami[cami]++;
@@ -331,7 +331,7 @@ int ORBmatcher::SearchByProjection(
     }
   }
   for (size_t cami = 0; cami < nmatches_cami.size(); ++cami)
-    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, imu_tightly_debug_path,
+    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, mlog::vieo_slam_debug_path,
                      "tracking_thread_debug.txt");
 
   return nmatches;  // this is not all the matches in mCurrentFrame.mvpMapPoints, just the addition part by local map
@@ -1207,7 +1207,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
       } else  // pKF->mvpMapPoints[bestIdx]==nullptr
       {       // directly add pMP into pKF and update pMP's mObservations
         pMP->AddObservation(pKF, bestIdx);
-        PRINT_DEBUG_INFO_MUTEX("addmp2" << endl, imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("addmp2" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pKF->AddMapPoint(pMP, bestIdx);
       }
       nFused++;  // notice vpReplacePoint[idx] may appear many times, so nFuse <= the real fused/added matched MPs in
@@ -1326,7 +1326,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
       if (!LastFrame.mvbOutlier[i]) {
         /*if (sMP.count(pMP)) continue;
         else sMP.insert(pMP);*/
-        PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", mlog::vieo_slam_debug_path, "debug.txt");
         ++num_mp;
         // Project
         Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
@@ -1425,7 +1425,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
 
           if (bestDist <= TH_HIGH)  // 256>100 so bestIdx2!=-1
           {
-            PRINT_DEBUG_INFO_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, imu_tightly_debug_path, "debug.txt");
+            PRINT_DEBUG_INFO_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, mlog::vieo_slam_debug_path, "debug.txt");
             CurrentFrame.AddMapPoint(pMP, bestIdx2);
             nmatches++;
 

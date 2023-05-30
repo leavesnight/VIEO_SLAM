@@ -139,7 +139,7 @@ add_library(${PROJECT_NAME} SHARED
         src/Sim3Solver.cc
         src/Initializer.cc
         src/Viewer.cc
-        common/log.cpp
+        common/mlog/log.cpp
 
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp
@@ -150,7 +150,7 @@ add_library(${PROJECT_NAME} SHARED
         src/CameraModels/GeometricCamera.cpp
         src/CameraModels/Pinhole.cpp
         src/CameraModels/KannalaBrandt8.cpp
-        src/CameraModels/radtan.cpp)
+        src/CameraModels/radtan.cpp common/interface.h)
 
 target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}

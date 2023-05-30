@@ -452,7 +452,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           vnIndexEdgeMono.push_back(i);
           // e->computeError();
           // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
-          // imu_tightly_debug_path,"tracking_thread_debug.txt");
+          // mlog::vieo_slam_debug_path,"tracking_thread_debug.txt");
         } else  // Stereo observation
         {
           g2o::EdgeReprojectPVRStereo *e = new g2o::EdgeReprojectPVRStereo();
@@ -488,8 +488,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       }
     }
   }
-  // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
-  PRINT_INFO_FILE("moba enterobs=" << nInitialCorrespondences << endl, imu_tightly_debug_path,
+  // PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("moba enterobs=" << nInitialCorrespondences << endl, mlog::vieo_slam_debug_path,
                   "tracking_thread_debug.txt");
 
   // at least P3P（well posed equation） EPnP(n>3) (overdetermined equation)
@@ -532,7 +532,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   int nBadIMU = 0;
   // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
   for (size_t it = 0; it < 4; it++) {
-    // PRINT_DEBUG_INFO(it << ":" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    // PRINT_DEBUG_INFO(it << ":" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
     // Reset estimate for vertexj
     if (!bodom_edge) {
       vNSFPVR->setEstimate(nsj);
@@ -572,7 +572,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         e->setLevel(1);
         nBad++;
       } else {
-        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", imu_tightly_debug_path, "tracking_thread_debug.txt");
+        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
         pFrame->mvbOutlier[idx] = false;
         //        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
         e->setLevel(0);
@@ -609,7 +609,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       if (it == 2) e->setRobustKernel(0);
     }
 
-    // PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+    // PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
     // it outliers+inliers(/_edges) number<10 only optimize once with RobustKernelHuber
     if (optimizer.edges().size() < 10) break;
     // we tested erasing erroneous IMU edge through chi2 error strategy, but not better, so we abandoned it
@@ -880,7 +880,7 @@ int Optimizer::OptimizeInitialGyroBias(const std::vector<IMUKeyFrameInit *> &vpK
   if (num_equations < 1) return num_equations;
 
   // It's approximately a linear estimator, so 1 iteration is enough. for dbg=bg << 1 and here uses GN not LM
-  if (kVerbDeb < verbose) optimizer.setVerbose(true);
+  if (mlog::kVerbDeb < verbose) optimizer.setVerbose(true);
   optimizer.initializeOptimization();
   optimizer.optimize(1);
 

@@ -5,7 +5,7 @@
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <mutex>
 
@@ -162,7 +162,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   CV_Assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
-  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
 
   if (pKF->mvuRight[idx] >= 0)
     nObs += 2;
@@ -250,7 +250,7 @@ MapPoint* MapPoint::GetReplaced() {
 void MapPoint::Replace(MapPoint* pMP) {
   if (pMP->mnId == this->mnId) return;
 
-  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   int nvisible, nfound;
   map<KeyFrame*, set<size_t>> obs;
   {
@@ -284,7 +284,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }

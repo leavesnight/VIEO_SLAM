@@ -30,7 +30,7 @@
 #include "../../config.h"
 #include "../stuff/misc.h"
 #include "optimization_algorithm_property.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <list>
 #include <iostream>

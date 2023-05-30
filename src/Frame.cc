@@ -7,7 +7,7 @@
 #include "ORBmatcher.h"
 #include <thread>
 #include "KannalaBrandt8.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 #include "common/common.h"
 
 namespace VIEO_SLAM {
@@ -349,7 +349,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
   vvkeys_.resize(n_size);
   num_mono.resize(n_size);
 #ifdef TIMER_FLOW
-  Timer timer_tmp;
+  mlog::Timer timer_tmp;
 #endif
   for (int i = 0; i < ims.size(); ++i) {
     if (pCamInsts) {
@@ -1069,7 +1069,7 @@ void Frame::ComputeStereoFishEyeMatches() {
         goodmatches_[i] = false;
     }
   }
-  PRINT_DEBUG_INFO("match num=" << nMatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("match num=" << nMatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   CV_Assert(!mvDepth.size() && !mvuRight.size());
   size_t num_pt_added = 0;

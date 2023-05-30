@@ -21,7 +21,7 @@
 #include "KeyFrameDatabase.h"
 #include "ORBVocabulary.h"
 #include "Viewer.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 class IMUInitialization;  // zzh

@@ -39,6 +39,48 @@ void IMUInitialization::SetGravityVec(const cv::Mat &mat) {
   mGravityVec = mat.clone();  // avoid simultaneous operation
 }
 
+IMUInitialization::IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath)
+    : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false) {
+  mbSensorEnc = false;
+  mdStartTime = -1;
+  mbSensorIMU = false;
+  mpCurrentKeyFrame = NULL;
+  mbVINSInited = false;
+  mbCopyInitKFs = false;
+  mbInitGBA = false;
+  mbInitGBAOver = false;
+
+  cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
+  cv::FileNode fnStr = fSettings["test.InitVIOTmpPath"];
+  if (!fnStr.empty())
+    fnStr >> mTmpfilepath;
+  else
+    cout << "Nothing recorded for analysis!" << endl;
+  // load mbUsePureVision
+  cv::FileNode fnSize = fSettings["LocalMapping.LocalWindowSize"];
+  if (fnSize.empty()) {
+    mbUsePureVision = true;
+    cout << redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR << endl;
+  } else {
+    if ((int)fnSize < 1) {
+      mbUsePureVision = true;
+      cout << blueSTR "mnLocalWindowSize<1, we use pure-vision+IMU Initialization mode!" << whiteSTR << endl;
+    } else
+      mbUsePureVision = false;
+  }
+  cv::FileNode fnTime[3] = {fSettings["IMU.InitTime"], fSettings["IMU.SleepTime"], fSettings["IMU.FinalTime"]};
+  if (fnTime[0].empty() || fnTime[1].empty() || fnTime[2].empty()) {
+    mdInitTime = 0;
+    mnSleepTime = 1e6;
+    mdFinalTime = 15;
+    cout << redSTR "No IMU.InitTime&SleepTime&FinalTime, we use default 0s & 1s & 15s!" << whiteSTR << endl;
+  } else {
+    mdInitTime = fnTime[0];
+    mnSleepTime = (double)fnTime[1] * 1e6;
+    mdFinalTime = fnTime[2];
+  }
+}
+
 void IMUInitialization::Run() {
   unsigned long initedid;
   cout << "start VINSInitThread" << endl;
@@ -139,7 +181,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
   static bool fopened = false;
   static ofstream fgw, fscale, fbiasa, fcondnum, fbiasg;
   if (mTmpfilepath.length() > 0 && !fopened) {
-    if (kVerbDeb < verbose) cout << "open " << mTmpfilepath << "...";
+    if (mlog::kVerbDeb < verbose) cout << "open " << mTmpfilepath << "...";
     // Need to modify this to correct path
     fbiasg.open(mTmpfilepath + "biasg2.txt");  // optimized initial bg for these N KFs,3*1
     fgw.open(mTmpfilepath + "gw2.txt");        // gwafter then gw before,6*1
@@ -160,16 +202,16 @@ bool IMUInitialization::TryInitVIO_zzh() {
     fscale << std::fixed << std::setprecision(9);
     fbiasa << std::fixed << std::setprecision(9);
     fcondnum << std::fixed << std::setprecision(9);
-    if (kVerbDeb < verbose) cout << "...ok..." << endl;
+    if (mlog::kVerbDeb < verbose) cout << "...ok..." << endl;
   }
 
   // Cache KFs / wait for KeyFrameCulling() over
   // stop KeyFrameCulling() when this copying KFs
   while (!SetCopyInitKFs(true)) {
-    if (kVerbDeb < verbose) cout << ".";
+    if (mlog::kVerbDeb < verbose) cout << ".";
     usleep(1000);
   }
-  if (kVerbDeb < verbose) cout << endl << "copy init KFs...";
+  if (mlog::kVerbDeb < verbose) cout << endl << "copy init KFs...";
 
   // see VIORBSLAM paper IV, here N=all KFs in map, not the meaning of local KFs' number
   // Use all KeyFrames in map to compute
@@ -200,12 +242,13 @@ bool IMUInitialization::TryInitVIO_zzh() {
   }
 
   SetCopyInitKFs(false);
-  if (kVerbDeb < verbose) cout << "...end" << endl;
+  if (mlog::kVerbDeb < verbose) cout << "...end" << endl;
 
   // Step 1. / see VIORBSLAM paper IV-A
   int num_handlers = vKFsInit.size();
   vector<int> Ns(num_handlers);
   if (verbose) cout << "Step1: left num_handlers=" << num_handlers << endl;
+
   vector<Vector3d> bgs_est(num_handlers, Vector3d::Zero());
   vector<Vector3d> bas_star(num_handlers);
   vector<char> reduced_hids, flag_remain(num_handlers);
@@ -513,7 +556,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
       ++num_eq2;
       ++num_eq_h;
     }
-    if (kVerbDeb < verbose && Rcbs[h].size() != num_eq_h + 2)
+    if (mlog::kVerbDeb < verbose && Rcbs[h].size() != num_eq_h + 2)
       cerr << "Rcb[" << h << "].size=" << Rcbs[h].size() << ";num_eq_h=" << num_eq_h << endl;
   }
   if (num_eq2_ref != num_eq2) {
