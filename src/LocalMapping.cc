@@ -1,21 +1,5 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #include "LocalMapping.h"
@@ -820,7 +804,7 @@ void LocalMapping::KeyFrameCulling() {
   // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
   for (int k = 0; k < nRestrict; ++k) {
     int vi = 0;
-    PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
+    // PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
     for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
@@ -948,7 +932,7 @@ void LocalMapping::KeyFrameCulling() {
           tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
         }  // must done before pKF->SetBadFlag()!
 
-        PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
+        // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
         PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
                          imu_tightly_debug_path, "localmapping_thread_debug.txt");
