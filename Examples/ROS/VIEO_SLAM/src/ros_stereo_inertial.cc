@@ -252,7 +252,7 @@ void ImageGrabber::SyncWithImu() {
       static size_t ttrack_num = 0;
       ++ttrack_num;
       ttrack_sum += ttrack;
-      PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
+      if (1 == ttrack_num % 30) PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
 #endif
 
       std::chrono::milliseconds tSleep(1);
