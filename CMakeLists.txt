@@ -118,6 +118,8 @@ add_definitions(${PCL_DEFINITIONS})
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 
+add_subdirectory(common)
+
 add_library(${PROJECT_NAME} SHARED
         src/System.cc
         src/Tracking.cc
@@ -139,7 +141,6 @@ add_library(${PROJECT_NAME} SHARED
         src/Sim3Solver.cc
         src/Initializer.cc
         src/Viewer.cc
-        common/mlog/log.cpp
 
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp
@@ -150,7 +151,7 @@ add_library(${PROJECT_NAME} SHARED
         src/CameraModels/GeometricCamera.cpp
         src/CameraModels/Pinhole.cpp
         src/CameraModels/KannalaBrandt8.cpp
-        src/CameraModels/radtan.cpp common/interface.h)
+        src/CameraModels/radtan.cpp)
 
 target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}
@@ -164,6 +165,7 @@ target_link_libraries(${PROJECT_NAME}
         ${LAPACK_LIBRARIES}
         ${PCL_LIBRARIES}
         ${Sophus_LIBRARIES}
+        ${PROJECT_NAME}_common
         )
 
 # Build examples
