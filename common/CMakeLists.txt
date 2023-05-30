@@ -12,7 +12,9 @@ LIST(APPEND SOURCEFILES
         ${CMAKE_CURRENT_SOURCE_DIR}/mlog/log.cpp
         )
 
+message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})
 INCLUDE_DIRECTORIES(
+        ${PROJECT_SOURCE_DIR}
         ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}

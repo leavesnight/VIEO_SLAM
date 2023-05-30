@@ -17,7 +17,7 @@
 #include <Eigen/Geometry>
 
 // for typedef listEncData
-#include "eigen_utils.h"
+#include "common/eigen_utils.h"
 
 namespace VIEO_SLAM {
 

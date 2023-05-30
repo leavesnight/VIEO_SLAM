@@ -23,7 +23,7 @@
 #include <opencv2/core/core.hpp>
 
 #include "common/mlog/log.h"
-#include "eigen_utils.h"
+#include "common/eigen_utils.h"
 #include "sophus/se3.hpp"
 
 //#include "TwoViewReconstruction.h"

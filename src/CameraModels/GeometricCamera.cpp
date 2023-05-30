@@ -4,7 +4,7 @@
 
 #include "GeometricCamera.h"
 #include "Converter.h"
-#include "so3_extra.h"
+#include "common/so3_extra.h"
 #include <string>
 #include "common/common.h"
 

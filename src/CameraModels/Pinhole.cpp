@@ -19,7 +19,7 @@
 
 #include "Pinhole.h"
 #include "Converter.h"
-#include "so3_extra.h"
+#include "common/so3_extra.h"
 
 using std::cerr;
 using std::cout;

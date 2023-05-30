@@ -10,7 +10,7 @@
 #include <set>
 #include "GeometricCamera.h"
 #include "Converter.h"
-#include "so3_extra.h"
+#include "common/so3_extra.h"
 #include "NavState.h"
 #include <typeinfo>
 #include "OdomPreIntegrator.h"

@@ -4,7 +4,7 @@
 
 #include <list>
 #include "OdomData.h"
-#include "so3_extra.h"  //for IMUPreIntegratorBase::PreIntegration
+#include "common/so3_extra.h"  //for IMUPreIntegratorBase::PreIntegration
 
 #include <iostream>
 

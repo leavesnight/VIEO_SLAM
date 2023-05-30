@@ -3,7 +3,7 @@
 #define ODOMSTATE_H
 
 #include "Eigen/Core"
-#include "so3_extra.h"
+#include "common/so3_extra.h"
 
 #define USE_P_PLUS_RDP
 

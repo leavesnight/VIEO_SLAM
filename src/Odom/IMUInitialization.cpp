@@ -1,7 +1,7 @@
 #include "IMUInitialization.h"
 #include "Optimizer.h"
 //#include "sophus/se3.hpp"
-#include "eigen_utils.h"
+#include "common/eigen_utils.h"
 
 namespace VIEO_SLAM {
 
