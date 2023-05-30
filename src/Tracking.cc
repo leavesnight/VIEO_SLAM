@@ -1228,7 +1228,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       // the camera we will use the local map again.
       if (bOK && !mbVO) bOK = TrackLocalMap();
     }
-    Setnum_track_inliers_(mnMatchesInliers);
+    Setnum_track_inliers(mnMatchesInliers);
 
     if (bOK) {
       // if (mpIMUInitiator->GetVINSInited()&&mState==MAP_REUSE||mState==MAP_REUSE_RELOC)

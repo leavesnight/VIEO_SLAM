@@ -2,6 +2,7 @@
 #include "Optimizer.h"
 //#include "sophus/se3.hpp"
 #include "common/eigen_utils.h"
+#include "common/config.h"
 
 namespace VIEO_SLAM {
 
@@ -40,15 +41,8 @@ void IMUInitialization::SetGravityVec(const cv::Mat &mat) {
 }
 
 IMUInitialization::IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath)
-    : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false) {
-  mbSensorEnc = false;
+    : mpMap(pMap), mbMonocular(bMonocular) {
   mdStartTime = -1;
-  mbSensorIMU = false;
-  mpCurrentKeyFrame = NULL;
-  mbVINSInited = false;
-  mbCopyInitKFs = false;
-  mbInitGBA = false;
-  mbInitGBAOver = false;
 
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   cv::FileNode fnStr = fSettings["test.InitVIOTmpPath"];
@@ -84,7 +78,7 @@ IMUInitialization::IMUInitialization(Map *pMap, const bool bMonocular, const str
 void IMUInitialization::Run() {
   unsigned long initedid;
   cout << "start VINSInitThread" << endl;
-  mbFinish = false;
+  bFinish_ = false;
   static int n_imu_extra_init;
   while (true) {
     if (GetSensorIMU()) {

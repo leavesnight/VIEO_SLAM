@@ -14,7 +14,7 @@
 // #include "KeyFrame.h"
 // #include "Map.h"
 #include "LocalMapping.h"
-#include "common/common.h"
+#include "common/macro_creator.h"
 
 #include <unistd.h>
 #include "common/mlog/log.h"
@@ -52,31 +52,32 @@ class IMUInitialization {  // designed for multi threads
   double mdStartTime;  // for reset
   // cv::Mat mRwiInit;//unused
 
-  CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b);
-  CREATOR_VAR_MULTITHREADS(SensorIMU, bool,
-                           b);  // for auto reset judgement of this system, automatically check if IMU exists, for it
-                                // needs initialization with a quite long period of tracking without LOST
-  CREATOR_VAR_MULTITHREADS(VINSInited, bool, b)  // if IMU initialization is over
-  cv::Mat mGravityVec;                           // gravity vector in world frame
-  std::mutex mMutexInitIMU;                      // for mGravityVec, improved by zzh
+  CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b, private, false);
+  CREATOR_VAR_MULTITHREADS(SensorIMU, bool, b, private,
+                           false);  // for auto reset judgement of this system, automatically check if IMU exists, for
+                                    // it needs initialization with a quite long period of tracking without LOST
+  CREATOR_VAR_MULTITHREADS(VINSInited, bool, b, private, false)  // if IMU initialization is over
+  cv::Mat mGravityVec;                                           // gravity vector in world frame
+  std::mutex mMutexInitIMU;                                      // for mGravityVec, improved by zzh
   // double mnVINSInitScale; //scale estimation for Mono, not necessary here
 
   // for copying/cache KFs in IMU initialization thread avoiding KeyFrameCulling()
-  CREATOR_VAR_MUTEX(CopyInitKFs, bool, b)
+  CREATOR_VAR_MUTEX(CopyInitKFs, bool, b, false)
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
-  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b)      // for last GBA(include propagation) required by IMU Initialization,
-                                                  // LoopClosing always creates new GBA thread when it's true
-  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b)  // for Full BA strategy Adjustments
-  CREATOR_VAR_MULTITHREADS_INIT(InitGBA2, bool, , private, false)
-  CREATOR_VAR_MULTITHREADS_INIT(InitGBAPriorCoeff, float, , private, 1)
+  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b, private,
+                           false)  // for last GBA(include propagation) required by IMU Initialization,
+                                   // LoopClosing always creates new GBA thread when it's true
+  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b, private, false)  // for Full BA strategy Adjustments
+  CREATOR_VAR_MULTITHREADS(InitGBA2, bool, , private, false)
+  CREATOR_VAR_MULTITHREADS(InitGBAPriorCoeff, float, , private, 1)
 
   // like the part of LocalMapping
-  CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p)  // updated by LocalMapping thread
-  CREATOR_VAR_MUTEX(Finish, bool, b)                        // checked/get by System.cc
-  CREATOR_VAR_MUTEX(FinishRequest, bool, b)                 // requested/set by System.cc
-  CREATOR_VAR_MULTITHREADS(Reset, bool, b)                  // for reset Initialization variables
+  CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p, private, nullptr)  // updated by LocalMapping thread
+  CREATOR_VAR_MUTEX(Finish, bool, b, false)                                   // checked/get by System.cc
+  CREATOR_VAR_MUTEX(FinishRequest, bool, b, false)                            // requested/set by System.cc
+  CREATOR_VAR_MULTITHREADS(Reset, bool, b, private, false)                    // for reset Initialization variables
   // const
   Map *mpMap;
   bool mbMonocular;
@@ -84,6 +85,7 @@ class IMUInitialization {  // designed for multi threads
 
   bool TryInitVIO(void);
   bool TryInitVIO_zzh(void);
+
   cv::Mat SkewSymmetricMatrix(const cv::Mat &v) {
     return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
             -v.at<float>(1), v.at<float>(0), 0);
@@ -112,9 +114,9 @@ class IMUInitialization {  // designed for multi threads
   void Run();
 
   bool SetCopyInitKFs(bool copying) {
-    unique_lock<mutex> lock(mMutexCopyInitKFs);
-    if (copying && mbCopyInitKFs) return false;
-    mbCopyInitKFs = copying;
+    unique_lock<mutex> lock(mutexCopyInitKFs_);
+    if (copying && bCopyInitKFs_) return false;
+    bCopyInitKFs_ = copying;
     return true;
   }
 

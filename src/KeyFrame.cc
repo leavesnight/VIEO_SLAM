@@ -7,7 +7,7 @@
 #include "ORBmatcher.h"
 #include <mutex>
 #include "common/mlog/log.h"
-#include "common/common.h"
+#include "common/config.h"
 
 namespace VIEO_SLAM {
 

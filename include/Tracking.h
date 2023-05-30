@@ -25,7 +25,8 @@
 #include "Initializer.h"
 #include "MapDrawer.h"
 #include "System.h"
-#include "common/common.h"
+#include "common/config.h"
+#include "common/macro_creator.h"
 
 #include <mutex>
 
@@ -305,7 +306,7 @@ class Tracking {
 
   // Current matches in frame
   int mnMatchesInliers;  // rectified in TrackLocalMap()
-  CREATOR_VAR_MULTITHREADS_INIT(num_track_inliers_, int, , protected, 0)
+  CREATOR_VAR_MULTITHREADS(num_track_inliers, int, , protected, 0)
 
   // Last Frame, KeyFrame and Relocalisation Info
   KeyFrame *mpLastKeyFrame;

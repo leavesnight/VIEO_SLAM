@@ -16,7 +16,7 @@
 #include "Pinhole.h"
 #include "Converter.h"
 #include "common/mlog/log.h"
-#include "common/common.h"
+#include "common/config.h"
 
 using namespace std;
 

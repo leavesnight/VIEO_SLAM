@@ -8,7 +8,7 @@
 #include <thread>
 #include "KannalaBrandt8.h"
 #include "common/mlog/log.h"
-#include "common/common.h"
+#include "common/config.h"
 
 namespace VIEO_SLAM {
 // For stereo fisheye matching

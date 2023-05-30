@@ -6,7 +6,7 @@
 #include "Converter.h"
 #include "common/so3_extra.h"
 #include <string>
-#include "common/common.h"
+#include "common/config.h"
 
 using std::cout;
 using std::endl;
