@@ -163,6 +163,7 @@ cv::Mat ImageGrabber::GetImage(const sensor_msgs::ImageConstPtr &img_msg) {
   }
 }
 
+#define PRINT_TIME_COST
 void ImageGrabber::SyncWithImu() {
   const double maxTimeDiff = 0.01;
   while (1) {
@@ -232,7 +233,27 @@ void ImageGrabber::SyncWithImu() {
         cv::remap(imRight, imRight, M1r, M2r, cv::INTER_LINEAR);
       }
 
+#ifdef PRINT_TIME_COST
+#if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
+      std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+#else
+      std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
+#endif
+#endif
       mpSLAM->TrackStereo(vector<cv::Mat>({imLeft, imRight}), tImLeft, do_rectify);
+#ifdef PRINT_TIME_COST
+#if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
+      std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+#else
+      std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
+#endif
+      double ttrack = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+      static double ttrack_sum = 0;
+      static size_t ttrack_num = 0;
+      ++ttrack_num;
+      ttrack_sum += ttrack;
+      PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
+#endif
 
       std::chrono::milliseconds tSleep(1);
       std::this_thread::sleep_for(tSleep);
