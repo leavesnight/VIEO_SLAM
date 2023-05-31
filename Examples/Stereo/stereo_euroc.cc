@@ -37,6 +37,8 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
   while (!finOdomdata.eof()) {
     string strTmp;
     getline(finOdomdata, strTmp);
+    if (strTmp[0] == '#') continue;  // for safety
+
     int posLast = strTmp.find(',');
     timestamp = atof(strTmp.substr(0, posLast).c_str()) / 1e9;
     ++posLast;
@@ -69,7 +71,7 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
   }
   delete[] odomdata;
   finOdomdata.close();
-  PRINT_INFO_MUTEX( greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
+  PRINT_INFO_MUTEX(greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 // zzh over
 
@@ -77,7 +79,7 @@ int main(int argc, char **argv) {
   thread *pOdomThread = NULL;
   ifstream finOdomdata;
   int totalNum = 0;
-  PRINT_INFO_MUTEX( fixed << setprecision(6) << endl);
+  PRINT_INFO_MUTEX(fixed << setprecision(6) << endl);
 
   switch (argc) {
     case 6:
@@ -91,9 +93,10 @@ int main(int argc, char **argv) {
         return -1;
       }
       string strTmp;
-      getline(finOdomdata, strTmp);                                    // EuRoC's data.csv only has one unused line
+      // EuRoC/TUM_VI's imu data file only has one unused line
+      getline(finOdomdata, strTmp);
       pOdomThread = new thread(&odomRun, ref(finOdomdata), totalNum);  // must use ref()
-      PRINT_INFO_MUTEX( "OdomThread created!" << endl);
+      PRINT_INFO_MUTEX("OdomThread created!" << endl);
     } break;
     default:
       cerr << endl
@@ -168,7 +171,8 @@ int main(int argc, char **argv) {
                                 M2l);
     cv::initUndistortRectifyMap(K_r, D_r, R_r, P_r.rowRange(0, 3).colRange(0, 3), cv::Size(cols_r, rows_r), CV_32F, M1r,
                                 M2r);
-  } else VIEO_SLAM::System::usedistort_ = true;
+  } else
+    VIEO_SLAM::System::usedistort_ = true;
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
@@ -180,18 +184,40 @@ int main(int argc, char **argv) {
   vector<float> vTimesTrack;
   vTimesTrack.resize(nImages);
 
-  PRINT_INFO_MUTEX( endl << "-------" << endl);
-  PRINT_INFO_MUTEX( "Start processing sequence ..." << endl);
-  PRINT_INFO_MUTEX( "Images in the sequence: " << nImages << endl << endl);
+  PRINT_INFO_MUTEX(endl << "-------" << endl);
+  PRINT_INFO_MUTEX("Start processing sequence ..." << endl);
+  PRINT_INFO_MUTEX("Images in the sequence: " << nImages << endl << endl);
 
   // Main loop
   cv::Mat imLeft, imRight, imLeftRect, imRightRect;
+  auto node_tmp = fsSettings["Camera.IMREAD"];
+  bool bgrayscale = false;
+  if (!node_tmp.empty() && string(node_tmp) == "GRAYSCALE") bgrayscale = true;
+  node_tmp = fsSettings["Camera.clahe"];
+  bool bclahe = false;
+  if (!node_tmp.empty() && (int)(node_tmp) == 1) {
+    bclahe = true;
+    PRINT_INFO("bcalhe ON!" << endl);
+  }
   for (int ni = 0; ni < nImages; ni++) {
     // Read left and right images from file
-    // imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
-    // imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
-    imLeft = cv::imread(vstrImageLeft[ni], cv::IMREAD_UNCHANGED);
-    imRight = cv::imread(vstrImageRight[ni], cv::IMREAD_UNCHANGED);
+    if (bgrayscale) {
+      imLeft = cv::imread(vstrImageLeft[ni], cv::IMREAD_GRAYSCALE);
+      imRight = cv::imread(vstrImageRight[ni], cv::IMREAD_GRAYSCALE);
+    } else {
+      // imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
+      // imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
+      imLeft = cv::imread(vstrImageLeft[ni], cv::IMREAD_UNCHANGED);
+      imRight = cv::imread(vstrImageRight[ni], cv::IMREAD_UNCHANGED);
+    }
+
+    // preprocess start
+    if (bclahe) {
+      cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
+      // clahe
+      clahe->apply(imLeft, imLeft);
+      clahe->apply(imRight, imRight);
+    }
 
     if (imLeft.empty()) {
       cerr << endl << "Failed to load image at: " << string(vstrImageLeft[ni]) << endl;
@@ -207,6 +233,7 @@ int main(int argc, char **argv) {
       cv::remap(imLeft, imLeftRect, M1l, M2l, cv::INTER_LINEAR);
       cv::remap(imRight, imRightRect, M1r, M2r, cv::INTER_LINEAR);
     }
+    // preprocess end
 
     double tframe = vTimeStamp[ni];
     {  // zzh
@@ -261,6 +288,7 @@ int main(int argc, char **argv) {
   // Stop all threads, gba waited in Shutdown() and won't be forced stop in Shutdown()
   SLAM.Shutdown();
 
+  // Save camera trajectory
   // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
   // VIORBSLAM paper! load if Full BA just after IMU Initialized
   cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
@@ -269,10 +297,10 @@ int main(int argc, char **argv) {
   if (!fnFBA.empty()) {
     if ((int)fnFBA) {
       SLAM.FinalGBA(fnFBA);
-      PRINT_INFO_MUTEX( azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
+      PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
     }
   } else {
-    PRINT_INFO_MUTEX( redSTR "No FullBA at the end!" << whiteSTR << endl);
+    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
   }
 
   // Tracking time statistics
@@ -281,15 +309,15 @@ int main(int argc, char **argv) {
   for (int ni = 0; ni < nImages; ni++) {
     totaltime += vTimesTrack[ni];
   }
-  PRINT_INFO_MUTEX( "-------" << endl << endl);
-  PRINT_INFO_MUTEX( "mean tracking time: " << totaltime / nImages << endl);
-  PRINT_INFO_MUTEX( "max tracking time: " << vTimesTrack.back() << endl);
+  PRINT_INFO_MUTEX("-------" << endl << endl);
+  PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImages << endl);
+  PRINT_INFO_MUTEX("max tracking time: " << vTimesTrack.back() << endl);
 
   // Save camera trajectory
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
+  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
-  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
 
   return 0;
 }

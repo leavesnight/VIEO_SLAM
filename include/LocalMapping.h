@@ -67,6 +67,8 @@ class LocalMapping {
     return mlNewKeyFrames.size();
   }
 
+  float th_far_pts_ = 0;  // TODO: how to avoid sky feats
+
  protected:
   bool CheckNewKeyFrames();  // check if New KFs exit (!mlNewKeyFrames.empty())
   // calculate BoW,update mlNewKeyFrames&&mlpRecentAddedMapPoints(RGBD)&&MapPoints' normal&&descriptor, update

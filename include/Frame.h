@@ -85,7 +85,7 @@ class Frame : public FrameBase {
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
         cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
         IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr,
-        const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true);
+        const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true, const float th_far_pts = 0);
 
   // Constructor for RGB-D cameras.
   Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor *extractor,
@@ -132,7 +132,7 @@ class Frame : public FrameBase {
   // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
   void ComputeStereoMatches();
 
-  void ComputeStereoFishEyeMatches();
+  void ComputeStereoFishEyeMatches(const float th_far_pts = 0);
 
   // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
   void ComputeStereoFromRGBD(const cv::Mat &imDepth);

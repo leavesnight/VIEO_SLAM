@@ -148,7 +148,7 @@ class LoopClosing {
   std::mutex mMutexLoopQueue;
 
   // Loop detector parameters
-  float mnCovisibilityConsistencyTh;  // here 3
+  float th_covisibility_consistency_[3];
 
   // Loop detector variables
   KeyFrame* mpCurrentKF = nullptr;                       // for NO_GBA_THREAD calling gba

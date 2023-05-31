@@ -37,18 +37,20 @@ class ORBmatcher {
 
   // Search matches between Frame keypoints and projected MapPoints. Returns number of additional matches
   // Used to track the local map (Tracking)
-  int SearchByProjection(Frame &F, const std::vector<MapPoint *> &vpMapPoints,
-                         const float th = 3);  // rectify the F.mvpMapPoints
+  // rectify the F.mvpMapPoints
+  int SearchByProjection(Frame &F, const std::vector<MapPoint *> &vpMapPoints, const float th = 3,
+                         const float th_far_pts = 0);
 
   // Project MapPoints tracked in last frame into the current frame and search matches.
   // Used to track from previous frame (Tracking)
-  int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono);
+  int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono,
+                         const float th_far_pts = 0);
 
   // Project MapPoints seen in KeyFrame into the Frame and search matches. Returns number of additional matches
   // Used in relocalisation (Tracking)
   // rectify CurrentFrame.mvpMapPoints
   int SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const std::set<MapPoint *> &sAlreadyFound, const float th,
-                         const int ORBdist);
+                         const int ORBdist, const float th_far_pts = 0);
 
   // Project MapPoints using a Similarity Transformation and search matches.
   // Used in loop detection (Loop Closing)

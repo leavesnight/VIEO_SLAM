@@ -314,7 +314,8 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
 
 Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
              cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf,
-             EncPreIntegrator *ppreint_enc_kf, const vector<GeometricCamera *> *pCamInsts, bool usedistort)
+             EncPreIntegrator *ppreint_enc_kf, const vector<GeometricCamera *> *pCamInsts, bool usedistort,
+             const float th_far_pts)
     : FrameBase(timeStamp),
       ppreint_enc_kf_(ppreint_enc_kf),
       ppreint_imu_kf_(ppreint_imu_kf),
@@ -385,7 +386,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextr
       mpCameras[i] = (*pCamInsts)[i];
     }
 
-    ComputeStereoFishEyeMatches();
+    ComputeStereoFishEyeMatches(th_far_pts);
     if (!usedistort_) UndistortKeyPoints();
   }
 #ifdef TIMER_FLOW
@@ -970,7 +971,7 @@ void Frame::ComputeStereoMatches() {
   }
 }
 
-void Frame::ComputeStereoFishEyeMatches() {
+void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   // Speed it up by matching keypoints in the lapping area
   size_t n_cams = vvkeys_.size();
 
@@ -989,7 +990,12 @@ void Frame::ComputeStereoFishEyeMatches() {
 
   int nMatches = 0;
   int descMatches = 0;
-  const double thresh_cosdisparity = 1. - 1e-6;  // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
+  // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
+  CV_Assert(!mpCameras.empty());
+  Eigen::Matrix3d K = mpCameras[0]->toK();
+  float f_bar = (K(0, 0) + K(1, 1)) / 2.;
+  double thresh_cosdisparity = 1. - 1e-6;
+  if (th_far_pts > 0) thresh_cosdisparity = min(1. - pow(mbf / f_bar / th_far_pts, 2) / 2., thresh_cosdisparity);
 
   // Check matches using Lowe's ratio
   CV_Assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());

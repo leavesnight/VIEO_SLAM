@@ -30,12 +30,18 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
       mpLastCamKF(NULL)  // added by zzh
 {                        // zzh
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
-  cv::FileNode fnSize = fSettings["LocalMapping.LocalWindowSize"];
-  if (fnSize.empty()) {
+  auto node_tmp = fSettings["LocalMapping.LocalWindowSize"];
+  if (node_tmp.empty()) {
     mnLocalWindowSize = 0;
-    cout << redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR << endl;
+    PRINT_INFO_MUTEX(redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR
+                                                                                                     << endl);
   } else {
-    mnLocalWindowSize = fnSize;  // notice it can <1
+    mnLocalWindowSize = node_tmp;  // notice it can <1
+  }
+  node_tmp = fSettings["thFarPoints"];
+  if (!node_tmp.empty()) {
+    PRINT_INFO_MUTEX(blueSTR "depth > thFarPoints will be moved from Tracking SBP && LBA CreateMP" << whiteSTR << endl);
+    th_far_pts_ = (float)node_tmp;
   }
 }
 
@@ -410,7 +416,7 @@ static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *p
 void LocalMapping::CreateNewMapPoints() {
   // Retrieve neighbor keyframes in covisibility graph
   int nn = 10;
-  if (mbMonocular) nn = 20;
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
   vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
   // ref from ORB3
@@ -522,7 +528,7 @@ void LocalMapping::CreateNewMapPoints() {
       // result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature
       // matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
       if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
-          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {
+          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {  // TODO: check orb3v1.0 use 0.9996 for inertial
         const double thresh_cosdisparity = 1. - 1e-6;
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
           continue;
@@ -543,8 +549,10 @@ void LocalMapping::CreateNewMapPoints() {
       float dist1 = cv::norm(normal1);
       cv::Mat normal2 = x3D - Ow2;
       float dist2 = cv::norm(normal2);
-      if (dist1 == 0 || dist2 == 0)  // it seems impossible for zi>0, if possible it maybe numerical error
-        continue;
+      // it seems impossible for zi>0, if possible it maybe numerical error
+      if (dist1 == 0 || dist2 == 0) continue;
+      if (th_far_pts_ > 0 && max(dist1, dist2) >= th_far_pts_) continue;
+
       const float ratioDist = dist2 / dist1;
       float ratioOctave[2] = {INFINITY, -INFINITY};
       for (auto kp1 : kps[0]) {
@@ -590,8 +598,8 @@ void LocalMapping::CreateNewMapPoints() {
 
 void LocalMapping::SearchInNeighbors() {
   // Retrieve neighbor keyframes
-  int nn = 10;  // RGBD
-  if (mbMonocular) nn = 20;
+  int nn = 10;               // RGBD
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
   const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
   vector<KeyFrame *> vpTargetKFs;
   for (vector<KeyFrame *>::const_iterator vit = vpNeighKFs.begin(), vend = vpNeighKFs.end(); vit != vend; vit++) {
@@ -617,7 +625,7 @@ void LocalMapping::SearchInNeighbors() {
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
-//#define ORB3_STRATEGY
+#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
     if (mbAbortBA) return;
 #endif
@@ -648,7 +656,8 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
+                   "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
   if (mbAbortBA) return;

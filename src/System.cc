@@ -81,9 +81,9 @@ void System::SaveKeyFrameTrajectoryNavState(const string &filename, bool bUseTbc
     Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
     Eigen::Vector3d t = ns.mpwb;                       // twb
     Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
-    f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t(0) << " " << t(1) << " " << t(2) << " "
-      << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " "
-      << bg(0) << " " << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+    f << setprecision(9) << pKF->mTimeStamp << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " " << q.y()
+      << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " " << bg(1)
+      << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
   }
 
   f.close();
@@ -1022,9 +1022,9 @@ void System::SaveTrajectoryNavState(const string &filename, bool bUseTbc) {
     Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
     Eigen::Vector3d t = ns.mpwb;                       // twb
     Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
-    f << setprecision(6) << *lT << setprecision(9) << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " "
-      << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " "
-      << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+    f << setprecision(9) << *lT << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " " << q.y() << " "
+      << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " " << bg(1) << " "
+      << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
   }
   f.close();
   PRINT_INFO_MUTEX(endl << "NavState trajectory saved!" << endl);

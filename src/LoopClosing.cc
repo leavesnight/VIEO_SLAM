@@ -53,9 +53,10 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
       mbLoopDetected(false)  // zzh
 {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
-  cv::FileNode fnIter[] = {fSettings["GBA.iterations"],    fSettings["GBA.initIterations"],
-                           fSettings["GBA.threshMatches"], fSettings["GBA.threshMatches2"],
-                           fSettings["GBA.threshInliers"], fSettings["GBA.threshInliers2"]};
+  cv::FileNode fnIter[] = {fSettings["GBA.iterations"],       fSettings["GBA.initIterations"],
+                           fSettings["GBA.threshMatches"],    fSettings["GBA.threshMatches2"],
+                           fSettings["GBA.threshInliers"],    fSettings["GBA.threshInliers2"],
+                           fSettings["GBA.covisConsistency"], fSettings["GBA.covisConsistency2"]};
   if (fnIter[0].empty() || fnIter[1].empty()) {
     mnInitIterations = 15;  // 15 as the VIORBSLAM paper
     mnIterations = 10;      // default 10 for real-time nice responce
@@ -80,9 +81,17 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
     thresh_inliers_[1] = 10;
   else
     thresh_inliers_[1] = (int)fnIter[5];
+  if (fnIter[6].empty())
+    th_covisibility_consistency_[0] = 3;
+  else
+    th_covisibility_consistency_[0] = (int)fnIter[6];
+  if (fnIter[7].empty())
+    th_covisibility_consistency_[1] = 1;
+  else
+    th_covisibility_consistency_[1] = (int)fnIter[7];
   // created by zzh
 
-  mnCovisibilityConsistencyTh = 3;
+  th_covisibility_consistency_[2] = th_covisibility_consistency_[0];
 }
 
 void LoopClosing::SetTracker(Tracking* pTracker) { mpTracker = pTracker; }
@@ -95,6 +104,8 @@ void LoopClosing::Run() {
   while (1) {
     // Check if there are keyframes in the queue
     if (CheckNewKeyFrames()) {
+      chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
+
       // Detect loop candidates and check covisibility consistency
       if (DetectLoop()) {  // else no gw to calculate GBA //(mpIMUInitiator->GetVINSInited())&&
         // Compute similarity transformation [sR|t]
@@ -106,6 +117,16 @@ void LoopClosing::Run() {
           CorrectLoop();
         }
       }
+
+      static double dt_loopthread_avg = 0;
+      static unsigned long num_loopthread_avg = 0;
+      double dt_loopthread = chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count();
+      dt_loopthread_avg += dt_loopthread;
+      ++num_loopthread_avg;
+      PRINT_INFO_FILE(blueSTR "Used time in loopclosing=" << dt_loopthread
+                                                          << ",avg=" << dt_loopthread_avg / num_loopthread_avg
+                                                          << ",kfid=" << mpCurrentKF->mnId << whiteSTR << endl,
+                      mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     }
     // for full BA just after IMU Initialized, zzh
     if (mpIMUInitiator && mpIMUInitiator->GetInitGBA()) {
@@ -141,7 +162,7 @@ bool LoopClosing::DetectLoop() {
     if (mpCurrentKF->getState() ==
         Tracking::ODOMOK) {  // it's quite rare for ODOMOK to close loop, so we just jump over it
       mnLastOdomKFId = mpCurrentKF->mnId;
-      mnCovisibilityConsistencyTh = 1;  // like Relocalization()
+      th_covisibility_consistency_[2] = th_covisibility_consistency_[1];
       mpKeyFrameDB->add(mpCurrentKF);
       return false;
     }
@@ -154,9 +175,8 @@ bool LoopClosing::DetectLoop() {
   // in time from last loop
   if (mpCurrentKF->mnId < mLastLoopKFid + 10) {
     mpKeyFrameDB->add(mpCurrentKF);  // add CurrentKF into KFDataBase
-    PRINT_DEBUG_INFO_MUTEX(
-        "Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_INFO_FILE("Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+                    mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();  // allow CurrentKF to be erased
     return false;
   }
@@ -177,18 +197,18 @@ bool LoopClosing::DetectLoop() {
     if (score < minScore) minScore = score;
   }
   // Query the database imposing the minimum score
-  vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(
-      mpCurrentKF, minScore);  // returned KFs cannot be in vpConnectedKeyFrames(not made from score(BowVecs))
+  // returned KFs cannot be in vpConnectedKeyFrames(not made from score(BowVecs))
+  vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
 
   // If there are no loop candidates, just add new keyframe and return false
   if (vpCandidateKFs.empty()) {
     mpKeyFrameDB->add(mpCurrentKF);
-    mvConsistentGroups
-        .clear();  // for it hasn't loop candidate KFs, it breaks the rule of "consecutive" new KFs condition for loop
-                   // validation/roubst loop detection->restart mvConsistentGroups' counter
-    PRINT_DEBUG_INFO_MUTEX(
-        "Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        mlog::vieo_slam_debug_path, "debug.txt");
+    // for it hasn't loop candidate KFs, it breaks the rule of "consecutive" new KFs condition for loop
+    // validation/roubst loop detection->restart mvConsistentGroups' counter
+    mvConsistentGroups.clear();
+    PRINT_INFO_FILE(
+        "CandidateKFs Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
   }
@@ -200,16 +220,19 @@ bool LoopClosing::DetectLoop() {
   // accept it
   mvpEnoughConsistentCandidates.clear();
 
-  vector<ConsistentGroup> vCurrentConsistentGroups;  // the new mvConsistentGroups' size is the same as
-                                                     // vpCandidateKFs.size()/vCurrentConsistentGroups.size()
+  // the new mvConsistentGroups' size is the same as vpCandidateKFs.size()/vCurrentConsistentGroups.size()
+  vector<ConsistentGroup> vCurrentConsistentGroups;
   vector<bool> vbConsistentGroup(mvConsistentGroups.size(), false);
   for (size_t i = 0, iend = vpCandidateKFs.size(); i < iend; i++) {
     KeyFrame* pCandidateKF = vpCandidateKFs[i];
 
-    set<KeyFrame*> spCandidateGroup =
-        pCandidateKF->GetConnectedKeyFrames();  // all 1st layer covisibility KFs of the pCandidateKF
-    spCandidateGroup.insert(pCandidateKF);      // Each candidate expands a covisibility group(loop candidate+its
-                                                // connectedKFs in covisibility graph)
+    // all 1st layer covisibility KFs of the pCandidateKF
+    set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
+    // Each candidate expands a covisibility group(loop candidate+its connectedKFs in covisibility graph)
+    spCandidateGroup.insert(pCandidateKF);
+    PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+                               << "]szcandigroup=" << spCandidateGroup.size() << endl,
+                     mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
 
     bool bEnoughConsistent = false;
     bool bConsistentForSomeGroup = false;
@@ -219,9 +242,8 @@ bool LoopClosing::DetectLoop() {
 
       bool bConsistent = false;
       for (set<KeyFrame*>::iterator sit = spCandidateGroup.begin(), send = spCandidateGroup.end(); sit != send; sit++) {
-        if (sPreviousGroup.count(
-                *sit))  // A candidate group is consistent with a previous group if they share at least a keyframe
-        {
+        // A candidate group is consistent with a previous group if they share at least a keyframe
+        if (sPreviousGroup.count(*sit)) {
           bConsistent = true;
           bConsistentForSomeGroup = true;
           break;
@@ -232,17 +254,20 @@ bool LoopClosing::DetectLoop() {
       {
         int nPreviousConsistency = mvConsistentGroups[iG].second;
         int nCurrentConsistency = nPreviousConsistency + 1;  // consistency counter++
+        // vbConsistentGroup[iG]==true if any LoopCandidateKF before is consistent with the iGth previous group
         if (!vbConsistentGroup[iG]) {
           ConsistentGroup cg = make_pair(spCandidateGroup, nCurrentConsistency);
           vCurrentConsistentGroups.push_back(cg);
           vbConsistentGroup[iG] = true;  // this avoid to include the same group more than once
-        }  // vbConsistentGroup[iG]==true if any LoopCandidateKF before is consistent with the iGth previous group
-        if (nCurrentConsistency >= mnCovisibilityConsistencyTh &&
-            !bEnoughConsistent)  // if enough consecutive consistency counter/loop detections, here at least 3 new KFs
-                                 // detect the consistent loop candidate group
-        {
-          mvpEnoughConsistentCandidates.push_back(pCandidateKF);  // notice mvpEnoughConsistentCandidates is a member
-                                                                  // data, used in this function and ComputeSim3()
+        }
+        // if enough consecutive consistency counter/loop detections, here at least 3 new KFs
+        // detect the consistent loop candidate group
+        PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+                                   << "]curconsist=" << nCurrentConsistency << endl,
+                         mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
+        if (nCurrentConsistency >= th_covisibility_consistency_[2] && !bEnoughConsistent) {
+          // notice mvpEnoughConsistentCandidates is a member data, used in this function and ComputeSim3()
+          mvpEnoughConsistentCandidates.push_back(pCandidateKF);
           bEnoughConsistent = true;  // this avoid to insert the same candidate more than once
         }
       }
@@ -253,7 +278,6 @@ bool LoopClosing::DetectLoop() {
     if (!bConsistentForSomeGroup) {
       ConsistentGroup cg = make_pair(spCandidateGroup, 0);
       vCurrentConsistentGroups.push_back(cg);
-      // 	    if (mnCovisibilityConsistencyTh==0) mvpEnoughConsistentCandidates.push_back(pCandidateKF);
     }
   }
 
@@ -264,15 +288,15 @@ bool LoopClosing::DetectLoop() {
   mpKeyFrameDB->add(mpCurrentKF);  // addition to KFDB only here(LoopClosing)
 
   if (mvpEnoughConsistentCandidates.empty()) {
-    PRINT_DEBUG_INFO_MUTEX(
+    PRINT_INFO_FILE(
         "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-        mlog::vieo_slam_debug_path, "debug.txt");
+        mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
   } else  // if any candidate group is enough(counter >=3) consistent with any previous group
   {       // first some detection()s won't go here
-    PRINT_DEBUG_INFO_MUTEX("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-                           mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_INFO_FILE("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+                    mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
   }
 }
@@ -314,7 +338,7 @@ bool LoopClosing::ComputeSim3() {
         mpCurrentKF, pKF, vvpMapPointMatches[i]);  //rectify vpMatches12 by using pKF->mFeatVec to quickly match, \
         corresponding to pKF1/mpCurrentKF in LoopClosing
 
-    // cout<<redSTR<<i<<": "<<nmatches<<endl;
+    if (nmatches >= 10) cout << redSTR << __FUNCTION__ << " thresh_match check " << i << ": " << nmatches << endl;
     int thresholdMatches = mnLastOdomKFId == 0 ? thresh_matches_[0] : thresh_matches_[1];
     if (nmatches < thresholdMatches)  // 20)//same threshold in TrackWithMotionModel(), new 10
     {
@@ -335,7 +359,7 @@ bool LoopClosing::ComputeSim3() {
 
   // Perform alternatively RANSAC iterations for each candidate
   // until one is succesful or all fail
-  // cout << redSTR << nCandidates << whiteSTR << endl;
+  if (nCandidates) cout << redSTR << __FUNCTION__ << " ncandidates= " << nCandidates << whiteSTR << endl;
   while (nCandidates > 0 && !bMatch) {
     for (int i = 0; i < nInitialCandidates; i++) {
       if (vbDiscarded[i]) continue;
@@ -384,7 +408,7 @@ bool LoopClosing::ComputeSim3() {
                 BA outliers in vpMapPointMatches are erased
 
         // If optimization is succesful stop ransacs and continue
-        cout << redSTR << nInliers << whiteSTR << endl;
+        cout << redSTR << __FUNCTION__ << " ninliers= " << nInliers << whiteSTR << endl;
         if (nInliers >= 20)  // looser than Relocalization() inliers' demand
         {
           bMatch = true;
@@ -443,7 +467,7 @@ bool LoopClosing::ComputeSim3() {
     if (mvpCurrentMatchedPoints[i]) nTotalMatches++;
   }
 
-  cout << redSTR << nTotalMatches << whiteSTR << endl;
+  cout << redSTR << __FUNCTION__ << " ntotalmatches= " << nTotalMatches << whiteSTR << endl;
   if (nTotalMatches >= 40)  // similar to Relocalization() inliers' threshold
   {
     cout << "ComputeSim3 clear!" << endl;
@@ -462,8 +486,8 @@ bool LoopClosing::ComputeSim3() {
 
 void LoopClosing::CorrectLoop() {
   if (mnLastOdomKFId > 0) {
-    mnLastOdomKFId = 0;               // added by zzh
-    mnCovisibilityConsistencyTh = 3;  // return back
+    mnLastOdomKFId = 0;                                                 // added by zzh
+    th_covisibility_consistency_[2] = th_covisibility_consistency_[0];  // return back
   }
 
   PRINT_INFO_MUTEX("Loop detected!" << endl);
@@ -702,7 +726,7 @@ void LoopClosing::ResetIfRequested() {
     mbResetRequested = false;
 
     mnLastOdomKFId = 0;
-    mnCovisibilityConsistencyTh = 3;  // added by zzh
+    th_covisibility_consistency_[2] = th_covisibility_consistency_[0];  // added by zzh
   }
 }
 
@@ -771,10 +795,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       list<KeyFrame*> lpKFtoCheck(mpMap->mvpKeyFrameOrigins.begin(), mpMap->mvpKeyFrameOrigins.end());
 
       // propagate the correction through the spanning tree(root is always id0 KF)
-      while (
-          !lpKFtoCheck
-               .empty())  // if the propagation is not over (notice mpMap cannot be reset for LocalMapping is stopped)
-      {
+      // if the propagation is not over (notice mpMap cannot be reset for LocalMapping is stopped)
+      while (!lpKFtoCheck.empty()) {
         KeyFrame* pKF = lpKFtoCheck.front();  // for RGBD, lpKFtoCheck should only have one KF initially
         const set<KeyFrame*> sChilds = pKF->GetChilds();
         cv::Mat Twc = pKF->GetPoseInverse();
