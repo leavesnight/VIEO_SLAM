@@ -153,9 +153,9 @@ Eigen::Matrix<double, 2, 3> KannalaBrandt8::projectJac(const Eigen::Vector3d &v3
 bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyPoint &kp1, const cv::KeyPoint &kp2,
                                        const cv::Mat &R12, const cv::Mat &t12, const float sigmaLevel, const float unc,
                                        bool bkp_distort) {
-  // return Pinhole::epipolarConstrain(pCamera2, kp1, kp2, R12, t12, sigmaLevel, unc, bkp_distort);
+  return Pinhole::epipolarConstrain(pCamera2, kp1, kp2, R12, t12, sigmaLevel, unc, bkp_distort);
   // ORB3 st. is worse then ORB2 st. when feat num is small
-  CV_Assert(bkp_distort);
+  /*CV_Assert(bkp_distort);
   aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(kp1.pt.x, kp1.pt.y), Eigen::Vector2d(kp2.pt.x, kp2.pt.y)};
   float thresh_cosdisparity = 0.9998;  // 1. - 1e-6;
   auto zs = this->TriangulateMatches(vector<GeometricCamera *>(1, pCamera2), kpts, {sigmaLevel, unc}, nullptr,
@@ -163,7 +163,7 @@ bool KannalaBrandt8::epipolarConstrain(GeometricCamera *pCamera2, const cv::KeyP
   if (zs.empty()) return false;
   for (auto z : zs)
     if (z <= 0.0001f) return false;
-  return true;
+  return true;*/
 }
 
 //    bool KannalaBrandt8::ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const
