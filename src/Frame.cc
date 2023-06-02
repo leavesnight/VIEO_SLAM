@@ -994,43 +994,58 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   CV_Assert(!mpCameras.empty());
   Eigen::Matrix3d K = mpCameras[0]->toK();
   float f_bar = (K(0, 0) + K(1, 1)) / 2.;
-  double thresh_cosdisparity = 0.9998;  // 1. - 1e-6;
-  if (th_far_pts > 0) thresh_cosdisparity = min(1. - pow(mbf / f_bar / th_far_pts, 2) / 2., thresh_cosdisparity);
+  double thresh_cosdisparity[2] = {0.9998, 1. - 1e-6};
+  if (th_far_pts > 0) {
+    for (int i = 0; i < 2; ++i)
+      thresh_cosdisparity[i] = min(1. - pow(mbf / f_bar / th_far_pts, 2) / 2., thresh_cosdisparity[i]);
+  }
 
   // Check matches using Lowe's ratio
   CV_Assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());
 #ifdef USE_STRATEGY_MIN_DIST
   vector<vector<double>> lastdists;
 #endif
-  aligned_vector<Vector3d> pts;
-  for (size_t i = 0, idmatches = 0; i < n_cams - 1; ++i) {
-    for (size_t j = i + 1; j < n_cams; ++j, ++idmatches) {
-      auto &matches = allmatches[idmatches];
-      for (vector<vector<cv::DMatch>>::iterator it = matches.begin(); it != matches.end(); ++it) {
-        const int thOrbDist = (ORBmatcher::TH_HIGH + ORBmatcher::TH_LOW) / 2;
-        if ((*it).size() >= 2 && ((*it)[0].distance < (*it)[1].distance * 0.7 ||
-                                  ((*it)[0].distance < thOrbDist && (*it)[0].distance < (*it)[1].distance * 0.9))) {
-          size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
-          vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
-          aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(vvkeys_[i][idxi].pt.x, vvkeys_[i][idxi].pt.y),
-                                                  Eigen::Vector2d(vvkeys_[j][idxj].pt.x, vvkeys_[j][idxj].pt.y)};
-          if (mpCameras[i]->FillMatchesFromPair(vector<GeometricCamera *>(1, mpCameras[j]), n_cams,
-                                                vector<pair<size_t, size_t>>{make_pair(i, idxi), make_pair(j, idxj)},
-                                                (*it)[0].distance, mvidxsMatches, goodmatches_, mapcamidx2idxs_,
-                                                thresh_cosdisparity, &mv3Dpoints, &kpts, &sigmas
+  int num_thresh_try = thresh_cosdisparity[1] == thresh_cosdisparity[0] ? 1 : 2;
+  for (int k = 0; k < num_thresh_try; ++k) {
+    mvidxsMatches.clear();
+    goodmatches_.clear();
+    mapcamidx2idxs_.clear();
+    mv3Dpoints.clear();
+    lastdists.clear();
+    descMatches = 0;
+    for (size_t i = 0, idmatches = 0; i < n_cams - 1; ++i) {
+      for (size_t j = i + 1; j < n_cams; ++j, ++idmatches) {
+        auto &matches = allmatches[idmatches];
+        for (vector<vector<cv::DMatch>>::iterator it = matches.begin(); it != matches.end(); ++it) {
+          const int thOrbDist = (ORBmatcher::TH_HIGH + ORBmatcher::TH_LOW) / 2;
+          if ((*it).size() >= 2 && ((*it)[0].distance < (*it)[1].distance * 0.7 ||
+                                    ((*it)[0].distance < thOrbDist && (*it)[0].distance < (*it)[1].distance * 0.9))) {
+            size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
+            vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
+            aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(vvkeys_[i][idxi].pt.x, vvkeys_[i][idxi].pt.y),
+                                                    Eigen::Vector2d(vvkeys_[j][idxj].pt.x, vvkeys_[j][idxj].pt.y)};
+            if (mpCameras[i]->FillMatchesFromPair(vector<GeometricCamera *>(1, mpCameras[j]), n_cams,
+                                                  vector<pair<size_t, size_t>>{make_pair(i, idxi), make_pair(j, idxj)},
+                                                  (*it)[0].distance, mvidxsMatches, goodmatches_, mapcamidx2idxs_,
+                                                  thresh_cosdisparity[0], &mv3Dpoints, &kpts, &sigmas
 #ifdef USE_STRATEGY_MIN_DIST
-                                                ,
-                                                &lastdists
+                                                  ,
+                                                  &lastdists
 #else
-                                                ,
-                                                nullptr
+                                                  ,
+                                                  nullptr
 #endif
-                                                ,
-                                                &descMatches))
-            ++nMatches;
+                                                  ,
+                                                  &descMatches))
+              ++nMatches;
+          }
         }
       }
     }
+    if (nMatches >= 30)
+      break;
+    else
+      thresh_cosdisparity[0] = thresh_cosdisparity[1];
   }
 #ifdef USE_STRATEGY_MIN_DIST
   for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
@@ -1060,7 +1075,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
           kpts.emplace_back(vvkeys_[k][idx[k]].pt.x, vvkeys_[k][idx[k]].pt.y);
         }
       }
-      auto depths = pcams_in[0]->TriangulateMatches(pcams_in, kpts, sigmas, &p3D, thresh_cosdisparity);
+      auto depths = pcams_in[0]->TriangulateMatches(pcams_in, kpts, sigmas, &p3D, thresh_cosdisparity[0]);
       bool bgoodmatch = depths.empty() ? false : true;
       for (auto d : depths) {
         if (d <= 0.0001f) {
