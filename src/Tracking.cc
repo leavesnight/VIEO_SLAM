@@ -31,8 +31,8 @@ namespace VIEO_SLAM {
 //#define CHECK_JITTER
 //#define NO_LBA_THREAD
 //#define DEBUG_STRATEGY
-//#define ORB3_STRATEGY_TRACK_BA_ONCE
-//#define ORB3_STRATEGY_KF_MORE
+#define ORB3_STRATEGY_TRACK_BA_ONCE
+#define ORB3_STRATEGY_KF_MORE
 
 cv::Mat Tracking::CacheOdom(const double& timestamp, const double* odomdata,
                             const char mode) {  // different thread from GrabImageX

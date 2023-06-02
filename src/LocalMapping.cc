@@ -119,9 +119,8 @@ void LocalMapping::Run() {
             const bool bno_imu_lba = false;  // true;  //
             if (!bno_imu_lba) {
               // bLarge/bRecInit ref from ORB3
-              const bool bLarge = false;
-              //                  mpTracker->Getnum_track_inliers_() > mpTracker->mSensor == System::MONOCULAR ? 75 :
-              //                  100;
+              const bool bLarge =
+                  mpTracker->Getnum_track_inliers() > mpTracker->mSensor == System::MONOCULAR ? 75 : 100;
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);

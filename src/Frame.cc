@@ -994,7 +994,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   CV_Assert(!mpCameras.empty());
   Eigen::Matrix3d K = mpCameras[0]->toK();
   float f_bar = (K(0, 0) + K(1, 1)) / 2.;
-  double thresh_cosdisparity = 1. - 1e-6;
+  double thresh_cosdisparity = 0.9998;  // 1. - 1e-6;
   if (th_far_pts > 0) thresh_cosdisparity = min(1. - pow(mbf / f_bar / th_far_pts, 2) / 2., thresh_cosdisparity);
 
   // Check matches using Lowe's ratio

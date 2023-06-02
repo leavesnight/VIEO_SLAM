@@ -18,34 +18,72 @@ We hope to provide a general visual tightly-coupled with any odometer SLAM syste
 
 ## Test
 
-### EuRoC ASL Dataset Format
+### EuRoC Dataset
 
 *WithFull BA VIORBSLAM:*
 
 **ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
 ```
 V101(1.4cm),V102(1.8),V103(4.4),V201(1.2),V202(1.3),V203(2.6),MH01(6.7),MH02(5.7),MH03(6.3),MH04(5.9),MH05(9.4)
-PS: Dec. 26
+PS: 2017/12/26
 ```
 **ATE Random 1 test StereoVIO Res(m,Leica|Est\*);feat num 1000->375(default):**
 
 **With XXX_distXXX.yaml--With XXX.yaml(undist as ref)**
 ```
-V101 0.019|0.037 ->0.019|0.036 --0.019|0.036
-V102 0.023|0.018 ->0.020|0.014 --0.023|0.018
-V103 0.039|0.023 ->0.039|0.017 --0.040|0.021+
-V201 0.014|0.014 ->0.017|0.016 --0.030|0.030
-V202 0.016|0.014 ->0.013|0.011+--0.014|0.011
-V203 0.017|0.016 ->0.018|0.014 --0.026|0.024-
-MH01 0.060|0.016+->0.061|0.010 --0.069|0.024
-MH02 0.047|0.015 ->0.049|0.014 --0.051|0.017
-MH03 0.078|0.025 ->0.078|0.021 --0.076|0.024
-MH04 0.081|0.044 ->0.075|0.052 --0.093|0.054-
-MH05 0.100|0.039 ->0.133|0.067---0.117|0.057+
-Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->25 --62
-PS:May.26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
+V101 0.019|0.037 ->0.019|0.037 --0.019|0.036
+V102 0.023|0.018 ->0.021|0.013 --0.023|0.018
+V103 0.039|0.023 ->0.037|0.017 --0.040|0.021+
+V201 0.014|0.014 ->0.017|0.015 --0.030|0.030
+V202 0.016|0.014 ->0.012|0.009 --0.014|0.011
+V203 0.017|0.016 ->0.015|0.012 --0.026|0.024-
+MH01 0.060|0.016+->0.066|0.021---0.069|0.024
+MH02 0.047|0.015 ->0.053|0.014 --0.051|0.017
+MH03 0.078|0.025 ->0.075|0.022 --0.076|0.024
+MH04 0.081|0.044 ->0.070|0.051 --0.093|0.054-
+MH05 0.100|0.039 ->0.132|0.064 --0.117|0.057+
+Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->20 --62
+PS:2023/5/26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
 Single MH05 test: 0.092|0.038 ->0.122|0.061 --0.106|0.048+
-tm cost(ms): 41 ->20 --30
+tm cost(ms): 41 ->19 --30
+```
+
+### TUM Dataset
+
+*Without Full BA VIORBSLAM:*
+
+**ATE Random 1|2 tests StereoVIO Res(m);feat num 1000->375:**
+```
+corridor1   0.011|0.012 ->
+corridor2   0.012|0.016 ->
+corridor3   0.009|0.010 ->
+corridor4   0.039|0.098 ->
+corridor5   0.010|0.010 ->
+magistrale1 0.219|0.350 ->
+magistrale2 0.339|1.390 ->
+magistrale3 2.268|2.404 ->
+magistrale4 1.276|0.170 ->
+magistrale5 1.562|1.549 ->
+magistrale6 1.000|0.906 ->
+outdoors1   10.77|14.72 ->
+outdoors2   11.09|13.73 ->
+outdoors3   12.99|5.942 ->
+outdoors4   3.568|4.345 ->
+outdoors5   10.56|11.31 ->
+outdoors6   24.06|46.62 ->
+outdoors7   1.085|1.156 ->
+outdoors8   10.37|10.03 ->
+room1       0.010|0.010 ->
+room2       0.007|0.008 ->
+room3       0.008|0.007 ->
+room4       0.008|0.007 ->
+room5       0.010|0.008 ->
+room6       0.006|0.007 ->
+slides1     0.199|0.378 ->
+slides2     0.638|0.627 ->
+slides3     1.025|1.135 ->
+Final parallel slides3 mean time cost per frame of frontend(ms): ~31 ->?
+PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
 ```
 
 ## Usage
