@@ -28,21 +28,29 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
-  int optit = 5;
+  int optit[2] = {5, 10};
   // limit fixed vertex size to ensure speed
 #define LIMIT_KFS_NUM
 #ifdef LIMIT_KFS_NUM
   // ref from ORB3
   const int maxFixKF = 200;
 #endif
-  // TODO(zzh): we hope to do more here, but now no_do_more is more robust
-#define ORB3_STRATEGY_NO_DO_MORE
+  // we find old no_do_more is more robust is due to opt_wider/bLarge st.
+//#define ORB3_STRATEGY_NO_DO_MORE
 #ifdef ORB3_STRATEGY_NO_DO_MORE
+  bool bDoMore = false;
+#else
+  bool bDoMore = true;
+#endif
+#define ORB3_STRATEGY_OPT_WIDER
+#ifdef ORB3_STRATEGY_OPT_WIDER
   if (bLarge) {
     Nlocal *= 2.5;
-    optit = 4;
+    optit[0] = bDoMore ? 2 : 4;
+    optit[1] = 4 - 2;
   } else {
-    optit = 10;
+    optit[0] = bDoMore ? 4 : 10;
+    optit[1] = 6;
   }
 #endif
 
@@ -505,8 +513,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ", mlog::vieo_slam_debug_path,
-                        "localmapping_thread_debug.txt");
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ",
+                        mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
     PRINT_INFO_FILE(endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
@@ -519,7 +527,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 #endif
-  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+  optimizer.optimize(optit[0]);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
 #ifdef FIND_LAMBDA_AVG
   static double lambda_avg = 0;
   static unsigned long num_lambda = 0;
@@ -530,10 +538,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
                   "localmapping_thread_debug.txt");
 #endif
 
-#ifdef ORB3_STRATEGY_NO_DO_MORE
-  bool bDoMore = false;
-#else
-  bool bDoMore = true;
+#ifndef ORB3_STRATEGY_NO_DO_MORE
   if (pbStopFlag)
     if (*pbStopFlag)  // judge mbAbortBA again
       bDoMore = false;
@@ -573,7 +578,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     // Optimize again without the outliers
     optimizer.initializeOptimization(0);
-    optimizer.optimize(10);  // 10 steps same as motion-only BA
+    optimizer.optimize(optit[1]);  // 10 steps same as motion-only BA
   }
 
 #ifndef NDEBUG
