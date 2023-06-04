@@ -56,35 +56,35 @@ tm cost(ms): 41 ->19 --30
 
 **--With Full ORB3 St. as ref**
 ```
-corridor1   0.018--> --0.011|0.012
-corridor2   0.012+-> --0.012|0.016
-corridor3   0.012 -> --0.009|0.010
-corridor4   0.128+-> --0.039|0.098
-corridor5   0.010+-> --0.010|0.010
-magistrale1 0.205--> --0.219|0.350
-magistrale2 0.180+-> --0.339|1.390
-magistrale3 2.542--> --2.268|2.404
-magistrale4 0.079--> --1.276|0.170
-magistrale5 0.485+-> --1.562|1.549
-magistrale6 1.280--> --1.000|0.906
-outdoors1   7.055+-> --10.77|14.72
-outdoors2   7.471--> --11.09|13.73
-outdoors3   5.995--> --12.99|5.942
-outdoors4   2.054+-> --3.568|4.345
-outdoors5   3.810+-> --10.56|11.31
-outdoors6   28.94--> --24.06|46.62
-outdoors7   1.544--> --1.085|1.156
-outdoors8   5.399--> --10.37|10.03
-room1       0.010 -> --0.010|0.010
-room2       0.011 -> --0.007|0.008
-room3       0.007 -> --0.008|0.007
-room4       0.006 -> --0.008|0.007
-room5       0.009 -> --0.010|0.008
-room6       0.006 -> --0.006|0.007
-slides1     0.405--> --0.199|0.378
-slides2     0.459--> --0.638|0.627
-slides3     0.734--> --1.025|1.135
-Final parallel slides3 mean time cost per frame of frontend(ms): ~39 ->? --31
+corridor1   0.013 -> --0.011|0.012
+corridor2   0.048 -> --0.012|0.016
+corridor3   0.014 -> --0.009|0.010
+corridor4   0.156 -> --0.039|0.098
+corridor5   0.020 -> --0.010|0.010
+magistrale1 0.038 -> --0.219|0.350
+magistrale2 1.923 -> --0.339|1.390
+magistrale3 1.616 -> --2.268|2.404
+magistrale4 0.061 -> --1.276|0.170
+magistrale5 1.169 -> --1.562|1.549
+magistrale6 0.299 -> --1.000|0.906
+outdoors1   11.79 -> --10.77|14.72
+outdoors2   7.093 -> --11.09|13.73
+outdoors3   5.448 -> --12.99|5.942
+outdoors4   4.000 -> --3.568|4.345
+outdoors5   4.728 -> --10.56|11.31
+outdoors6   13.33 -> --24.06|46.62
+outdoors7   1.417 -> --1.085|1.156
+outdoors8   3.797 -> --10.37|10.03
+room1       0.009 -> --0.010|0.010
+room2       0.010 -> --0.007|0.008
+room3       0.008 -> --0.008|0.007
+room4       0.007 -> --0.008|0.007
+room5       0.008 -> --0.010|0.008
+room6       0.008 -> --0.006|0.007
+slides1     0.127 -> --0.199|0.378
+slides2     0.207 -> --0.638|0.627
+slides3     0.447 -> --1.025|1.135
+Final parallel slides3 mean time cost per frame of frontend(ms): ~43 ->? --31
 PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
 ```
 
