@@ -38,10 +38,12 @@ IMU.SleepTime: 1
 GBA.iterations: 10
 GBA.initIterations: 15
 GBA.finalIterations: 0
-GBA.threshMatches: 20
-GBA.threshInliers: 20
-GBA.threshMatches2: 20
-GBA.threshInliers2: 20
+GBA.threshMatches: 30
+GBA.threshInliers: 30
+GBA.threshMatches2: 30
+GBA.threshInliers2: 30
+GBA.covisConsistency: 3
+GBA.covisConsistency2: 3
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
