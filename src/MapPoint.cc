@@ -446,9 +446,9 @@ void MapPoint::UpdateNormalAndDepth() {
        mit++) {
     KeyFrame* pKF = mit->first;
     cv::Mat twcr = pKF->GetCameraCenter();
-    cv::Mat twc = twcr.clone();
     auto idxs = mit->second;
     for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+      cv::Mat twc = twcr.clone();
       auto idx = *iter;
       size_t cami = pKF->mapn2in_.size() <= idx ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (pKF->mpCameras.size() > cami) {
