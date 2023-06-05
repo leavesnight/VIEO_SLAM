@@ -1,21 +1,5 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #ifndef FRAME_H
@@ -101,7 +85,7 @@ class Frame : public FrameBase {
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
         cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
         IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr,
-        const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true);
+        const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true, const float th_far_pts = 0);
 
   // Constructor for RGB-D cameras.
   Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor *extractor,
@@ -148,7 +132,7 @@ class Frame : public FrameBase {
   // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
   void ComputeStereoMatches();
 
-  void ComputeStereoFishEyeMatches();
+  void ComputeStereoFishEyeMatches(const float th_far_pts = 0);
 
   // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
   void ComputeStereoFromRGBD(const cv::Mat &imDepth);

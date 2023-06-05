@@ -1,24 +1,8 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
-#include "common/log.h"
+#include "common/mlog/log.h"
 #include "Tracking.h"
 
 #include <opencv2/core/core.hpp>
@@ -178,7 +162,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
 
 void Tracking::PreIntegration(const int8_t type) {
   unique_lock<mutex> lock(mMutexOdom);
-  PRINT_DEBUG_INFO_MUTEX("type=" << (int)type << "...", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX("type=" << (int)type << "...", mlog::vieo_slam_debug_path, "debug.txt");
   FrameBase *plastfb, *pcurfb;
   if (type == 1 || type == 3) {
     if (type == 1)
@@ -234,7 +218,7 @@ void Tracking::PreIntegration(const int8_t type) {
   }
   if (type == 2) {
     size_t N = mpReferenceKF->GetListIMUData().size(), N2 = mpReferenceKF->GetListEncData().size();
-    PRINT_DEBUG_INFO_MUTEX("List size: " << N << " " << N2 << endl, imu_tightly_debug_path, "debug.txt");
+    PRINT_DEBUG_INFO_MUTEX("List size: " << N << " " << N2 << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
@@ -315,22 +299,24 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   else
     th = 7;
   // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
-  int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR);
-  PRINT_DEBUG_INFO("math num2 imu=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR,
+                                            mpLocalMapper->th_far_pts_);
+  PRINT_DEBUG_INFO("math num2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
     auto& curfmps_ref = mCurrentFrame.GetMapPointsRef();
     // it's important for SBP() will not rectify the alreay nice CurretFrame.mvpMapPoints
     fill(curfmps_ref.begin(), curfmps_ref.end(), static_cast<MapPoint*>(NULL));
-    nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, 2 * th, mSensor == System::MONOCULAR);
+    nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, 2 * th, mSensor == System::MONOCULAR,
+                                          mpLocalMapper->th_far_pts_);
   }
 
   if (nmatches < 10)  // 20)//changed by JingWang
     return false;
 
 #ifdef TIMER_FLOW
-  Timer timer_tmp;
+  mlog::Timer timer_tmp;
 #endif
   // Pose optimization. false: no need to compute marginalized for current Frame(motion-only), see VIORBSLAM paper
   // (4)~(8)
@@ -357,7 +343,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
                                               true);
 #endif
   }
-  PRINT_DEBUG_INFO("inliers2 imu=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("inliers2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 #ifdef TIMER_FLOW
   timer_tmp.GetDTfromInit(6, "tracking_thread_debug.txt", "ba1=");
 #endif
@@ -400,7 +386,7 @@ static void print_debug_navstate(const NavState& ns, const string& prefix) {
   PRINT_DEBUG_INFO(prefix << ns.mpwb.transpose() << ";" << ns.mRwb.log().transpose() << ";" << ns.mvwb.transpose()
                           << ";" << ns.mbg.transpose() << "+" << ns.mdbg.transpose() << ";" << ns.mba.transpose() << "+"
                           << ns.mdba.transpose() << endl,
-                   imu_tightly_debug_path, "tracking_thread_debug.txt");
+                   mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 }
 bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   assert(mpIMUInitiator->GetVINSInited());
@@ -417,7 +403,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
 
     print_debug_navstate(ns, "lastkf's p,r,v,bias=");
     PRINT_DEBUG_INFO("lastkftm=" << fixed << setprecision(9) << mpLastKeyFrame->timestamp_ << endl,
-                     imu_tightly_debug_path, "tracking_thread_debug.txt");
+                     mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   }
   // Map not updated, optimize with last Frame
   else {
@@ -429,7 +415,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
   }
   PRINT_DEBUG_INFO("lastftm=" << fixed << setprecision(9) << mLastFrame.timestamp_
                               << ",imupreintdt=" << mCurrentFrame.GetIMUPreInt().mdeltatij << endl,
-                   imu_tightly_debug_path, "tracking_thread_debug.txt");
+                   mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
     ns.mbg += ns.mdbg;
     ns.mba += ns.mdba;
@@ -479,7 +465,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
   SearchLocalPoints();
 
 #ifdef TIMER_FLOW
-  Timer timer_tmp;
+  mlog::Timer timer_tmp;
 #endif
   // Optimize Pose
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
@@ -530,7 +516,8 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     }
   }
 
-  PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path,
+                  "tracking_thread_debug.txt");
   //  if (mCurrentFrame.mTimeStamp > 845.064) CV_Assert(0);
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
@@ -722,7 +709,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   Frame::mTce = mTce.clone();
   for (int i = 0; i < 2; ++i) {
     if (fnT[i].empty()) {
-      PRINT_INFO_MUTEX(redSTR "No Tbc/Tce, please check if u wanna use VIO!" << whiteSTR << endl);
+      PRINT_INFO_MUTEX(redSTR "No Tbc/Tce, please check if u wanna use VIO/VEO/VIEO!" << whiteSTR << endl);
     } else {
       eigRtmp << fnT[i][0], fnT[i][1], fnT[i][2], fnT[i][4], fnT[i][5], fnT[i][6], fnT[i][8], fnT[i][9], fnT[i][10];
       eigRtmp = Eigen::Quaterniond(eigRtmp).normalized().toRotationMatrix();
@@ -748,11 +735,15 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   Frame::meigtcb = Converter::toVector3d(Tcb.rowRange(0, 3).col(3));
   // load Sigma etad & etawi & gd,ad,bgd,bad & if accelerate needs to *9.81
   cv::FileNode fnSig[3] = {fSettings["IMU.SigmaI"], fSettings["IMU.sigma"], fSettings["IMU.dMultiplyG"]};
-  if (fnSig[0].empty() || fnSig[1].empty() || fnSig[2].empty())
+  if (fnSig[1].empty() || fnSig[2].empty())
     PRINT_INFO_MUTEX(redSTR "No IMU.sigma or IMU.dMultiplyG!" << whiteSTR << endl);
   else {
-    for (int i = 0; i < 3; ++i)
-      for (int j = 0; j < 3; ++j) eigRtmp(i, j) = fnSig[0][i * 3 + j];
+    if (fnSig[0].empty()) {
+      eigRtmp.setIdentity();
+    } else {
+      for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) eigRtmp(i, j) = fnSig[0][i * 3 + j];
+    }
     double sigma2tmp[4] = {fnSig[1][0], fnSig[1][1], fnSig[1][2], fnSig[1][3]};
     for (int i = 0; i < 4; ++i) sigma2tmp[i] *= sigma2tmp[i];
     IMUDataDerived::SetParam(eigRtmp, sigma2tmp, fnSig[2],
@@ -828,11 +819,12 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   }
   if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
   PRINT_INFO_MUTEX("Cam size = " << mpCameras.size() << endl);
-  CLEAR_DEBUG_INFO("start debug:", imu_tightly_debug_path, "debug.txt");
-  CLEAR_DEBUG_INFO("start tracking debug:", imu_tightly_debug_path, "tracking_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start imu init debug:", imu_tightly_debug_path, "imu_init_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start localmapping debug:", imu_tightly_debug_path, "localmapping_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start gba thread debug:", imu_tightly_debug_path, "gba_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start debug:", mlog::vieo_slam_debug_path, "debug.txt");
+  CLEAR_DEBUG_INFO("start tracking debug:", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start imu init debug:", mlog::vieo_slam_debug_path, "imu_init_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start localmapping debug:", mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start loopclosing thread debug:", mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
+  CLEAR_DEBUG_INFO("start gba thread debug:", mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
 
   mbf = fSettings["Camera.bf"];
 
@@ -917,10 +909,11 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
   }
 
 #ifdef TIMER_FLOW
-  timer_ = Timer();
+  timer_ = mlog::Timer();
 #endif
-  mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
-                        &preint_imu_kf_, &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_);
+  mCurrentFrame =
+      Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, &preint_imu_kf_,
+            &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_, mpLocalMapper->th_far_pts_);
 #ifdef TIMER_FLOW
   timer_.GetDTfromInit(0, "tracking_thread_debug.txt", "tm curf=");
 #endif
@@ -1032,8 +1025,8 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
     bMapUpdated = true;
   }
 
-  PRINT_INFO_FILE("curf tm=" << fixed << setprecision(9) << mCurrentFrame.mTimeStamp << endl, imu_tightly_debug_path,
-                  "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("curf tm=" << fixed << setprecision(9) << mCurrentFrame.mTimeStamp << endl,
+                  mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
       StereoInitialization(img);
@@ -1244,7 +1237,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       // the camera we will use the local map again.
       if (bOK && !mbVO) bOK = TrackLocalMap();
     }
-    Setnum_track_inliers_(mnMatchesInliers);
+    Setnum_track_inliers(mnMatchesInliers);
 
     if (bOK) {
       // if (mpIMUInitiator->GetVINSInited()&&mState==MAP_REUSE||mState==MAP_REUSE_RELOC)
@@ -1491,7 +1484,7 @@ void Tracking::StereoInitialization(cv::Mat img[2]) {
           MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpMap);
           auto idxs = mCurrentFrame.mvidxsMatches[k];
           bool icheck = false;
-          PRINT_DEBUG_INFO_MUTEX("addmap-1, kf0:", imu_tightly_debug_path, "debug.txt");
+          PRINT_DEBUG_INFO_MUTEX("addmap-1, kf0:", mlog::vieo_slam_debug_path, "debug.txt");
           CV_Assert(idxs.size());
           for (int cami = 0; cami < idxs.size(); ++cami) {
             if (-1 != idxs[cami]) {
@@ -1503,7 +1496,7 @@ void Tracking::StereoInitialization(cv::Mat img[2]) {
               mCurrentFrame.AddMapPoint(pNewMP, icami);  // the realization of the AddMapPiont in class Frame
             }
           }
-          PRINT_DEBUG_INFO_MUTEX(endl, imu_tightly_debug_path, "debug.txt");
+          PRINT_DEBUG_INFO_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
           CV_Assert(icheck);
           pNewMP->ComputeDistinctiveDescriptors();  // choose the observed descriptor having the least median distance
                                                     // to the left
@@ -1764,11 +1757,11 @@ void Tracking::CheckReplacedInLastFrame() {
           continue;
         }
         // cannot lock1 then lock2 while other thread lock2 then lock1!
-        PRINT_DEBUG_INFO(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), imu_tightly_debug_path,
+        PRINT_DEBUG_INFO(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), mlog::vieo_slam_debug_path,
                          "tracking_thread_debug.txt");
 #ifndef CHECK_REPLACE_ALL
         if (spAlreadyFound.end() != spAlreadyFound.find(make_pair(pRep, cami)))
-          PRINT_DEBUG_INFO(endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+          PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
           //        CV_Assert(spAlreadyFound.end() == spAlreadyFound.find(pRep));
 #endif
         mLastFrame.ReplaceMapPointMatch(i, pRep);  // if it's replaced by localMapper, use the replaced one
@@ -1777,7 +1770,7 @@ void Tracking::CheckReplacedInLastFrame() {
       }
     }
   }
-  PRINT_DEBUG_INFO("replace num=" << num_pts_replaced << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("replace num=" << num_pts_replaced << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 }
 
 bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
@@ -1792,7 +1785,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
   int nmatches = matcher.SearchByBoW(mpReferenceKF, mCurrentFrame,
                                      vpMapPointMatches);  // match with rKF,rectify the vpMapPointMatches, SBBoW better
                                                           // than SBP for the mCurrentFrame.Tcw is unknown
-  PRINT_DEBUG_INFO("math num=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("math num=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   if (nmatches < thMatch)  // 15)//looser than 20 in TrackWithMotionModel()
     return false;
@@ -1802,7 +1795,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
   mCurrentFrame.SetPose(mLastFrame.GetTcwRef());  // but use lF as the initial value for BA
 
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame);  // motion-only BA
-  PRINT_DEBUG_INFO("inliers=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("inliers=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -1920,11 +1913,9 @@ bool Tracking::TrackWithMotionModel() {
     th = 15;
   else
     th = 7;
-  int nmatches = matcher.SearchByProjection(
-      mCurrentFrame, mLastFrame, th,
-      mSensor ==
-          System::MONOCULAR);  // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
-  PRINT_DEBUG_INFO("math num2=" << nmatches << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
+  int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR);
+  PRINT_DEBUG_INFO("math num2=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -1943,7 +1934,7 @@ bool Tracking::TrackWithMotionModel() {
   // Optimize frame pose with all matches
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);  // motion-only BA
   //     Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
-  PRINT_DEBUG_INFO("inliers2=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("inliers2=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 #ifdef CHECK_JITTER
   using Tdata = double;
   NavStated newns = mCurrentFrame.GetNavState();
@@ -1994,7 +1985,7 @@ bool Tracking::TrackLocalMap() {
 
   UpdateLocalMap();
 
-  PRINT_DEBUG_INFO_MUTEX("SLP" << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX("SLP" << endl, mlog::vieo_slam_debug_path, "debug.txt");
   SearchLocalPoints();
 
 #ifdef CHECK_JITTER
@@ -2020,7 +2011,7 @@ bool Tracking::TrackLocalMap() {
 #endif
 
   mnMatchesInliers = 0;
-  PRINT_DEBUG_INFO("num_inliers22=" << num_inliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("num_inliers22=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   // Update MapPoints Statistics
   set<MapPoint*> sMP;
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -2048,7 +2039,7 @@ bool Tracking::TrackLocalMap() {
     }
   }
 
-  PRINT_DEBUG_INFO("inliers_map=" << mnMatchesInliers << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("inliers_map=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
   int threInlierReloc = 50, threInliers = 30;
@@ -2059,7 +2050,8 @@ bool Tracking::TrackLocalMap() {
     threInliers = 15;
   }
   threInliers = 15;  // TODO: check
-  if (mnLastRelocFrameId && mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc) return false;
+  if (mnLastRelocFrameId && mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames && mnMatchesInliers < threInlierReloc)
+    return false;
 
   if (mnMatchesInliers < threInliers)  // notice it's a class data member
     return false;
@@ -2142,8 +2134,9 @@ bool Tracking::NeedNewKeyFrame() {
   bool bNeedToInsertClose = (nTrackedClose < 100) && (nNonTrackedClose > 70);
 
   double timegap = 0.5;
+  bool bimu_inited = mpIMUInitiator->GetVINSInited();
   // JW uses different timegap during IMU Initialization(0.1s); 0.25 ref from ORB3
-  if (!mpIMUInitiator->GetVINSInited()) timegap = 0.25;
+  if (!bimu_inited) timegap = 0.25;
   bool cTimeGap = false;
   int minClose = 70;
   if (mpIMUInitiator->GetSensorIMU()) {
@@ -2156,10 +2149,11 @@ bool Tracking::NeedNewKeyFrame() {
     {
       cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
                  mnMatchesInliers > 15;
-      // if (mpIMUInitiator->GetVINSInited()){//also we can use GetSensorIMU()
+      // if (bimu_inited){//also we can use GetSensorIMU()
+      // we still need this for tum_vi outdoors2 ds
       // for VIO+Stereo/RGB-D, we don't open this inerstion strategy for speed and cTimeGap can do similar jobs
       // when ORB3_STRATEGY added, c1c unused but c2 extended for IMU_STEREO
-      bNeedToInsertClose = false;
+      // bNeedToInsertClose = false;
       // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
       if (mState == ODOMOK) {
         cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
@@ -2185,11 +2179,12 @@ bool Tracking::NeedNewKeyFrame() {
   // rgbd/stereo tracking weak outside(large part are far points)
 #ifdef ORB3_STRATEGY_KF_MORE
   // for Mono/IMU_STREREO won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
-  const bool c1c = mSensor != System::MONOCULAR && !mpIMUInitiator->GetVINSInited() &&
-                   (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
+  const bool c1c =
+      mSensor != System::MONOCULAR && !bimu_inited && (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
 #else
   // for Mono won't erase Frame's pMP match, where c1c can easily enter and cause lba thread overload
-  const bool c1c = mSensor != System::MONOCULAR && (mnMatchesInliers < nRefMatches * 0.25 || bNeedToInsertClose);
+  const bool c1c =
+      mSensor != System::MONOCULAR && (mnMatchesInliers < nRefMatches * 0.25 || (!bimu_inited && bNeedToInsertClose));
 #endif
   // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
   // not too close && not too far
@@ -2199,7 +2194,7 @@ bool Tracking::NeedNewKeyFrame() {
   // may we can also use &&mCurrentFrame.N>500 like StereoInitialization(), so c3 now is not for VIO Mono RECENTLY_LOST
   const bool c3 = (mState == ODOMOK) && (c1a || c1b || c1c) && nNonTrackedClose > 70;
 
-  if ((c1a || c1b || c1c) && c2 || cTimeGap || c3)  // cTimeGap added by JingWang
+  if (((c1a || c1b || c1c) && c2) || cTimeGap || c3)  // cTimeGap added by JingWang
   {
     // If the mapping accepts keyframes, insert keyframe.
     // Otherwise send a signal to interrupt BA
@@ -2317,7 +2312,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
           cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
           MapPoint* pNewMP = new MapPoint(x3D, pKF, mpMap);
           size_t ididxs = mCurrentFrame.GetMapn2idxs(i);
-          PRINT_DEBUG_INFO_MUTEX("mp0[" << pKF->mnId << "," << i << "]:", imu_tightly_debug_path, "debug.txt");
+          PRINT_DEBUG_INFO_MUTEX("mp0[" << pKF->mnId << "," << i << "]:", mlog::vieo_slam_debug_path, "debug.txt");
           if (-1 == ididxs) {
             pNewMP->AddObservation(pKF, i);
             pKF->AddMapPoint(pNewMP, i);
@@ -2335,7 +2330,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
                 mCurrentFrame.AddMapPoint(pNewMP, icami);
               }
             }
-            PRINT_DEBUG_INFO_MUTEX(endl, imu_tightly_debug_path, "debug.txt");
+            PRINT_DEBUG_INFO_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
             CV_Assert(icheck);
           }
           pNewMP->ComputeDistinctiveDescriptors();
@@ -2356,7 +2351,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
 #ifndef NO_LBA_THREAD
   mpLocalMapper->InsertKeyFrame(pKF);
 #endif
-  PRINT_DEBUG_INFO("curf is kf" << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("curf is kf" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   mpLocalMapper->SetNotStop(false);
 
@@ -2404,7 +2399,7 @@ void Tracking::SearchLocalPoints() {
       nToMatch++;
     }
   }
-  PRINT_DEBUG_INFO("extra init=" << nToMatch << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("extra init=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   if (nToMatch > 0) {
     ORBmatcher matcher(0.8);  // 0.8 is the threshold for mindist/mindist2(<th is nice matching)
@@ -2424,10 +2419,10 @@ void Tracking::SearchLocalPoints() {
     if (ODOMOK == mState) th = 15;  // ref from ORB3
 
     // th=10; // ORB3 use 10 here for imu_stereo
-    nToMatch =
-        matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th);  // rectify the mCurrentFrame.mvpMapPoints
+    // rectify the mCurrentFrame.mvpMapPoints
+    nToMatch = matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th, mpLocalMapper->th_far_pts_);
   }
-  PRINT_DEBUG_INFO("befopt2 extra=" << nToMatch << endl, imu_tightly_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_INFO("befopt2 extra=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 }
 
 void Tracking::UpdateLocalMap() {

@@ -2,18 +2,6 @@
 #ifndef IMUINITIALIZATION_H
 #define IMUINITIALIZATION_H
 
-// zzh defined color cout, must after include opencv2
-#define redSTR "\033[31m"
-#define brightredSTR "\033[31;1m"
-#define greenSTR "\e[32m"
-#define brightgreenSTR "\e[32;1m"
-#define blueSTR "\e[34m"
-#define brightblueSTR "\e[34;1m"
-#define yellowSTR "\e[33;1m"
-#define brownSTR "\e[33m"
-#define azureSTR "\e[36;1m"
-#define whiteSTR "\e[0m"
-
 // #include <list>
 #include <mutex>
 #include <string>
@@ -26,11 +14,10 @@
 // #include "KeyFrame.h"
 // #include "Map.h"
 #include "LocalMapping.h"
-#include "common/common.h"
+#include "common/macro_creator.h"
 
 #include <unistd.h>
-
-typedef enum kVerboseLevel { kVerbRel, kVerbDeb, kVerbFull };
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 
@@ -65,31 +52,32 @@ class IMUInitialization {  // designed for multi threads
   double mdStartTime;  // for reset
   // cv::Mat mRwiInit;//unused
 
-  CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b);
-  CREATOR_VAR_MULTITHREADS(SensorIMU, bool,
-                           b);  // for auto reset judgement of this system, automatically check if IMU exists, for it
-                                // needs initialization with a quite long period of tracking without LOST
-  CREATOR_VAR_MULTITHREADS(VINSInited, bool, b)  // if IMU initialization is over
-  cv::Mat mGravityVec;                           // gravity vector in world frame
-  std::mutex mMutexInitIMU;                      // for mGravityVec, improved by zzh
+  CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b, private, false);
+  CREATOR_VAR_MULTITHREADS(SensorIMU, bool, b, private,
+                           false);  // for auto reset judgement of this system, automatically check if IMU exists, for
+                                    // it needs initialization with a quite long period of tracking without LOST
+  CREATOR_VAR_MULTITHREADS(VINSInited, bool, b, private, false)  // if IMU initialization is over
+  cv::Mat mGravityVec;                                           // gravity vector in world frame
+  std::mutex mMutexInitIMU;                                      // for mGravityVec, improved by zzh
   // double mnVINSInitScale; //scale estimation for Mono, not necessary here
 
   // for copying/cache KFs in IMU initialization thread avoiding KeyFrameCulling()
-  CREATOR_VAR_MUTEX(CopyInitKFs, bool, b)
+  CREATOR_VAR_MUTEX(CopyInitKFs, bool, b, false)
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
-  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b)      // for last GBA(include propagation) required by IMU Initialization,
-                                                  // LoopClosing always creates new GBA thread when it's true
-  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b)  // for Full BA strategy Adjustments
-  CREATOR_VAR_MULTITHREADS_INIT(InitGBA2, bool, , private, false)
-  CREATOR_VAR_MULTITHREADS_INIT(InitGBAPriorCoeff, float, , private, 1)
+  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b, private,
+                           false)  // for last GBA(include propagation) required by IMU Initialization,
+                                   // LoopClosing always creates new GBA thread when it's true
+  CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b, private, false)  // for Full BA strategy Adjustments
+  CREATOR_VAR_MULTITHREADS(InitGBA2, bool, , private, false)
+  CREATOR_VAR_MULTITHREADS(InitGBAPriorCoeff, float, , private, 1)
 
   // like the part of LocalMapping
-  CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p)  // updated by LocalMapping thread
-  CREATOR_VAR_MUTEX(Finish, bool, b)                        // checked/get by System.cc
-  CREATOR_VAR_MUTEX(FinishRequest, bool, b)                 // requested/set by System.cc
-  CREATOR_VAR_MULTITHREADS(Reset, bool, b)                  // for reset Initialization variables
+  CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p, private, nullptr)  // updated by LocalMapping thread
+  CREATOR_VAR_MUTEX(Finish, bool, b, false)                                   // checked/get by System.cc
+  CREATOR_VAR_MUTEX(FinishRequest, bool, b, false)                            // requested/set by System.cc
+  CREATOR_VAR_MULTITHREADS(Reset, bool, b, private, false)                    // for reset Initialization variables
   // const
   Map *mpMap;
   bool mbMonocular;
@@ -97,6 +85,7 @@ class IMUInitialization {  // designed for multi threads
 
   bool TryInitVIO(void);
   bool TryInitVIO_zzh(void);
+
   cv::Mat SkewSymmetricMatrix(const cv::Mat &v) {
     return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
             -v.at<float>(1), v.at<float>(0), 0);
@@ -120,54 +109,14 @@ class IMUInitialization {  // designed for multi threads
  public:
   bool mbUsePureVision;  // for pure-vision+IMU Initialization mode!
 
-  IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath)
-      : mpMap(pMap), mbMonocular(bMonocular), mbFinish(true), mbFinishRequest(false), mbReset(false), verbose(0) {
-    mbSensorEnc = false;
-    mdStartTime = -1;
-    mbSensorIMU = false;
-    mpCurrentKeyFrame = NULL;
-    mbVINSInited = false;
-    mbCopyInitKFs = false;
-    mbInitGBA = false;
-    mbInitGBAOver = false;
-
-    cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
-    cv::FileNode fnStr = fSettings["test.InitVIOTmpPath"];
-    if (!fnStr.empty())
-      fnStr >> mTmpfilepath;
-    else
-      cout << "Nothing recorded for analysis!" << endl;
-    // load mbUsePureVision
-    cv::FileNode fnSize = fSettings["LocalMapping.LocalWindowSize"];
-    if (fnSize.empty()) {
-      mbUsePureVision = true;
-      cout << redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR << endl;
-    } else {
-      if ((int)fnSize < 1) {
-        mbUsePureVision = true;
-        cout << blueSTR "mnLocalWindowSize<1, we use pure-vision+IMU Initialization mode!" << whiteSTR << endl;
-      } else
-        mbUsePureVision = false;
-    }
-    cv::FileNode fnTime[3] = {fSettings["IMU.InitTime"], fSettings["IMU.SleepTime"], fSettings["IMU.FinalTime"]};
-    if (fnTime[0].empty() || fnTime[1].empty() || fnTime[2].empty()) {
-      mdInitTime = 0;
-      mnSleepTime = 1e6;
-      mdFinalTime = 15;
-      cout << redSTR "No IMU.InitTime&SleepTime&FinalTime, we use default 0s & 1s & 15s!" << whiteSTR << endl;
-    } else {
-      mdInitTime = fnTime[0];
-      mnSleepTime = (double)fnTime[1] * 1e6;
-      mdFinalTime = fnTime[2];
-    }
-  }
+  IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath);
 
   void Run();
 
   bool SetCopyInitKFs(bool copying) {
-    unique_lock<mutex> lock(mMutexCopyInitKFs);
-    if (copying && mbCopyInitKFs) return false;
-    mbCopyInitKFs = copying;
+    unique_lock<mutex> lock(mutexCopyInitKFs_);
+    if (copying && bCopyInitKFs_) return false;
+    bCopyInitKFs_ = copying;
     return true;
   }
 
@@ -189,7 +138,7 @@ class IMUInitialization {  // designed for multi threads
                        vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
                        vector<char> &id_cams, vector<char> *id_cams_ref);
 
-  char verbose = kVerbDeb;  // kVerbRel; //
+  char verbose = mlog::kVerbDeb;  // mlog::kVerbRel; //
 };
 
 class IMUKeyFrameInit {  // a simple/base version of KeyFrame just used for IMU Initialization, not designed for multi

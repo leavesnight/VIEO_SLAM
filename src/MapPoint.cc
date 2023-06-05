@@ -1,27 +1,11 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <mutex>
 
@@ -178,7 +162,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   CV_Assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
-  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
 
   if (pKF->mvuRight[idx] >= 0)
     nObs += 2;
@@ -266,7 +250,7 @@ MapPoint* MapPoint::GetReplaced() {
 void MapPoint::Replace(MapPoint* pMP) {
   if (pMP->mnId == this->mnId) return;
 
-  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   int nvisible, nfound;
   map<KeyFrame*, set<size_t>> obs;
   {
@@ -300,7 +284,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }

@@ -1,21 +1,5 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #include "ORBmatcher.h"
@@ -31,8 +15,8 @@
 
 #include "Pinhole.h"
 #include "Converter.h"
-#include "common/log.h"
-#include "common/common.h"
+#include "common/mlog/log.h"
+#include "common/config.h"
 
 using namespace std;
 
@@ -51,7 +35,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
   bool usedistort = pKF->mpCameras.size() && Frame::usedistort_;
   bool only1match = !(SBPMatchMultiCam & mode), fuselater = SBPFuseLater & mode;
   CV_Assert(!fuselater || pvnMatch1);
-  PRINT_DEBUG_INFO_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, imu_tightly_debug_path, "debug.txt");
+  PRINT_DEBUG_INFO_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, mlog::vieo_slam_debug_path, "debug.txt");
   size_t N1 = vpMapPoints1.size();
   if (pvnMatch1) {
     pvnMatch1->clear();
@@ -198,14 +182,14 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
           //            }
           //            if (!check) {
           //              for (auto iter = idxsOf1mp.begin(), iterend = idxsOf1mp.end(); iter != iterend; ++iter) {
-          //                PRINT_DEBUG_INFO_MUTEX("iter=" << *iter << " ", imu_tightly_debug_path, "debug.txt");
+          //                PRINT_DEBUG_INFO_MUTEX("iter=" << *iter << " ", mlog::vieo_slam_debug_path, "debug.txt");
           //              }
           //              PRINT_DEBUG_INFO_MUTEX(
           //                  pKF->mnId << "kfidx" << idx << "mpid" << pMP2->mnId << ";check kf bad=" <<
           //                  (int)pKF->isBad()
           //                            << ";check mpobs=" << pMP2->Observations() << "/" <<
           //                            pMP2->GetObservations().size() << endl,
-          //                  imu_tightly_debug_path, "debug.txt");
+          //                  mlog::vieo_slam_debug_path, "debug.txt");
           //            }
           //            CV_Assert(check);
           //          }
@@ -248,10 +232,9 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
   }
 }
 
-int ORBmatcher::SearchByProjection(
-    Frame &F, const vector<MapPoint *> &vpMapPoints,
-    const float th)  // should use F.isInFrustum(pMP,0.5) first, it coarsely judges the scale&&rotation invariance
-{
+// should use F.isInFrustum(pMP,0.5) first, it coarsely judges the scale&&rotation invariance
+int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints, const float th,
+                                   const float th_far_pts) {
   int nmatches = 0;
   vector<int> nmatches_cami(F.mpCameras.size() ? F.mpCameras.size() : 1);
 
@@ -264,6 +247,8 @@ int ORBmatcher::SearchByProjection(
     // false when it's already in mCurrentFrame.mvpMapPoints or this local MapPoint is not in frustum of the
     // mCurrentFrame
     if (!trackinfo.btrack_inview_) continue;
+
+    if (th_far_pts > 0 && trackinfo.track_depth_ > th_far_pts) continue;
 
     if (pMP->isBad()) continue;
 
@@ -339,7 +324,8 @@ int ORBmatcher::SearchByProjection(
         // if bestDist/bestDist2 <= threshold then this bestIdx can be matched with this MP
         if (bestLevel == bestLevel2 && bestDist > mfNNratio * bestDist2) continue;
 
-        PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", mlog::vieo_slam_debug_path,
+                               "debug.txt");
         F.AddMapPoint(pMP, bestIdx);
         nmatches++;
         nmatches_cami[cami]++;
@@ -347,7 +333,7 @@ int ORBmatcher::SearchByProjection(
     }
   }
   for (size_t cami = 0; cami < nmatches_cami.size(); ++cami)
-    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, imu_tightly_debug_path,
+    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, mlog::vieo_slam_debug_path,
                      "tracking_thread_debug.txt");
 
   return nmatches;  // this is not all the matches in mCurrentFrame.mvpMapPoints, just the addition part by local map
@@ -1223,7 +1209,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
       } else  // pKF->mvpMapPoints[bestIdx]==nullptr
       {       // directly add pMP into pKF and update pMP's mObservations
         pMP->AddObservation(pKF, bestIdx);
-        PRINT_DEBUG_INFO_MUTEX("addmp2" << endl, imu_tightly_debug_path, "debug.txt");
+        PRINT_DEBUG_INFO_MUTEX("addmp2" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pKF->AddMapPoint(pMP, bestIdx);
       }
       nFused++;  // notice vpReplacePoint[idx] may appear many times, so nFuse <= the real fused/added matched MPs in
@@ -1315,8 +1301,8 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> 
   return nFound;
 }
 
-int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th,
-                                   const bool bMono)  // rectify the CurrentFrame.mvpMapPoints
+int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono,
+                                   const float th_far_pts)  // rectify the CurrentFrame.mvpMapPoints
 {
   int nmatches = 0;
 
@@ -1338,123 +1324,123 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
   const auto &lfmps = LastFrame.GetMapPointMatches();
   for (int i = 0; i < LastFrame.N; i++) {
     MapPoint *pMP = lfmps[i];
-    if (pMP) {
-      if (!LastFrame.mvbOutlier[i]) {
-        /*if (sMP.count(pMP)) continue;
-        else sMP.insert(pMP);*/
-        PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", imu_tightly_debug_path, "debug.txt");
-        ++num_mp;
-        // Project
-        Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
-        Eigen::Vector3d x3Dr = Tcrw * x3Dw, x3Dc;
-        size_t n_camsj = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
-        // CV_Assert(LastFrame.mapn2in_.size() > i);
-        // size_t camj = get<0>(LastFrame.mapn2in_[i]);
-        // CV_Assert(CurrentFrame.mpCameras.size() > camj;)
-        for (size_t camj = 0; camj < n_camsj; ++camj) {
-          if (CurrentFrame.mpCameras.size() > camj) {
-            x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
-          } else
-            x3Dc = x3Dr;
+    if (!pMP) continue;
+    if (LastFrame.mvbOutlier[i]) continue;
 
-          const float xc = x3Dc(0);
-          const float yc = x3Dc(1);
-          const float invzc = 1.0 / x3Dc(2);  // inverse depth
+    /*if (sMP.count(pMP)) continue;
+    else sMP.insert(pMP);*/
+    // Project
+    Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
+    Eigen::Vector3d x3Dr = Tcrw * x3Dw, x3Dc;
+    if (th_far_pts > 0 && x3Dr(2) > th_far_pts) continue;
 
-          if (invzc < 0)  // behind the focus, cannot be photoed
+    PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", mlog::vieo_slam_debug_path, "debug.txt");
+    ++num_mp;
+    size_t n_camsj = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
+    // CV_Assert(LastFrame.mapn2in_.size() > i);
+    // size_t camj = get<0>(LastFrame.mapn2in_[i]);
+    // CV_Assert(CurrentFrame.mpCameras.size() > camj;)
+    for (size_t camj = 0; camj < n_camsj; ++camj) {
+      if (CurrentFrame.mpCameras.size() > camj) {
+        x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
+      } else
+        x3Dc = x3Dr;
+
+      const float xc = x3Dc(0);
+      const float yc = x3Dc(1);
+      const float invzc = 1.0 / x3Dc(2);  // inverse depth
+
+      if (invzc < 0)  // behind the focus, cannot be photoed
+        continue;
+
+      float u, v;
+      if (CurrentFrame.mpCameras.size() > camj && Frame::usedistort_) {
+        auto pt = CurrentFrame.mpCameras[camj]->project(x3Dc);
+        u = pt[0];
+        v = pt[1];
+      } else {
+        u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;  // K*Xc
+        v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
+      }
+
+      if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX)  // out of img range,cannot be photoed
+        continue;
+      if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
+
+      int nLastOctave = LastFrame.mvKeys[i].octave;
+
+      // Search in a window. Size depends on scale
+      float radius = th * CurrentFrame.mvScaleFactors[nLastOctave];  // input th should be considered as the same
+                                                                     // level with MapPoint[i].octave, but rectangle
+                                                                     // window searching vIndices is in level==0
+
+      vector<size_t> vIndices2;
+
+      // use Image Pyramid(&& find minDist) to get the scale consistency
+      if (bForward)
+        vIndices2 = CurrentFrame.GetFeaturesInArea(
+            camj, u, v, radius,
+            nLastOctave);  // if camera is going forward, the old features(with PatchSize,level) should be found in
+                           // (PatchSize,level+)(its area seems larger in level==0)
+      else if (bBackward)
+        vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, 0, nLastOctave);
+      else
+        vIndices2 =
+            CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave - 1,
+                                           nLastOctave + 1);  // if cannot be sure of camera's motion, adjust level+/- 1
+
+      if (vIndices2.empty()) continue;
+
+      const cv::Mat dMP = pMP->GetDescriptor();  // get the best descriptor for the MapPoint
+
+      int bestDist = 256;
+      int bestIdx2 = -1;
+
+      const auto &curfmps = CurrentFrame.GetMapPointMatches();
+      for (vector<size_t>::const_iterator vit = vIndices2.begin(), vend = vIndices2.end(); vit != vend; vit++) {
+        const size_t i2 = *vit;
+        // avoid for rectifying same keypoint's MapPoint in CurrentFrame,for theoretically one-to-one match for
+        // keypoints in Last&CurrentFrame
+        if (curfmps[i2])
+          if (curfmps[i2]->Observations() > 0) continue;
+
+        if (CurrentFrame.mvuRight[i2] > 0) {
+          const float ur = u - CurrentFrame.mbf * invzc;  // leftKP.x-mbf/leftKP.depth
+          const float er = fabs(ur - CurrentFrame.mvuRight[i2]);
+          if (er > radius)  // rectangle window should also be suitable in virtual right camera for RGBD,can use >= here
             continue;
+        }
 
-          float u, v;
-          if (CurrentFrame.mpCameras.size() > camj && Frame::usedistort_) {
-            auto pt = CurrentFrame.mpCameras[camj]->project(x3Dc);
-            u = pt[0];
-            v = pt[1];
-          } else {
-            u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;  // K*Xc
-            v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
-          }
+        // const cv::Mat &d = !CurrentFrame.mapn2ijn_.size() ? CurrentFrame.mDescriptors.row(i2) :
+        // CurrentFrame.vdescriptors_[cami].row(get<2>(CurrentFrame.mapn2ijn_[i2]));
+        Frame &F = CurrentFrame;
+        auto idx = i2;
+        CV_Assert(!F.mapn2in_.size() || get<0>(F.mapn2in_[idx]) == camj);
+        const cv::Mat &d = F.mDescriptors.row(idx);
 
-          if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX)  // out of img range,cannot be photoed
-            continue;
-          if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
+        const int dist = DescriptorDistance(dMP, d);
 
-          int nLastOctave = LastFrame.mvKeys[i].octave;
+        // do MATCH_KNN_IN_EACH_IMG here for wP could correspond to different feature in different cam
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx2 = i2;
+        }
+      }
 
-          // Search in a window. Size depends on scale
-          float radius = th * CurrentFrame.mvScaleFactors[nLastOctave];  // input th should be considered as the same
-                                                                         // level with MapPoint[i].octave, but rectangle
-                                                                         // window searching vIndices is in level==0
+      if (bestDist <= TH_HIGH)  // 256>100 so bestIdx2!=-1
+      {
+        PRINT_DEBUG_INFO_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, mlog::vieo_slam_debug_path, "debug.txt");
+        CurrentFrame.AddMapPoint(pMP, bestIdx2);
+        nmatches++;
 
-          vector<size_t> vIndices2;
-
-          // use Image Pyramid(&& find minDist) to get the scale consistency
-          if (bForward)
-            vIndices2 = CurrentFrame.GetFeaturesInArea(
-                camj, u, v, radius,
-                nLastOctave);  // if camera is going forward, the old features(with PatchSize,level) should be found in
-                               // (PatchSize,level+)(its area seems larger in level==0)
-          else if (bBackward)
-            vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, 0, nLastOctave);
-          else
-            vIndices2 = CurrentFrame.GetFeaturesInArea(
-                camj, u, v, radius, nLastOctave - 1,
-                nLastOctave + 1);  // if cannot be sure of camera's motion, adjust level+/- 1
-
-          if (vIndices2.empty()) continue;
-
-          const cv::Mat dMP = pMP->GetDescriptor();  // get the best descriptor for the MapPoint
-
-          int bestDist = 256;
-          int bestIdx2 = -1;
-
-          const auto &curfmps = CurrentFrame.GetMapPointMatches();
-          for (vector<size_t>::const_iterator vit = vIndices2.begin(), vend = vIndices2.end(); vit != vend; vit++) {
-            const size_t i2 = *vit;
-            // avoid for rectifying same keypoint's MapPoint in CurrentFrame,for theoretically one-to-one match for
-            // keypoints in Last&CurrentFrame
-            if (curfmps[i2])
-              if (curfmps[i2]->Observations() > 0) continue;
-
-            if (CurrentFrame.mvuRight[i2] > 0) {
-              const float ur = u - CurrentFrame.mbf * invzc;  // leftKP.x-mbf/leftKP.depth
-              const float er = fabs(ur - CurrentFrame.mvuRight[i2]);
-              if (er >
-                  radius)  // rectangle window should also be suitable in virtual right camera for RGBD,can use >= here
-                continue;
-            }
-
-            // const cv::Mat &d = !CurrentFrame.mapn2ijn_.size() ? CurrentFrame.mDescriptors.row(i2) :
-            // CurrentFrame.vdescriptors_[cami].row(get<2>(CurrentFrame.mapn2ijn_[i2]));
-            Frame &F = CurrentFrame;
-            auto idx = i2;
-            CV_Assert(!F.mapn2in_.size() || get<0>(F.mapn2in_[idx]) == camj);
-            const cv::Mat &d = F.mDescriptors.row(idx);
-
-            const int dist = DescriptorDistance(dMP, d);
-
-            // do MATCH_KNN_IN_EACH_IMG here for wP could correspond to different feature in different cam
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestIdx2 = i2;
-            }
-          }
-
-          if (bestDist <= TH_HIGH)  // 256>100 so bestIdx2!=-1
-          {
-            PRINT_DEBUG_INFO_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, imu_tightly_debug_path, "debug.txt");
-            CurrentFrame.AddMapPoint(pMP, bestIdx2);
-            nmatches++;
-
-            if (mbCheckOrientation) {
-              // it's degrees,Un
-              float rot = LastFrame.mvKeys[i].angle - CurrentFrame.mvKeys[bestIdx2].angle;
-              if (rot < 0.0) rot += 360.0f;
-              int bin = round(rot * factor);  // max=360./30=12<30
-              if (bin == HISTO_LENGTH) bin = 0;
-              assert(bin >= 0 && bin < HISTO_LENGTH);
-              rotHist[bin].push_back(bestIdx2);
-            }
-          }
+        if (mbCheckOrientation) {
+          // it's degrees,Un
+          float rot = LastFrame.mvKeys[i].angle - CurrentFrame.mvKeys[bestIdx2].angle;
+          if (rot < 0.0) rot += 360.0f;
+          int bin = round(rot * factor);  // max=360./30=12<30
+          if (bin == HISTO_LENGTH) bin = 0;
+          assert(bin >= 0 && bin < HISTO_LENGTH);
+          rotHist[bin].push_back(bestIdx2);
         }
       }
     }
@@ -1485,10 +1471,9 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
 }
 
 // TODO: use SBPBase
+// a combination of SBP(Frame,Frame)&&SBP(Frame,vec<MP*>)
 int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set<MapPoint *> &sAlreadyFound,
-                                   const float th,
-                                   const int ORBdist)  // a combination of SBP(Frame,Frame)&&SBP(Frame,vec<MP*>)
-{
+                                   const float th, const int ORBdist, const float th_far_pts) {
   int nmatches = 0;
 
   const auto &Tcrw = CurrentFrame.GetTcwCst();
@@ -1505,100 +1490,99 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
 
   for (size_t i = 0, iend = vpMPs.size(); i < iend; i++) {
     MapPoint *pMP = vpMPs[i];
+    if (!pMP) continue;
+    if (pMP->isBad() || sAlreadyFound.end() != sAlreadyFound.find(pMP)) continue;
 
-    if (pMP) {
-      if (!pMP->isBad() && !sAlreadyFound.count(pMP))  // if this MP is good and not found in sFound
+    // if this MP is good and not found in sFound
+    // Project
+    Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
+    Eigen::Vector3d x3Dcr = Tcrw * x3Dw;
+    if (th_far_pts > 0 && x3Dcr(2) > th_far_pts) continue;
+
+    size_t n_cams = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
+    for (size_t cami = 0; cami < n_cams; ++cami) {
+      Vector3d Pc = x3Dcr;
+      Eigen::Vector3d twc = twcr;
+      GeometricCamera *pcam1 = nullptr;
+      if (CurrentFrame.mpCameras.size() > cami) {
+        pcam1 = CurrentFrame.mpCameras[cami];
+        Pc = pcam1->GetTcr() * Pc;
+        twc += Rwcr * pcam1->GetTrc().translation();
+      }
+      const float invzc = 1.0 / Pc(2);
+
+      float u, v;
+      if (!pcam1 || !Frame::usedistort_) {
+        const float xc = Pc(0);
+        const float yc = Pc(1);
+        u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;
+        v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
+      } else {
+        auto pt = CurrentFrame.mpCameras[cami]->project(Pc);
+        u = pt[0];
+        v = pt[1];
+      }
+
+      if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX) continue;
+      if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
+
+      // Compute predicted scale level
+      Eigen::Vector3d PO = x3Dw - twc;
+      float dist3D = PO.norm();
+      const float maxDistance = pMP->GetMaxDistanceInvariance();
+      const float minDistance = pMP->GetMinDistanceInvariance();
+      // Depth must be inside the scale pyramid of the image
+      // if it's out of the frustum, image pyramid is not effective
+      if (dist3D < minDistance || dist3D > maxDistance) continue;
+      int nPredictedLevel = pMP->PredictScale(dist3D, &CurrentFrame);
+
+      // Search in a window
+      const float radius = th * CurrentFrame.mvScaleFactors[nPredictedLevel];
+
+      const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(
+          cami, u, v, radius, nPredictedLevel - 1,
+          nPredictedLevel + 1);  // use maxLevel=nPredictedLevel+1, looser than SBP(Frame&,vector<MapPoint*>&)
+
+      if (vIndices2.empty()) continue;
+
+      const cv::Mat dMP = pMP->GetDescriptor();
+
+      int bestDist = 256;  // TODO: no MATCH_KNN_IN_EACH_IMG
+      int bestIdx2 = -1;
+
+      const auto &curfmps = CurrentFrame.GetMapPointMatches();
+      for (vector<size_t>::const_iterator vit = vIndices2.begin(); vit != vIndices2.end(); vit++) {
+        const size_t i2 = *vit;
+        if (curfmps[i2])  // avoid replicate matching
+          continue;
+
+        // const cv::Mat &d = !CurrentFrame.mapn2ijn_.size() ? CurrentFrame.mDescriptors.row(i2) :
+        // CurrentFrame.vdescriptors_[cami].row(get<2>(CurrentFrame.mapn2ijn_[i2]));
+        Frame &F = CurrentFrame;
+        auto idx = i2;
+        const cv::Mat &d = F.mDescriptors.row(idx);
+
+        const int dist = DescriptorDistance(dMP, d);
+
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIdx2 = i2;
+        }
+      }
+
+      if (bestDist <= ORBdist)  // ORBdist must < 256, notice here don't use TH_HIGH(for SBP) or TH_LOW(for SBBoW)
       {
-        // Project
-        Eigen::Vector3d x3Dw = Converter::toVector3d(pMP->GetWorldPos());
+        CurrentFrame.AddMapPoint(pMP, bestIdx2);
+        nmatches++;
 
-        Eigen::Vector3d x3Dcr = Tcrw * x3Dw;
-        size_t n_cams = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
-        for (size_t cami = 0; cami < n_cams; ++cami) {
-          Vector3d Pc = x3Dcr;
-          Eigen::Vector3d twc = twcr;
-          GeometricCamera *pcam1 = nullptr;
-          if (CurrentFrame.mpCameras.size() > cami) {
-            pcam1 = CurrentFrame.mpCameras[cami];
-            Pc = pcam1->GetTcr() * Pc;
-            twc += Rwcr * pcam1->GetTrc().translation();
-          }
-          const float invzc = 1.0 / Pc(2);
-
-          float u, v;
-          if (!pcam1 || !Frame::usedistort_) {
-            const float xc = Pc(0);
-            const float yc = Pc(1);
-            u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;
-            v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
-          } else {
-            auto pt = CurrentFrame.mpCameras[cami]->project(Pc);
-            u = pt[0];
-            v = pt[1];
-          }
-
-          if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX) continue;
-          if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
-
-          // Compute predicted scale level
-          Eigen::Vector3d PO = x3Dw - twc;
-          float dist3D = PO.norm();
-          const float maxDistance = pMP->GetMaxDistanceInvariance();
-          const float minDistance = pMP->GetMinDistanceInvariance();
-          // Depth must be inside the scale pyramid of the image
-          // if it's out of the frustum, image pyramid is not effective
-          if (dist3D < minDistance || dist3D > maxDistance) continue;
-          int nPredictedLevel = pMP->PredictScale(dist3D, &CurrentFrame);
-
-          // Search in a window
-          const float radius = th * CurrentFrame.mvScaleFactors[nPredictedLevel];
-
-          const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(
-              cami, u, v, radius, nPredictedLevel - 1,
-              nPredictedLevel + 1);  // use maxLevel=nPredictedLevel+1, looser than SBP(Frame&,vector<MapPoint*>&)
-
-          if (vIndices2.empty()) continue;
-
-          const cv::Mat dMP = pMP->GetDescriptor();
-
-          int bestDist = 256;  // TODO: no MATCH_KNN_IN_EACH_IMG
-          int bestIdx2 = -1;
-
-          const auto &curfmps = CurrentFrame.GetMapPointMatches();
-          for (vector<size_t>::const_iterator vit = vIndices2.begin(); vit != vIndices2.end(); vit++) {
-            const size_t i2 = *vit;
-            if (curfmps[i2])  // avoid replicate matching
-              continue;
-
-            // const cv::Mat &d = !CurrentFrame.mapn2ijn_.size() ? CurrentFrame.mDescriptors.row(i2) :
-            // CurrentFrame.vdescriptors_[cami].row(get<2>(CurrentFrame.mapn2ijn_[i2]));
-            Frame &F = CurrentFrame;
-            auto idx = i2;
-            const cv::Mat &d = F.mDescriptors.row(idx);
-
-            const int dist = DescriptorDistance(dMP, d);
-
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestIdx2 = i2;
-            }
-          }
-
-          if (bestDist <= ORBdist)  // ORBdist must < 256, notice here don't use TH_HIGH(for SBP) or TH_LOW(for SBBoW)
-          {
-            CurrentFrame.AddMapPoint(pMP, bestIdx2);
-            nmatches++;
-
-            if (mbCheckOrientation) {
-              // RefFrame.keypoint[i].angle-CurrentFrame.keypoint[i].angle,Un
-              float rot = pKF->mvKeys[i].angle - CurrentFrame.mvKeys[bestIdx2].angle;
-              if (rot < 0.0) rot += 360.0f;
-              int bin = round(rot * factor);
-              if (bin == HISTO_LENGTH) bin = 0;
-              assert(bin >= 0 && bin < HISTO_LENGTH);
-              rotHist[bin].push_back(bestIdx2);
-            }
-          }
+        if (mbCheckOrientation) {
+          // RefFrame.keypoint[i].angle-CurrentFrame.keypoint[i].angle,Un
+          float rot = pKF->mvKeys[i].angle - CurrentFrame.mvKeys[bestIdx2].angle;
+          if (rot < 0.0) rot += 360.0f;
+          int bin = round(rot * factor);
+          if (bin == HISTO_LENGTH) bin = 0;
+          assert(bin >= 0 && bin < HISTO_LENGTH);
+          rotHist[bin].push_back(bestIdx2);
         }
       }
     }

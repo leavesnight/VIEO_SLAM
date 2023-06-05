@@ -31,7 +31,7 @@
 #include "../stuff/misc.h"
 #include "hyper_graph.h"
 #include "creators.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <string>
 #include <map>

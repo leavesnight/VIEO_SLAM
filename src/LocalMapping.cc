@@ -1,28 +1,12 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #include "LocalMapping.h"
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #include <mutex>
 
@@ -46,12 +30,18 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
       mpLastCamKF(NULL)  // added by zzh
 {                        // zzh
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
-  cv::FileNode fnSize = fSettings["LocalMapping.LocalWindowSize"];
-  if (fnSize.empty()) {
+  auto node_tmp = fSettings["LocalMapping.LocalWindowSize"];
+  if (node_tmp.empty()) {
     mnLocalWindowSize = 0;
-    cout << redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR << endl;
+    PRINT_INFO_MUTEX(redSTR "No LocalWindowSize, then don't enter VIORBSLAM2 or Odom(Enc/IMU) mode!" << whiteSTR
+                                                                                                     << endl);
   } else {
-    mnLocalWindowSize = fnSize;  // notice it can <1
+    mnLocalWindowSize = node_tmp;  // notice it can <1
+  }
+  node_tmp = fSettings["thFarPoints"];
+  if (!node_tmp.empty()) {
+    PRINT_INFO_MUTEX(blueSTR "depth > thFarPoints will be moved from Tracking SBP && LBA CreateMP" << whiteSTR << endl);
+    th_far_pts_ = (float)node_tmp;
   }
 }
 
@@ -71,14 +61,14 @@ void LocalMapping::Run() {
     if (CheckNewKeyFrames()) {
       chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
       // BoW conversion and insertion in Map
-      PRINT_DEBUG_INFO_MUTEX("Processing New KF...", imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
       ProcessNewKeyFrame();
-      PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
 #ifndef NO_LOCALMAP_PROCESS
       // Check recent added MapPoints
@@ -86,14 +76,14 @@ void LocalMapping::Run() {
       PRINT_INFO_FILE(blueSTR "Used time in MapCulling()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
       // Triangulate new MapPoints
       CreateNewMapPoints();
       PRINT_INFO_FILE(blueSTR "Used time in CreateNewMP()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                           << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
@@ -102,7 +92,7 @@ void LocalMapping::Run() {
         PRINT_INFO_FILE(blueSTR "Used time in SIN()="
                             << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
                             << whiteSTR << endl,
-                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                        mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
 #endif
 
@@ -129,9 +119,8 @@ void LocalMapping::Run() {
             const bool bno_imu_lba = false;  // true;  //
             if (!bno_imu_lba) {
               // bLarge/bRecInit ref from ORB3
-              const bool bLarge = false;
-              //                  mpTracker->Getnum_track_inliers_() > mpTracker->mSensor == System::MONOCULAR ? 75 :
-              //                  100;
+              const bool bLarge =
+                  mpTracker->Getnum_track_inliers() > mpTracker->mSensor == System::MONOCULAR ? 75 : 100;
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
@@ -145,7 +134,7 @@ void LocalMapping::Run() {
           ++num_olba_avg;
           PRINT_INFO_FILE(
               blueSTR "Used time in localBA=" << dt_olba << ",avg=" << dt_olba_avg / num_olba_avg << whiteSTR << endl,
-              imu_tightly_debug_path, "localmapping_thread_debug.txt");
+              mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         }
 
 #ifndef NO_LOCALMAP_PROCESS
@@ -164,7 +153,7 @@ void LocalMapping::Run() {
       ++num_lbathread_avg;
       PRINT_INFO_FILE(blueSTR "Used time in localmapping=" << dt_lbathread << ",avg="
                                                            << dt_lbathread_avg / num_lbathread_avg << whiteSTR << endl,
-                      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
       while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction
@@ -209,7 +198,7 @@ void LocalMapping::ProcessNewKeyFrame() {
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
                            << mpCurrentKeyFrame->mTimeStamp << endl,
-                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                  mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
@@ -426,7 +415,7 @@ static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *p
 void LocalMapping::CreateNewMapPoints() {
   // Retrieve neighbor keyframes in covisibility graph
   int nn = 10;
-  if (mbMonocular) nn = 20;
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
   vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
   // ref from ORB3
@@ -538,7 +527,7 @@ void LocalMapping::CreateNewMapPoints() {
       // result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature
       // matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
       if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
-          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {
+          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {  // TODO: check orb3v1.0 use 0.9996 for inertial
         const double thresh_cosdisparity = 1. - 1e-6;
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
           continue;
@@ -559,8 +548,10 @@ void LocalMapping::CreateNewMapPoints() {
       float dist1 = cv::norm(normal1);
       cv::Mat normal2 = x3D - Ow2;
       float dist2 = cv::norm(normal2);
-      if (dist1 == 0 || dist2 == 0)  // it seems impossible for zi>0, if possible it maybe numerical error
-        continue;
+      // it seems impossible for zi>0, if possible it maybe numerical error
+      if (dist1 == 0 || dist2 == 0) continue;
+      if (th_far_pts_ > 0 && max(dist1, dist2) >= th_far_pts_) continue;
+
       const float ratioDist = dist2 / dist1;
       float ratioOctave[2] = {INFINITY, -INFINITY};
       for (auto kp1 : kps[0]) {
@@ -582,7 +573,7 @@ void LocalMapping::CreateNewMapPoints() {
       // Triangulation is succesfull
       MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
 
-      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, imu_tightly_debug_path, "debug.txt");
+      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       for (auto idx : idxs1) {
         if (-1 == idx) continue;
         pMP->AddObservation(pKF1, idx);
@@ -606,8 +597,8 @@ void LocalMapping::CreateNewMapPoints() {
 
 void LocalMapping::SearchInNeighbors() {
   // Retrieve neighbor keyframes
-  int nn = 10;  // RGBD
-  if (mbMonocular) nn = 20;
+  int nn = 10;               // RGBD
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
   const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
   vector<KeyFrame *> vpTargetKFs;
   for (vector<KeyFrame *>::const_iterator vit = vpNeighKFs.begin(), vend = vpNeighKFs.end(); vit != vend; vit++) {
@@ -633,7 +624,7 @@ void LocalMapping::SearchInNeighbors() {
       pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
-//#define ORB3_STRATEGY
+#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
     if (mbAbortBA) return;
 #endif
@@ -664,7 +655,8 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
+                   "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
   if (mbAbortBA) return;
@@ -692,7 +684,7 @@ void LocalMapping::SearchInNeighbors() {
   }
 
   num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
   vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
@@ -709,7 +701,7 @@ void LocalMapping::SearchInNeighbors() {
   }
   PRINT_DEBUG_INFO(
       "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
-      imu_tightly_debug_path, "localmapping_thread_debug.txt");
+      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
   // incurrent KF
@@ -820,7 +812,7 @@ void LocalMapping::KeyFrameCulling() {
   // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
   for (int k = 0; k < nRestrict; ++k) {
     int vi = 0;
-    PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
+    // PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
     for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
@@ -948,10 +940,10 @@ void LocalMapping::KeyFrameCulling() {
           tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
         }  // must done before pKF->SetBadFlag()!
 
-        PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
+        // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
         PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
-                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();
       }
     }

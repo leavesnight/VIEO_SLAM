@@ -22,8 +22,8 @@
 
 #include <opencv2/core/core.hpp>
 
-#include "common/log.h"
-#include "eigen_utils.h"
+#include "common/mlog/log.h"
+#include "common/eigen_utils.h"
 #include "sophus/se3.hpp"
 
 //#include "TwoViewReconstruction.h"
@@ -77,8 +77,9 @@ class GeometricCamera {
                                    std::map<std::pair<size_t, size_t>, size_t>& mapcamidx2idxs_,
                                    const double thresh_cosdisparity = 1. - 1.e-6,
                                    aligned_vector<Eigen::Vector3d>* pv3dpoints = nullptr,
-                                   aligned_vector<Eigen::Vector2d>* pkpts = nullptr, vector<float>* psigmas = nullptr,
-                                   vector<vector<double>>* plastdists = nullptr, int* pcount_descmatch = nullptr);
+                                   const aligned_vector<Eigen::Vector2d>* pkpts = nullptr,
+                                   const vector<float>* psigmas = nullptr, vector<vector<double>>* plastdists = nullptr,
+                                   int* pcount_descmatch = nullptr);
 
   // for monocular init
   //  virtual bool ReconstructWithTwoViews(const std::vector<cv::KeyPoint>& vKeys1, const std::vector<cv::KeyPoint>&

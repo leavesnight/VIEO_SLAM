@@ -1,25 +1,9 @@
 ﻿/**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #include "Optimizer.h"
-#include "common/log.h"
+#include "common/mlog/log.h"
 
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
@@ -44,21 +28,29 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
-  int optit = 5;
+  int optit[2] = {5, 10};
   // limit fixed vertex size to ensure speed
 #define LIMIT_KFS_NUM
 #ifdef LIMIT_KFS_NUM
   // ref from ORB3
   const int maxFixKF = 200;
 #endif
-  // TODO(zzh): we hope to do more here, but now no_do_more is more robust
+  // we find old no_do_more is more robust is due to opt_wider/bLarge st.
 //#define ORB3_STRATEGY_NO_DO_MORE
 #ifdef ORB3_STRATEGY_NO_DO_MORE
+  bool bDoMore = false;
+#else
+  bool bDoMore = true;
+#endif
+#define ORB3_STRATEGY_OPT_WIDER
+#ifdef ORB3_STRATEGY_OPT_WIDER
   if (bLarge) {
     Nlocal *= 2.5;
-    optit = 4;
+    optit[0] = bDoMore ? 2 : 4;
+    optit[1] = 4 - 2;
   } else {
-    optit = 10;
+    optit[0] = bDoMore ? 4 : 10;
+    optit[1] = 6;
   }
 #endif
 
@@ -121,7 +113,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   PRINT_INFO_FILE(blueSTR "Enter OLBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
                                           << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
                                           << whiteSTR << endl,
-                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                  mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;
@@ -485,13 +477,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       }
     }
   }
-  PRINT_INFO_FILE("factor_visual num=" << vpEdgesMono.size() << endl, imu_tightly_debug_path,
+  PRINT_INFO_FILE("factor_visual num=" << vpEdgesMono.size() << endl, mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 
   //#ifndef ORB3_STRATEGY
   if (pbStopFlag)       // true in LocalMapping
     if (*pbStopFlag) {  // if mbAbortBA
-      PRINT_INFO_FILE("Aborted OLBA!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+      PRINT_INFO_FILE("Aborted OLBA!" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       return;
     }
   //#endif
@@ -503,7 +495,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 #ifdef DEBUG_OLBA
   if (err > 1e6) {
     double th_chi2 = thHuberNavStatePRV * thHuberNavStatePRV;
-    PRINT_INFO_FILE("2 PRVedge: ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    PRINT_INFO_FILE("2 PRVedge: ", mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     for (size_t i = 0, iend = vpEdgesNavStatePRV.size(); i < iend; i++) {
       g2o::EdgeNavStatePRV* e = vpEdgesNavStatePRV[i];
 
@@ -512,44 +504,41 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
         PRINT_INFO_FILE("chi2 " << e->chi2() << ",tm=" << debug_kf0s[i]->mTimeStamp
                                 << ",tmn=" << debug_kf0s[i]->GetNextKeyFrame()->mTimeStamp
                                 << ",dt=" << debug_kf0s[i]->GetNextKeyFrame()->GetIMUPreInt().mdeltatij << ". ",
-                        imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                        mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
-    PRINT_INFO_FILE(endl << "2 Biasedge ", imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    PRINT_INFO_FILE(endl << "2 Biasedge ", mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
     for (size_t i = 0, iend = vpEdgesNavStateBias.size(); i < iend; i++) {
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ", imu_tightly_debug_path,
-                        "localmapping_thread_debug.txt");
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ",
+                        mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
-    PRINT_INFO_FILE(endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    PRINT_INFO_FILE(endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   }
 #endif
   if (pbStopFlag)  // if &mbAbortBA !=nullptr, true in LocalMapping
     optimizer.setForceStopFlag(pbStopFlag);
 //#define FIND_LAMBDA_AVG
 #ifdef FIND_LAMBDA_AVG
-  PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", imu_tightly_debug_path,
+  PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 #endif
-  optimizer.optimize(optit);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+  optimizer.optimize(optit[0]);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
 #ifdef FIND_LAMBDA_AVG
   static double lambda_avg = 0;
   static unsigned long num_lambda = 0;
   double lambda = solver->currentLambda();
   lambda_avg += lambda;
   ++num_lambda;
-  PRINT_INFO_FILE("after=" << lambda << ",avg=" << lambda_avg / num_lambda << endl, imu_tightly_debug_path,
+  PRINT_INFO_FILE("after=" << lambda << ",avg=" << lambda_avg / num_lambda << endl, mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 #endif
 
-#ifdef ORB3_STRATEGY_NO_DO_MORE
-  bool bDoMore = false;
-#else
-  bool bDoMore = true;
+#ifndef ORB3_STRATEGY_NO_DO_MORE
   if (pbStopFlag)
     if (*pbStopFlag)  // judge mbAbortBA again
       bDoMore = false;
@@ -589,7 +578,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
     // Optimize again without the outliers
     optimizer.initializeOptimization(0);
-    optimizer.optimize(10);  // 10 steps same as motion-only BA
+    optimizer.optimize(optit[1]);  // 10 steps same as motion-only BA
   }
 
 #ifndef NDEBUG
@@ -601,7 +590,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
         PRINT_DEBUG_INFO("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
     th_chi2 = thHuberNavStateBias * thHuberNavStateBias;
@@ -610,7 +599,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       if (e->chi2() > th_chi2) {
         PRINT_DEBUG_INFO("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
-                         imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
   }
@@ -618,10 +607,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
   // ref from ORB3
   float err_end = optimizer.activeRobustChi2();
-  PRINT_INFO_FILE("check err:" << err << ",end=" << err_end << endl, imu_tightly_debug_path,
+  PRINT_INFO_FILE("check err:" << err << ",end=" << err_end << endl, mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
   if ((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) {
-    PRINT_INFO_FILE("FAIL LOCAL-INERTIAL BA!!!!" << endl, imu_tightly_debug_path, "localmapping_thread_debug.txt");
+    PRINT_INFO_FILE("FAIL LOCAL-INERTIAL BA!!!!" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     return;
   }
 
@@ -657,7 +646,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     }
   }
   PRINT_DEBUG_INFO("vToErase sz=" << vToErase.size() << ":" << (float)vToErase.size() / num_pts_good_bef << endl,
-                   imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Get Map Mutex
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
@@ -669,7 +658,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       auto idx = get<2>(vToErase[i]);
 
       // here may erase pMP in mpMap
-//#define ORB3_STRATEGY
+#define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
       ErasePairObs(pKFi, pMPi, -1);
 #else
@@ -954,7 +943,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
       if (pFBtmp && i != pFBtmp->id_cam_) {
         PRINT_DEBUG_INFO_MUTEX(
             redSTR << "Wrong pFBtmp: i,idcam=" << i << "," << pFBtmp->id_cam_ << ", check!" << whiteSTR << endl,
-            imu_tightly_debug_path, "common_thread_debug.txt");
+            mlog::vieo_slam_debug_path, "common_thread_debug.txt");
       }
       assert(!pFBtmp || i == pFBtmp->id_cam_);
       if (!pFBtmp || !vadd_prior_bias[i] || pFBtmp->isBad()) continue;
@@ -1178,11 +1167,11 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     g2o::VertexGThetaXYRwI* vG = static_cast<g2o::VertexGThetaXYRwI*>(optimizer.vertex(id_g));
     bool verbose = true;
     if (verbose) {
-      PRINT_INFO_FILE("before gw=" << wg.transpose() << endl, imu_tightly_debug_path, "gba_thread_debug.txt");
+      PRINT_INFO_FILE("before gw=" << wg.transpose() << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
     }
     pimu_initiator->SetGravityVec(Converter::toCvMat(vG->estimate() * GI));
     if (verbose) {
-      PRINT_INFO_FILE("after gw=" << pimu_initiator->GetGravityVec().t() << endl, imu_tightly_debug_path,
+      PRINT_INFO_FILE("after gw=" << pimu_initiator->GetGravityVec().t() << endl, mlog::vieo_slam_debug_path,
                       "gba_thread_debug.txt");
     }
   }
@@ -1190,7 +1179,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   double scale = 1.;
   if (bScaleOpt) {
     scale = static_cast<g2o::VertexScale*>(optimizer.vertex(id_scale))->estimate();
-    PRINT_INFO_FILE(azureSTR "Recovered scale is " << scale << whiteSTR << endl, imu_tightly_debug_path,
+    PRINT_INFO_FILE(azureSTR "Recovered scale is " << scale << whiteSTR << endl, mlog::vieo_slam_debug_path,
                     "gba_thread_debug.txt");
   }
 
@@ -1233,7 +1222,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     if (!pKFi->mnId) {
       PRINT_INFO_FILE("recovered kf0 bgba=" << (ns_recov.mbg + ns_recov.mdbg).transpose()
                                             << (ns_recov.mba + ns_recov.mdba).transpose() << endl,
-                      imu_tightly_debug_path, "gba_thread_debug.txt");
+                      mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
     }
   }
 
@@ -1879,7 +1868,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   PRINT_INFO_FILE(blueSTR "Enter LBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
                                          << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
                                          << whiteSTR << endl,
-                  imu_tightly_debug_path, "localmapping_thread_debug.txt");
+                  mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
   g2o::SparseOptimizer optimizer;

@@ -2,8 +2,7 @@
 // Created by leavesnight on 2021/3/29.
 //
 
-#ifndef VIEO_SLAM_SO3_EXTRA_H
-#define VIEO_SLAM_SO3_EXTRA_H
+#pragma once
 
 #include <Eigen/Core>
 #include <Eigen/StdVector>
@@ -40,23 +39,17 @@ class SO3ex : public SO3<Scalar, Options> {
   using Base::unit_quaternion;
 
   // SOPHUS_FUNC now is EIGEN_DEVICE_FUNC for CUDA usage: __host__ __device__ means cpu&&gpu both make this func
-  SOPHUS_FUNC SO3ex()
 #ifdef USE_SOPHUS_NEWEST
-      : Base() {
-  }
+  SOPHUS_FUNC SO3ex() : Base() {}
   template <class OtherDerived>
   SOPHUS_FUNC SO3ex(SO3Base<OtherDerived> const& other) : Base(other) {}
 #else
-  {
-    unit_quaternion_.setIdentity();
-  }
+  SOPHUS_FUNC SO3ex() { unit_quaternion_.setIdentity(); }
 #endif
-  SOPHUS_FUNC SO3ex(const SO3ex& other)
 #ifdef USE_SOPHUS_NEWEST
-      : Base(other) {
-  }
+  SOPHUS_FUNC SO3ex(const SO3ex& other) : Base(other) {}
 #else
-  {
+  SOPHUS_FUNC SO3ex(const SO3ex& other) {
     unit_quaternion_ = other.unit_quaternion_;
     // if we ensure all SO3ex changing func will ensure the unit property, this normalize can be omitted
     unit_quaternion_.normalize();
@@ -70,12 +63,11 @@ class SO3ex : public SO3<Scalar, Options> {
     this->unit_quaternion_.normalize();
   }
   template <class D>
-  SOPHUS_FUNC explicit SO3ex(Eigen::QuaternionBase<D> const& quat)
 #ifdef USE_SOPHUS_NEWEST
-      : Base(quat) {
+  SOPHUS_FUNC explicit SO3ex(Eigen::QuaternionBase<D> const& quat) : Base(quat) {
   }
 #else
-  {
+  SOPHUS_FUNC explicit SO3ex(Eigen::QuaternionBase<D> const& quat) {
     unit_quaternion_ = quat;
     static_assert(std::is_same<typename Eigen::QuaternionBase<D>::Scalar, Scalar>::value,
                   "Input must be of same scalar type");
@@ -130,7 +122,6 @@ class SO3ex : public SO3<Scalar, Options> {
     Scalar theta_impl = 0;
     Scalar* theta = &theta_impl;
     *theta = omega.norm();
-    Scalar half_theta = 0.5 * (*theta);
 
     Scalar imag_factor;
     Scalar real_factor;
@@ -140,6 +131,7 @@ class SO3ex : public SO3<Scalar, Options> {
       imag_factor = 0.5 - theta_sq / 48.;  // + theta_po4 / 3840.;//Taylor expansion of sin(x/2)/x
       real_factor = 1.0 - theta_sq / 8.;   // + theta_po4 / 384.;
     } else {
+      Scalar half_theta = 0.5 * (*theta);
       Scalar sin_half_theta = sin(half_theta);
       imag_factor = sin_half_theta / (*theta);
       real_factor = cos(half_theta);
@@ -204,6 +196,8 @@ class SO3ex : public SO3<Scalar, Options> {
   SOPHUS_FUNC static Transformation JacobianRInv(const Tangent& w);
   // Jl, left jacobian of SO(3), Jl(x) = Jr(-x)
   SOPHUS_FUNC static Transformation JacobianL(const Tangent& w) { return JacobianR(-w); }
+  // Jls, Jls(wt) = int_0tot_Jl(wt)dt / t
+  SOPHUS_FUNC static Transformation JacobianLS(const Tangent& w);
   // Jl^(-1)
   SOPHUS_FUNC static Transformation JacobianLInv(const Tangent& w) { return JacobianRInv(-w); }
 
@@ -239,10 +233,29 @@ template <class Scalar, int Options>
 const double SO3ex<Scalar, Options>::SMALL_EPS = 1e-5;
 
 template <class Scalar, int Options>
+typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::JacobianLS(const Tangent& w) {
+  Transformation Jls = Transformation::Identity();
+  Scalar theta2 = w.squaredNorm(), theta = sqrt(theta2);
+  if (theta < SMALL_EPS) {
+    Transformation Omega = Base::hat(w);
+    Transformation Omega2 = Omega * Omega;
+    // omit 3rd order eps & more for 1e-5 (accuracy:e-10), similar to omit >=1st order (Jl=I/R) for 1e-10
+    // the one more order term is theta*theta*Omega/24. < 2^(-52), where 1 + it is useless
+    // Jl = Jl + 0.5 * Omega + Omega2 / 6.;
+    Jls = Jls + Omega / 3. + Omega2 / 12.;
+  } else {
+    Tangent k = w.normalized();  // k - unit direction vector of w
+    Transformation K = Base::hat(k);
+    // Jl = Jl + (1 - cos(theta)) / theta * K + (1 - sin(theta) / theta) * K * K;
+    Jls = Jls + 2 * (1 - sin(theta) / theta) / theta * K + (1 - 2 * (1 - cos(theta)) / theta2) * K * K;
+  }
+  return Jls;
+}
+template <class Scalar, int Options>
 typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::JacobianR(const Tangent& w) {
   Transformation Jr = Transformation::Identity();
   Scalar theta = w.norm();
-  if (theta < 1e-5) {
+  if (theta < SMALL_EPS) {
     Transformation Omega = Base::hat(w);
     Transformation Omega2 = Omega * Omega;
     // omit 3rd order eps & more for 1e-5 (accuracy:e-10), similar to omit >=1st order (Jl=I/R) for 1e-10
@@ -262,7 +275,7 @@ typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Jacobian
   Transformation Omega = Base::hat(w);
 
   // very small angle
-  if (theta < 1e-5) {
+  if (theta < SMALL_EPS) {
     // limit(theta->0)((1-theta/(2*tan(theta/2)))/theta^2)~=(omit theta^5&&less)=1/12
     return Jrinv + 0.5 * Omega + (1. / 12.) * (Omega * Omega);
   } else {
@@ -287,7 +300,7 @@ typename SO3ex<Scalar, Options>::Tangent SO3ex<Scalar, Options>::Log(const Eigen
   if (costheta > 1 || costheta < -1) return w;
   const double theta = acos(costheta);
   const double s = sin(theta);
-  if (fabs(s) < 1e-5)
+  if (fabs(s) < SMALL_EPS)
     return w;
   else
     return theta * w / s;
@@ -303,7 +316,7 @@ typename SO3ex<Scalar, Options>::Transformation SO3ex<Scalar, Options>::Exp(cons
   const double d = sqrt(d2);
   Eigen::Matrix3d W;
   W << 0.0, -z, y, z, 0.0, -x, -y, x, 0.0;
-  if (d < 1e-5) {
+  if (d < SMALL_EPS) {
     Eigen::Matrix3d res = Eigen::Matrix3d::Identity() + W + 0.5 * W * W;
     return NormalizeRotation(res);
   } else {
@@ -317,5 +330,3 @@ typedef SO3ex<double> SO3exd;
 typedef SO3ex<float> SO3exf;
 
 }  // namespace Sophus
-
-#endif  // VIEO_SLAM_SO3_EXTRA_H

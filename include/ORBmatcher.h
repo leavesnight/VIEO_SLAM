@@ -1,21 +1,5 @@
 /**
- * This file is part of ORB-SLAM2.
- *
- * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
- * For more information see <https://github.com/leavesnight/VIEO_SLAM>
- *
- * ORB-SLAM2 is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * ORB-SLAM2 is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ * This file is part of VIEO_SLAM
  */
 
 #ifndef ORBMATCHER_H
@@ -53,18 +37,20 @@ class ORBmatcher {
 
   // Search matches between Frame keypoints and projected MapPoints. Returns number of additional matches
   // Used to track the local map (Tracking)
-  int SearchByProjection(Frame &F, const std::vector<MapPoint *> &vpMapPoints,
-                         const float th = 3);  // rectify the F.mvpMapPoints
+  // rectify the F.mvpMapPoints
+  int SearchByProjection(Frame &F, const std::vector<MapPoint *> &vpMapPoints, const float th = 3,
+                         const float th_far_pts = 0);
 
   // Project MapPoints tracked in last frame into the current frame and search matches.
   // Used to track from previous frame (Tracking)
-  int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono);
+  int SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, const float th, const bool bMono,
+                         const float th_far_pts = 0);
 
   // Project MapPoints seen in KeyFrame into the Frame and search matches. Returns number of additional matches
   // Used in relocalisation (Tracking)
   // rectify CurrentFrame.mvpMapPoints
   int SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const std::set<MapPoint *> &sAlreadyFound, const float th,
-                         const int ORBdist);
+                         const int ORBdist, const float th_far_pts = 0);
 
   // Project MapPoints using a Similarity Transformation and search matches.
   // Used in loop detection (Loop Closing)

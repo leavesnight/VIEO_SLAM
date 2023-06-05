@@ -4,9 +4,9 @@
 
 #include "GeometricCamera.h"
 #include "Converter.h"
-#include "so3_extra.h"
+#include "common/so3_extra.h"
 #include <string>
-#include "common/common.h"
+#include "common/config.h"
 
 using std::cout;
 using std::endl;
@@ -214,7 +214,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
                                           vector<vector<size_t>> &mvidxsMatches, vector<bool> &goodmatches,
                                           std::map<std::pair<size_t, size_t>, size_t> &mapcamidx2idxs_,
                                           const double thresh_cosdisparity, aligned_vector<Eigen::Vector3d> *pv3dpoints,
-                                          aligned_vector<Eigen::Vector2d> *pkpts, vector<float> *psigmas,
+                                          const aligned_vector<Eigen::Vector2d> *pkpts, const vector<float> *psigmas,
                                           vector<vector<double>> *plastdists, int *pcount_descmatch) {
   using std::get;
   using std::make_pair;
@@ -269,7 +269,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
     if (-1 == idxs[cami]
 #ifdef USE_STRATEGY_MIN_DIST
         // idxi!= for 1<->2,1<->3, 2<->3 will be skipped
-        || plastdists && idxi != idxs[cami] && (*plastdists)[ididxs][cami] > dist
+        || (plastdists && idxi != idxs[cami] && (*plastdists)[ididxs][cami] > dist)
 #endif
     ) {
       checkdepth[0] = 2;
@@ -280,7 +280,7 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
 #endif
     if (-1 == idxs[camj]
 #ifdef USE_STRATEGY_MIN_DIST
-        || plastdists && idxj != idxs[camj] && (*plastdists)[ididxs][camj] > dist
+        || (plastdists && idxj != idxs[camj] && (*plastdists)[ididxs][camj] > dist)
 #endif
     ) {
       checkdepth[1] = 2;

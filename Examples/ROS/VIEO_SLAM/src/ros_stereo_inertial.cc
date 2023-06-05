@@ -120,10 +120,15 @@ int main(int argc, char **argv) {
     VIEO_SLAM::System::usedistort_ = true;
 
   // Maximum delay, 5 seconds
-  ros::Subscriber sub_imu = n.subscribe("/camera/imu", 1000, &ImuGrabber::GrabImu, &imugb);
-  ros::Subscriber sub_img_left = n.subscribe("/camera/infra1/image_rect_raw", 100, &ImageGrabber::GrabImageLeft, &igb);
-  ros::Subscriber sub_img_right =
-      n.subscribe("/camera/infra2/image_rect_raw", 100, &ImageGrabber::GrabImageRight, &igb);
+  string topic_tmp = "/camera/imu";
+  if (!fsSettings["IMU.topic"].empty()) topic_tmp = string(fsSettings["IMU.topic"]);
+  ros::Subscriber sub_imu = n.subscribe(topic_tmp, 1000, &ImuGrabber::GrabImu, &imugb);
+  topic_tmp = "/camera/infra1/image_rect_raw";
+  if (!fsSettings["Camera.topic"].empty()) topic_tmp = string(fsSettings["Camera.topic"]);
+  ros::Subscriber sub_img_left = n.subscribe(topic_tmp, 100, &ImageGrabber::GrabImageLeft, &igb);
+  topic_tmp = "/camera/infra2/image_rect_raw";
+  if (!fsSettings["Camera2.topic"].empty()) topic_tmp = string(fsSettings["Camera2.topic"]);
+  ros::Subscriber sub_img_right = n.subscribe(topic_tmp, 100, &ImageGrabber::GrabImageRight, &igb);
 
   std::thread sync_thread(&ImageGrabber::SyncWithImu, &igb);
 
@@ -252,7 +257,7 @@ void ImageGrabber::SyncWithImu() {
       static size_t ttrack_num = 0;
       ++ttrack_num;
       ttrack_sum += ttrack;
-      PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
+      if (1 == ttrack_num % 30) PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
 #endif
 
       std::chrono::milliseconds tSleep(1);

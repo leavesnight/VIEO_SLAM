@@ -9,24 +9,8 @@ Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
 Camera.delayForPolling: 0.005
 
-# 2 differential driving wheels' distance (m)
-Encoder.rc: 0.280
-
-# encoder coefficient to m/s : vscaleforhall=2.0/ppr*M_PI*wheelradius/datatime=2.0/400*M_PI*0.105/10
-Encoder.scale: 1.649336143e-4
-
-# encoder_sigma[8]: el,er,em[6](vx,vy,vz,wx,wy,wz) [m/s/sqrt(Hz),model: m/s^2/sqrt(Hz)]
-Encoder.sigma:
- [1.58e-2, 1.58e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2, 3.16e-2]
-
 # mode 0 is normal right order gxgygz/axayaz, 1 means -gy,gxgz/-ay,axaz
 IMU.mode: 0
-
-# Sigma etawi of IMU
-IMU.SigmaI:
- [0.1, 0, 0,
-  0, 0.1, 0,
-  0, 0, 1]
 
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
@@ -46,13 +30,6 @@ Camera.Tbc:
   -0.755935959,  0.269434525, -0.596628748,  0.002507497,
   -0.622928083, -0.015806508,  0.782119401,  0.006693590,
   0        ,   0,           0         ,  1]
-
-# imu-encoder frame transformation
-Camera.Tce:
- [0.000000000, -1.000000000,  0.000000000,  -0.015000000,
-  0.000000000,  0.000000000, -1.000000000,  0.473000000,
-  1.000000000,  0.000000000,  0.000000000, -0.518000000,
-  0.000000000,  0.000000000,  0.000000000,  1.000000000]
 
 # Local Window size(0 means pure-vision+IMU Initialzation but no IMU error in BA): JW is 20, VIORBSLAM paper uses 10, but 5 for V203 in my PC
 LocalMapping.LocalWindowSize: 10
