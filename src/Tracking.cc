@@ -6,8 +6,8 @@
 #include <mutex>
 #include <opencv2/core/core.hpp>
 #include "Tracking.h"
-#include "radtan.h"
-#include "KannalaBrandt8.h"
+#include "common/camera_models/camera_radtan.h"
+#include "common/camera_models/camera_kb8.h"
 #include "ORBmatcher.h"
 #include "FrameDrawer.h"
 #include "Converter.h"
@@ -795,13 +795,13 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
     bool bexist_cam = false;
     if (sCameraName == "KannalaBrandt8") {
       pSys->usedistort_ = true;  // TODO: now fisheye only usedistort_ is confirmed
-      bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i]);
+      bexist_cam = camm::KB8Camera::ParseCamParamFile(fSettings, i, mpCameras[i]);
     } else {
       if (sCameraName == "Pinhole") {
         assert(!pSys->usedistort_);
-        bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i]);
+        bexist_cam = camm::PinholeCamera::ParseCamParamFile(fSettings, i, mpCameras[i]);
       } else if (sCameraName == "Radtan") {
-        bexist_cam = Radtan::ParseCamParamFile(fSettings, i, mpCameras[i]);
+        bexist_cam = camm::RadtanCamera::ParseCamParamFile(fSettings, i, mpCameras[i]);
         // pSys->usedistort_ = false;
       } else {
         PRINT_ERR_MUTEX("Unsupported Camera Model in " << __FUNCTION__ << endl);
@@ -867,7 +867,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
 
   auto node_tmp = fSettings["ThDepth"];
   if (!node_tmp.empty()) {
-    mThDepth = mbf * (float)node_tmp / mpCameras[0]->getParameters()[0];
+    mThDepth = mbf * (float)node_tmp / mpCameras[0]->GetParameters()[0];
   }
   PRINT_INFO_MUTEX(endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl);
 
@@ -1409,8 +1409,8 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
         float z = mCurrentFrame.stereoinfo_.vdepth_[i];
         if (z > 0) {
-          cv::Mat x3D =
-              mCurrentFrame.UnprojectStereo(i);  // use camera intrinsics to backproject the piont from (u,v) to x3Dw
+          // use camera intrinsics to backproject the piont from (u,v) to x3Dw
+          MapPoint::Vector3data x3D = mCurrentFrame.UnprojectStereo(i).cast<MapPoint::Tdata>();
           MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpMap);
           pNewMP->AddObservation(pKFini,
                                  i);  // add which KF with the order of features in it has observed this mappoint
@@ -1429,8 +1429,8 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
         if (mCurrentFrame.stereoinfo_.goodmatches_[k]) {
           int i = mCurrentFrame.mapidxs2n_[k];
           CV_Assert(-1 != i);
-          cv::Mat x3D =
-              mCurrentFrame.UnprojectStereo(i);  // use camera intrinsics to backproject the piont from (u,v) to x3Dw
+          // use camera intrinsics to backproject the piont from (u,v) to x3Dw
+          MapPoint::Vector3data x3D = mCurrentFrame.UnprojectStereo(i).cast<MapPoint::Tdata>();
           MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpMap);
           auto idxs = mCurrentFrame.mvidxsMatches[k];
           bool icheck = false;
@@ -1561,7 +1561,7 @@ void Tracking::CreateInitialMapMonocular() {
     if (mvIniMatches[i] < 0) continue;
 
     // Create MapPoint.
-    cv::Mat worldPos(mvIniP3D[i]);
+    MapPoint::Vector3data worldPos(mvIniP3D[i].x, mvIniP3D[i].y, mvIniP3D[i].z);
 
     MapPoint* pMP = new MapPoint(worldPos, pKFcur, mpMap);
 
@@ -1803,7 +1803,7 @@ void Tracking::UpdateLastFrame() {
     if (!pmp_old || pmp_old->Observations() < 1) bcreatenew = true;
 
     if (bcreatenew) {
-      cv::Mat x3D = mLastFrame.UnprojectStereo(i);
+      MapPoint::Vector3data x3D = mLastFrame.UnprojectStereo(i).cast<MapPoint::Tdata>();
       MapPoint* pNewMP = new MapPoint(x3D, mpMap, &mLastFrame, i);  // different here, TODO: unify it
 
       size_t ididxs = mLastFrame.GetMapn2idxs(i);
@@ -2256,7 +2256,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
         }
 
         if (bCreateNew) {
-          cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
+          MapPoint::Vector3data x3D = mCurrentFrame.UnprojectStereo(i).cast<MapPoint::Tdata>();
           MapPoint* pNewMP = new MapPoint(x3D, pKF, mpMap);
           size_t ididxs = mCurrentFrame.GetMapn2idxs(i);
           PRINT_DEBUG_FILE_MUTEX("mp0[" << pKF->nid_ << "," << i << "]:", mlog::vieo_slam_debug_path, "debug.txt");

@@ -2,8 +2,6 @@
  * This file is part of VIEO_SLAM
  */
 
-#include <Eigen/StdVector>
-#include <mutex>
 #include "Optimizer.h"
 #include "optimizer/optimizer_ba/g2o_graph_operator.h"
 #include "FrameBase_impl.h"
@@ -374,8 +372,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const float chi2Mono = 5.991;
   const float thHuberMono = sqrt(chi2Mono);  // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block),
   const float thHuberStereo = sqrt(7.815);   // chi2(0.05,3)
-  Pinhole CamInst;
-  bool binitcaminst = false;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   // Extrinsics
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
@@ -385,7 +382,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     // Set MP vertices
     MapPoint* pMP = *lit;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
-    vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+    vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
     int id = pMP->mnId + maxKFid + 1;  //>=maxKFid+1
     vPoint->setId(id);
     // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
@@ -436,16 +433,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             rk->setDelta(thHuberMono);  // similar to ||e||
 
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb);
+              e->SetParams(CamInst.get(), Rcb, tcb);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb);
             }
 
             optimizer.addEdge(e);
@@ -494,16 +489,15 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             rk->setDelta(thHuberStereo);
 
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(CamInst.get(), Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb,
+                           &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -767,7 +761,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   {
     MapPoint* pMP = *lit;  // but we can change pMP(copy) and *pMP
     g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId + maxKFid + 1));
-    pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+    pMP->SetWorldPos(vPoint->estimate().cast<MapPoint::Tdata>());
     pMP->UpdateNormalAndDepth();
   }
 
@@ -1068,8 +1062,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
 
   const float thHuber2D = sqrt(5.99);   // chi2(0.05,2), sqrt(e'*Omega*e)<=delta, here unused
   const float thHuber3D = sqrt(7.815);  // chi2(0.05,3)
-  Pinhole CamInst;
-  bool binitcaminst = false;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   // Extrinsics
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
@@ -1080,7 +1073,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     MapPoint* pMP = vpMP[i];
     if (pMP->isBad()) continue;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
-    vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+    vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
     const int id = pMP->mnId + id_mp_beg;  // same as localBA
     vPoint->setId(id);
     // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
@@ -1124,16 +1117,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
               rk->setDelta(thHuber2D);  // Mono in localBA
             }
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb);
+              e->SetParams(CamInst.get(), Rcb, tcb);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb);
             }
 
             optimizer.addEdge(e);
@@ -1152,16 +1143,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
               rk->setDelta(thHuber2D);
             }
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb);
+              e->SetParams(CamInst.get(), Rcb, tcb);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb);
             }
 
             optimizer.addEdge(e);
@@ -1186,16 +1175,15 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
               rk->setDelta(thHuber3D);  // called Stereo in localBA
             }
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(CamInst.get(), Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb,
+                           &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -1213,16 +1201,15 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
               rk->setDelta(thHuber3D);
             }
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(CamInst.get(), Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb,
+                           &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -1331,20 +1318,18 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     if (!bScaleOpt) {
       // it's for initial/final Full BA
       if (nLoopKF == 0) {
-        pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+        pMP->SetWorldPos(vPoint->estimate().cast<MapPoint::Tdata>());
         pMP->UpdateNormalAndDepth();
       } else {
-        pMP->mPosGBA.create(3, 1, CV_32F);
-        Converter::toCvMat(vPoint->estimate()).copyTo(pMP->mPosGBA);
+        pMP->mPosGBA = vPoint->estimate().cast<MapPoint::Tdata>();
         pMP->mnBAGlobalForKF = nLoopKF;
       }
     } else {  // unscaled Xw
       if (nLoopKF == 0) {
-        pMP->SetWorldPos(scale * Converter::toCvMat(vPoint->estimate()));
+        pMP->SetWorldPos(scale * vPoint->estimate().cast<MapPoint::Tdata>());
         pMP->UpdateNormalAndDepth();
       } else {
-        pMP->mPosGBA.create(3, 1, CV_32F);
-        Converter::toCvMat(vPoint->estimate()).copyTo(pMP->mPosGBA);
+        pMP->mPosGBA = vPoint->estimate().cast<MapPoint::Tdata>();
         pMP->mPosGBA *= scale;
         pMP->mnBAGlobalForKF = nLoopKF;
       }
@@ -1454,8 +1439,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
 
   const float thHuber2D = sqrt(5.99);   // chi2(0.05,2), sqrt(e'*Omega*e)<=delta, here unused
   const float thHuber3D = sqrt(7.815);  // chi2(0.05,3)
-  Pinhole CamInst;
-  bool binitcaminst = false;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   // Extrinsics
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
@@ -1465,7 +1449,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     MapPoint* pMP = vpMP[i];
     if (pMP->isBad()) continue;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
-    vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+    vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
     const int id = pMP->mnId + maxKFid + 1;  // same as localBA
     vPoint->setId(id);
     // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
@@ -1512,16 +1496,14 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
             rk->setDelta(thHuber2D);
           }
           if (!usedistort) {
-            if (!binitcaminst) {
-              auto params_tmp = pKFi->mpCameras[0]->getParameters();
-              params_tmp.resize(4);
-              CamInst.setParameters(params_tmp);
-              binitcaminst = true;
+            if (!CamInst) {
+              CamInst =
+                  make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
             }
-            e->SetParams(&CamInst, Rcb, tcb);
+            e->SetParams(CamInst.get(), Rcb, tcb);
           } else {
             assert(pKFi->mapn2in_.size() > idx);
-            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
+            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb);
           }
 
           optimizer.addEdge(e);
@@ -1545,16 +1527,15 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
             rk->setDelta(thHuber3D);
           }
           if (!usedistort) {
-            if (!binitcaminst) {
-              auto params_tmp = pKFi->mpCameras[0]->getParameters();
-              params_tmp.resize(4);
-              CamInst.setParameters(params_tmp);
-              binitcaminst = true;
+            if (!CamInst) {
+              CamInst =
+                  make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
             }
-            e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+            e->SetParams(CamInst.get(), Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
           } else {
             assert(pKFi->mapn2in_.size() > idx);
-            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb,
+                         &pKFi->stereoinfo_.baseline_bf_[1]);
           }
 
           optimizer.addEdge(e);
@@ -1618,11 +1599,10 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
 
     if (nLoopKF == 0)  // I think it's impossible for normal flow but used for final Full BA and initial GBA(Mono)
     {
-      pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+      pMP->SetWorldPos(vPoint->estimate().cast<MapPoint::Tdata>());
       pMP->UpdateNormalAndDepth();
     } else {
-      pMP->mPosGBA.create(3, 1, CV_32F);
-      Converter::toCvMat(vPoint->estimate()).copyTo(pMP->mPosGBA);
+      pMP->mPosGBA = vPoint->estimate().cast<MapPoint::Tdata>();
       pMP->mnBAGlobalForKF = nLoopKF;
     }
   }
@@ -1709,14 +1689,12 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   const float deltaMono = sqrt(5.991);    // chi2(0.05,2)
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
-  Pinhole CamInst;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   assert(!pFrame->mpCameras.empty());
-  bool usedistort = Frame::usedistort_;
+  bool usedistort = pFrame->usedistort_;
   {
     if (!usedistort) {
-      auto params_tmp = pFrame->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      CamInst.setParameters(params_tmp);
+      CamInst = make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pFrame->mpCameras[0]).get());
     }
 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints
@@ -1728,7 +1706,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
       if (pMP) {
         // add fixed mp vertices for motion_only BA
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
-        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
         int id = i + id_mp_beg;  //>=maxKFid+1
         vPoint->setId(id);
         vPoint->setFixed(true);
@@ -1742,10 +1720,10 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         {
           g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb);
+            e->SetParams(CamInst.get(), Rcb, tcb);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb);
           }
 
           // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
@@ -1776,10 +1754,10 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         {
           g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
+            e->SetParams(CamInst.get(), Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb,
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb,
                          &pFrame->stereoinfo_.baseline_bf_[1]);
           }
 
@@ -2091,15 +2069,14 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   const float thHuberMono = sqrt(5.991);    // sqrt(e_block)<=sqrt(chi2(0.05,2)) allow power 2 increasing(1/2*e_block)
   const float thHuberStereo = sqrt(7.815);  // chi2(0.05,3)
 
-  Pinhole CamInst;
-  bool binitcaminst = false;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   Matrix3d Rcb = Frame::meigRcb;
   Vector3d tcb = Frame::meigtcb;
   for (list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
     // Set MP vertices
     MapPoint* pMP = *lit;
     g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
-    vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+    vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
     int id = pMP->mnId + maxKFid + 1;  //>=maxKFid+1
     vPoint->setId(id);
     // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
@@ -2141,16 +2118,14 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             rk->setDelta(thHuberMono);  // similar to ||e||
 
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb);
+              e->SetParams(CamInst.get(), Rcb, tcb);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb);
             }
 
             optimizer.addEdge(e);
@@ -2180,16 +2155,15 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             rk->setDelta(thHuberStereo);
 
             if (!usedistort) {
-              if (!binitcaminst) {
-                auto params_tmp = pKFi->mpCameras[0]->getParameters();
-                params_tmp.resize(4);
-                CamInst.setParameters(params_tmp);
-                binitcaminst = true;
+              if (!CamInst) {
+                CamInst = make_shared<camm::PinholeCamera>(
+                    static_pointer_cast<camm::PinholeCamera>(pKFi->mpCameras[0]).get());
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(CamInst.get(), Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
               assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])].get(), Rcb, tcb,
+                           &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -2325,7 +2299,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
   for (list<MapPoint*>::iterator lit = lLocalMapPoints.begin(), lend = lLocalMapPoints.end(); lit != lend; lit++) {
     MapPoint* pMP = *lit;
     g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId + maxKFid + 1));
-    pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+    pMP->SetWorldPos(vPoint->estimate().cast<MapPoint::Tdata>());
     pMP->UpdateNormalAndDepth();
   }
 
@@ -2696,13 +2670,13 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     g2o::Sim3 Srw = vScw[nIDr];  // corrected/noncorrected Scw but always can be used to calculate Pr=Scw*Pw
     g2o::Sim3 correctedSwr = vCorrectedSwc[nIDr];  // BA optimized result
 
-    cv::Mat P3Dw = pMP->GetWorldPos();
-    Eigen::Matrix<double, 3, 1> eigP3Dw = Converter::toVector3d(P3Dw);
+    MapPoint::Vector3data P3Dw = pMP->GetWorldPos();
+    Eigen::Matrix<double, 3, 1> eigP3Dw = P3Dw.cast<double>();
     // optimized Pw=optimized Swr*Pr(noncorrected Srw*noncorrected Pw/corrected Srw*corrected Pw)
     Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw = correctedSwr.map(Srw.map(eigP3Dw));
 
-    cv::Mat cvCorrectedP3Dw = Converter::toCvMat(eigCorrectedP3Dw);
-    pMP->SetWorldPos(cvCorrectedP3Dw);  // update MP's Pos to correted one through BA optimized Siw
+    // update MP's Pos to correted one through BA optimized Siw
+    pMP->SetWorldPos(eigCorrectedP3Dw.cast<MapPoint::Tdata>());
 
     pMP->UpdateNormalAndDepth();  // update MP's normal for its position changed
   }
@@ -2734,10 +2708,10 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
   optimizer.setAlgorithm(solver);
 
   // Camera poses
-  const cv::Mat R1w = pKF1->GetRotation();
-  const cv::Mat t1w = pKF1->GetTranslation();
-  const cv::Mat R2w = pKF2->GetRotation();
-  const cv::Mat t2w = pKF2->GetTranslation();
+  const Matrix3f R1w = Converter::toMatrix3d(pKF1->GetRotation()).cast<float>();
+  const Vector3f t1w = Converter::toVector3d(pKF1->GetTranslation()).cast<float>();
+  const Matrix3f R2w = Converter::toMatrix3d(pKF2->GetRotation()).cast<float>();
+  const Vector3f t2w = Converter::toVector3d(pKF2->GetTranslation()).cast<float>();
 
   // Set Sim3 vertex
   g2o::VertexNavStatePR* pvSE3;
@@ -2775,12 +2749,10 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
   assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
   bool usedistort = Frame::usedistort_;
-  Pinhole CamInst;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   if (!usedistort) {
-    auto params_tmp = pKF1->mpCameras[0]->getParameters();
-    params_tmp.resize(4);
-    CamInst.setParameters(params_tmp);
-    CV_Assert(pKF2->mpCameras[0]->getParameters() == pKF1->mpCameras[0]->getParameters());
+    CamInst = make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF1->mpCameras[0]).get());
+    assert(pKF2->mpCameras[0]->GetParameters() == pKF1->mpCameras[0]->GetParameters());
   }
   for (int i = 0; i < N; i++) {
     if (!vpMatches1[i]) continue;
@@ -2802,18 +2774,18 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
       // MapPointCulling() in LocalMapping
       if (!pMP1->isBad() && !pMP2->isBad() && i2 >= 0) {
         g2o::VertexSBAPointXYZ* vPoint1 = new g2o::VertexSBAPointXYZ();
-        cv::Mat P3D1w = pMP1->GetWorldPos();
-        cv::Mat P3D1c = R1w * P3D1w + t1w;
-        vPoint1->setEstimate(Converter::toVector3d(P3D1c));
+        MapPoint::Vector3data P3D1w = pMP1->GetWorldPos();
+        Vector3f P3D1c = R1w * P3D1w + t1w;
+        vPoint1->setEstimate(P3D1c.cast<double>());
         vPoint1->setId(id1);
         // don't optimize the position of matched MapPoints(pKF1,pKF2), just contribute to the target function
         vPoint1->setFixed(true);
         optimizer.addVertex(vPoint1);
 
         g2o::VertexSBAPointXYZ* vPoint2 = new g2o::VertexSBAPointXYZ();
-        cv::Mat P3D2w = pMP2->GetWorldPos();
-        cv::Mat P3D2c = R2w * P3D2w + t2w;
-        vPoint2->setEstimate(Converter::toVector3d(P3D2c));
+        MapPoint::Vector3data P3D2w = pMP2->GetWorldPos();
+        Vector3f P3D2c = R2w * P3D2w + t2w;
+        vPoint2->setEstimate(P3D2c.cast<double>());
         vPoint2->setId(id2);
         vPoint2->setFixed(true);
         optimizer.addVertex(vPoint2);
@@ -2837,10 +2809,10 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
     const float& invSigmaSquare1 = pKF1->scalepyrinfo_.vinvlevelsigma2_[kpUn1.octave];
     e12->setInformation(Eigen::Matrix2d::Identity() * invSigmaSquare1);  // Omega/Sigma^(-1)
     if (!usedistort) {
-      e12->SetParams(&CamInst);
+      e12->SetParams(CamInst.get());
     } else {
       assert(pKF1->mapn2in_.size() > i);
-      e12->SetParams(pKF1->mpCameras[get<0>(pKF1->mapn2in_[i])]);
+      e12->SetParams(pKF1->mpCameras[get<0>(pKF1->mapn2in_[i])].get());
     }
 
     g2o::RobustKernelHuber* rk1 = new g2o::RobustKernelHuber;
@@ -2861,10 +2833,10 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
     float invSigmaSquare2 = pKF2->scalepyrinfo_.vinvlevelsigma2_[kpUn2.octave];
     e21->setInformation(Eigen::Matrix2d::Identity() * invSigmaSquare2);  // Omega
     if (!usedistort) {
-      e21->SetParams(&CamInst);
+      e21->SetParams(CamInst.get());
     } else {
       assert(pKF2->mapn2in_.size() > i2);
-      e21->SetParams(pKF2->mpCameras[get<0>(pKF2->mapn2in_[i2])]);
+      e21->SetParams(pKF2->mpCameras[get<0>(pKF2->mapn2in_[i2])].get());
     }
 
     g2o::RobustKernelHuber* rk2 = new g2o::RobustKernelHuber;

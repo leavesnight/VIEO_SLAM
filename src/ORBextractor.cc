@@ -966,7 +966,7 @@ static void computeDescriptors(const Mat& image, vector<KeyPoint>& keypoints, Ma
 }
 
 int ORBextractor::operator()(InputArray _image, InputArray _mask, vector<KeyPoint>& _keypoints,
-                             OutputArray _descriptors, std::vector<int>* pvLappingArea) {
+                             OutputArray _descriptors, const std::vector<int>* pvLappingArea) {
   if (_image.empty()) return -1;
 
   Mat image = _image.getMat();

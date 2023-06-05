@@ -557,11 +557,12 @@ void LocalMapping::KeyFrameCulling() {
   mpIMUInitiator->SetCopyInitKFs(false);
 }
 
-static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pcams_in, KeyFrame *pKF1,
-                                             const vector<size_t> &idxs1, vector<GeometricCamera *> &pcams,
-                                             aligned_vector<Sophus::SE3d> &Twrs, aligned_vector<Eigen::Vector2d> &kps2d,
-                                             vector<cv::KeyPoint> &kps, vector<float> &sigma_lvs,
-                                             vector<vector<float>> &urbfs, bool &bStereos, float &cosdisparity) {
+static inline void PrepareDataForTraingulate(const vector<camm::Camera *> &pcams_in, KeyFrame *pKF1,
+                                             const vector<size_t> &idxs1, vector<const camm::Camera *> &pcams,
+                                             aligned_vector<Sophus::SE3d> &Twrs,
+                                             aligned_vector<camm::Camera::Vec2data> &kps2d, vector<cv::KeyPoint> &kps,
+                                             vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool &bStereos,
+                                             float &cosdisparity) {
   bStereos = false;
   cosdisparity = 1.1;  // >1 designed for future inifity point
   pcams.clear();
@@ -580,7 +581,7 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
       Twrs.push_back(pKF1->GetTwc() * pKF1->GetTcr());
       const auto &kp = (!usedistort) ? pKF1->mvKeysUn[idx] : pKF1->mvKeys[idx];
       kps.push_back(kp);
-      kps2d.push_back(Eigen::Vector2d(kp.pt.x, kp.pt.y));
+      kps2d.push_back(camm::Camera::Vec2data(kp.pt.x, kp.pt.y));
       sigma_lvs.push_back(pKF1->scalepyrinfo_.vlevelsigma2_[kp.octave]);
       urbfs.push_back(vector<float>({pKF1->stereoinfo_.vuright_[idx], pKF1->stereoinfo_.baseline_bf_[1]}));
       // TODO: record cosdisparity in Frame.cc for StereoDistort one
@@ -598,16 +599,16 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
     }
   }
 }
-static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *pcams_in, const vector<KeyFrame *> &pKFs,
-                                              const vector<vector<size_t>> &idxs, vector<GeometricCamera *> &pcams,
+static inline bool PrepareDatasForTraingulate(const vector<camm::Camera *> *pcams_in, const vector<KeyFrame *> &pKFs,
+                                              const vector<vector<size_t>> &idxs, vector<const camm::Camera *> &pcams,
                                               aligned_vector<Sophus::SE3d> &Twrs,
-                                              aligned_vector<Eigen::Vector2d> &kps2d, vector<cv::KeyPoint> *kps,
+                                              aligned_vector<camm::Camera::Vec2data> &kps2d, vector<cv::KeyPoint> *kps,
                                               vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool *bStereos,
                                               float &cosdisparity, float *cosdisparities) {
   cosdisparity = 1.1;
-  vector<GeometricCamera *> vpcams[2];
+  vector<const camm::Camera *> vpcams[2];
   aligned_vector<Sophus::SE3d> vTwrs[2];
-  aligned_vector<Eigen::Vector2d> vkps[2];
+  aligned_vector<camm::Camera::Vec2data> vkps[2];
   vector<float> vsigma_lvs[2];
   vector<vector<float>> vurbfs[2];
   for (int i = 0; i < 2; ++i)
@@ -618,13 +619,16 @@ static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *p
                             Converter::toMatrix3d(pKFs[1]->GetRotation().t()).cast<float>()};
   for (size_t i1 = 0; i1 < vpcams[0].size(); ++i1) {
     auto &pcam1 = vpcams[0][i1];
+    camm::Camera::Vec3io p3d_tmp;
+    pcam1->UnProject(vkps[0][i1], &p3d_tmp);
     // Be very very careful to unprojected p3d_tmp requires *=depth then can use full Trc,
     //  otherwise only Rrc & cosParallaxRays check could be used
-    Vector3f xn1 = pcam1->GetTrc().so3().cast<float>() * pcam1->unproject(vkps[0][i1]).cast<float>();
+    Vector3f xn1 = pcam1->GetTrc().so3().cast<float>() * p3d_tmp.cast<float>();
     Vector3f ray1 = Rwc[0] * xn1;
     for (size_t i2 = 0; i2 < vpcams[1].size(); ++i2) {
       auto &pcam2 = vpcams[1][i2];
-      Vector3f xn2 = pcam2->GetTrc().so3().cast<float>() * pcam2->unproject(vkps[1][i2]).cast<float>();
+      pcam2->UnProject(vkps[1][i2], &p3d_tmp);
+      Vector3f xn2 = pcam2->GetTrc().so3().cast<float>() * p3d_tmp.cast<float>();
       Vector3f ray2 = Rwc[1] * xn2;
       // the Rays parallax angle must be in [0,180) for depth >0 (TODO: when angle >= 180, rectify here)
       const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
@@ -669,7 +673,7 @@ void LocalMapping::CreateNewMapPoints() {
   cv::Mat Tcw1(3, 4, CV_32F);
   Rcw1.copyTo(Tcw1.colRange(0, 3));
   tcw1.copyTo(Tcw1.col(3));
-  cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
+  Vector3f Ow1 = Converter::toVector3d(mpCurrentKeyFrame->GetCameraCenter()).cast<float>();
 
   const float ratioFactor = 1.5f * mpCurrentKeyFrame->scalepyrinfo_.fscalefactor_;  // 1.5*1.2=1.8
 
@@ -684,9 +688,9 @@ void LocalMapping::CreateNewMapPoints() {
     KeyFrame *&pKF1 = mpCurrentKeyFrame;
 
     // Check first that baseline is not too short
-    cv::Mat Ow2 = pKF2->GetCameraCenter();
-    cv::Mat vBaseline = Ow2 - Ow1;
-    const float baseline = cv::norm(vBaseline);
+    Vector3f Ow2 = Converter::toVector3d(pKF2->GetCameraCenter()).cast<float>();
+    Vector3f vBaseline = Ow2 - Ow1;
+    const float baseline = vBaseline.norm();
 
     if (!mbMonocular) {
       // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe
@@ -704,24 +708,24 @@ void LocalMapping::CreateNewMapPoints() {
     vector<vector<vector<size_t>>> vMatchedIndices;
     matcher.SearchForTriangulation(pKF1, pKF2, vMatchedIndices, false);  // matching method is like SBBoW
 
-    shared_ptr<Pinhole> pcaminst[2];
-    vector<GeometricCamera *> pcams_in[2];
+    camm::PinholeCamera::Ptr pcaminst[2];
+    vector<camm::Camera *> pcams_in[2];
     assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
-    bool usedistort[2] = {Frame::usedistort_, Frame::usedistort_};
+    bool usedistort[2] = {pKF1->usedistort_, pKF2->usedistort_};
     if (!usedistort[0]) {
       assert(!usedistort[1]);
-      auto params_tmp = pKF1->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      pcaminst[0] = make_shared<Pinhole>(params_tmp);
-      params_tmp = pKF2->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      pcaminst[1] = make_shared<Pinhole>(params_tmp);
+      pcaminst[0] =
+          make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF1->mpCameras[0]).get());
+      pcaminst[1] =
+          make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF2->mpCameras[0]).get());
       pcams_in[0].push_back(pcaminst[0].get());
       pcams_in[1].push_back(pcaminst[1].get());
     } else {
-      CV_Assert(usedistort[1]);
-      pcams_in[0] = pKF1->mpCameras;
-      pcams_in[1] = pKF2->mpCameras;
+      assert(usedistort[1]);
+      for (int icam = 0, ncam = pKF1->mpCameras.size(); icam < ncam; ++icam)
+        pcams_in[0].emplace_back(pKF1->mpCameras[icam].get());
+      for (int icam = 0, ncam = pKF2->mpCameras.size(); icam < ncam; ++icam)
+        pcams_in[1].emplace_back(pKF2->mpCameras[icam].get());
     }
 
     // Triangulate each match
@@ -730,10 +734,10 @@ void LocalMapping::CreateNewMapPoints() {
       const auto &idxs1 = vMatchedIndices[ikp][0];
       const auto &idxs2 = vMatchedIndices[ikp][1];
 
-      vector<GeometricCamera *> pcams;
+      vector<const camm::Camera *> pcams;
       aligned_vector<Sophus::SE3d> Twrs;
       vector<cv::KeyPoint> kps[2];
-      aligned_vector<Eigen::Vector2d> kps2d;
+      aligned_vector<camm::Camera::Vec2data> kps2d;
       vector<float> sigma_lvs;
       vector<vector<float>> urbfs;
       bool bStereos[2];
@@ -751,7 +755,7 @@ void LocalMapping::CreateNewMapPoints() {
 
       // use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less
       // accuracy in depth data
-      cv::Mat x3D;
+      camm::Camera::Vec3io x3D;
       // if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D
       // result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature
       // matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
@@ -762,21 +766,23 @@ void LocalMapping::CreateNewMapPoints() {
           continue;
       } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
         assert(bStereos[0]);
-        x3D = pKF1->UnprojectStereo(idxs1.front());
+        x3D = pKF1->UnprojectStereo(idxs1.front()).cast<camm::Camera::Tio>();
+        assert(!x3D.hasNaN());
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
         assert(bStereos[1]);
-        x3D = pKF2->UnprojectStereo(idxs2.front());
+        x3D = pKF2->UnprojectStereo(idxs2.front()).cast<camm::Camera::Tio>();
+        assert(!x3D.hasNaN());
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else
         continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax
                    // angle>=90 degrees with >=1 stereo point
 
       // Check scale consistency, is this dist not depth very good?
-      cv::Mat normal1 = x3D - Ow1;
-      float dist1 = cv::norm(normal1);
-      cv::Mat normal2 = x3D - Ow2;
-      float dist2 = cv::norm(normal2);
+      Vector3f normal1 = x3D.cast<float>() - Ow1;
+      float dist1 = normal1.norm();
+      Vector3f normal2 = x3D.cast<float>() - Ow2;
+      float dist2 = normal2.norm();
       // it seems impossible for zi>0, if possible it maybe numerical error
       if (dist1 == 0 || dist2 == 0) continue;
       if (th_far_pts_ > 0 && max(dist1, dist2) >= th_far_pts_) continue;
@@ -801,7 +807,7 @@ void LocalMapping::CreateNewMapPoints() {
 
       // Triangulation is succesfull
       // notice pMp->mnFirstKFid=mpCurrentKeyFrame->nid_
-      MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);
+      MapPoint *pMP = new MapPoint(x3D.cast<MapPoint::Tdata>(), mpCurrentKeyFrame, mpMap);
 
       PRINT_DEBUG_FILE_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       for (auto idx : idxs1) {

@@ -12,6 +12,7 @@
 #include <set>
 #include <map>
 #include <list>
+#include "common/eigen_utils.h"
 
 namespace VIEO_SLAM {
 
@@ -25,6 +26,10 @@ class MapPoint {
   template <typename _Tp>
   using list = std::list<_Tp>;
   using FrameId = unsigned long;
+  using Tcalc = float;
+  using Vector3calc = Eigen::Matrix<Tcalc, 3, 1>;
+  using Matrix3calc = Eigen::Matrix<Tcalc, 3, 3>;
+
   typedef struct _TrackFastMatchInfo {
     // avg depth, for fast motion close scene
     float track_depth_ = INFINITY;
@@ -44,6 +49,9 @@ class MapPoint {
   TrackFastMatchInfo trackinfo_ = {.track_ref_frameid_ = 0, .last_seen_frameid_ = 0};
 
  public:
+  using Tdata = float;
+  using Vector3data = Eigen::Matrix<Tdata, 3, 1>;
+
   void UpdateScale(const float& scale);
 
   // for Load/SaveMap()
@@ -54,11 +62,11 @@ class MapPoint {
   // added by zzh
 
  public:
-  MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap);
-  MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF);  // used in localization mode tracking
+  MapPoint(const Vector3data& Pos, KeyFrame* pRefKF, Map* pMap);
+  MapPoint(const Vector3data& Pos, Map* pMap, Frame* pFrame, const int& idxF);  // used in localization mode tracking
 
-  cv::Mat GetWorldPos();
-  void SetWorldPos(const cv::Mat& Pos, bool block = true);  // Pos.copyTo(mWorldPos)
+  Vector3data GetWorldPos();
+  void SetWorldPos(const Vector3data& Pos, bool block = true);  // mWorldPos=Pos
 
   // if map is large, for single search time cost stability, please use map instead of unordered_map
   std::map<KeyFrame*, std::set<size_t>> GetObservations();  // mObservations
@@ -77,7 +85,7 @@ class MapPoint {
   float GetMinDistanceInvariance();  // 0.8*mfMinDistance
   float GetMaxDistanceInvariance();  // 1.2*mfMaxDistance
   void UpdateNormalAndDepth();
-  cv::Mat GetNormal();                   // mNormalVector
+  Vector3data GetNormal();               // mNormalVector
   void ComputeDistinctiveDescriptors();  // Take the descriptor with least median distance to the rest
   cv::Mat GetDescriptor();
   int PredictScale(const float& currentDist, FrameBase* pfb);
@@ -102,18 +110,18 @@ class MapPoint {
   long unsigned int mnFuseCandidateForKF;  // fuse in LocalMapping
 
   // Variables used by loop closing
-  long unsigned int mnLoopPointForKF;      // used in ComputeSim3() in LoopClosing
-  long unsigned int mnCorrectedByKF;       // avoid duplications, used in CorrectLoop()(&& PoseGraphOpt.) in LoopClosing
-  long unsigned int mnCorrectedReference;  // ID of the KF which has corrected this MP's mWordPos, used in CorrectLoop()
-                                           // && PoseGraphOpt. in Optimizer.cc
-  cv::Mat mPosGBA;                         // optimized Pos in the end of GBA
-  long unsigned int mnBAGlobalForKF;       // mpCurrentKF calling GBA
+  long unsigned int mnLoopPointForKF;  // used in ComputeSim3() in LoopClosing
+  long unsigned int mnCorrectedByKF;   // avoid duplications, used in CorrectLoop()(&& PoseGraphOpt.) in LoopClosing
+  // ID of the KF which has corrected this MP's mWordPos, used in CorrectLoop() && PoseGraphOpt. in Optimizer.cc
+  long unsigned int mnCorrectedReference;
+  Vector3data mPosGBA;                // optimized Pos in the end of GBA
+  long unsigned int mnBAGlobalForKF;  // mpCurrentKF calling GBA
 
   static std::mutex mGlobalMutex;
 
  protected:
   // Position in absolute coordinates
-  cv::Mat mWorldPos;
+  Vector3data mWorldPos;
 
   // Keyframes observing the point and associated index in keyframe, set instead of vector here for simple coding
   std::map<KeyFrame*, std::set<size_t>> mObservations;
@@ -126,7 +134,7 @@ class MapPoint {
   MapPoint* mpReplaced;
 
   // Mean viewing direction (not definitely normalized)
-  cv::Mat mNormalVector;
+  Vector3data mNormalVector = Vector3data::Zero();
 
   // Reference KeyFrame (the first KF in mObservations)
   KeyFrame* mpRefKF;

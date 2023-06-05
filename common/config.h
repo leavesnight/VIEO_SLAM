@@ -19,6 +19,10 @@ namespace VIEO_SLAM {
 //#define DRAW_ALL_KPS
 //#define DRAW_KP2MP_LINE
 
+typedef double FLT_VIEO;
+typedef float FLT_CAMM;
+typedef double FLT_CALC_CAMM;
+
 // Strategy related params
 // BA with IMU related params, dataset uses 1e4, but real fast motion requires ~1e2
 constexpr double kRatioIMUSigma = 1e3 / 9;  // 1e4;  //

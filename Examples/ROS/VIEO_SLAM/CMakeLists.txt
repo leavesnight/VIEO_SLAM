@@ -57,7 +57,6 @@ endif ()
 include_directories(
         ${PROJECT_SOURCE_DIR}/../../..
         ${PROJECT_SOURCE_DIR}/../../../include
-        ${PROJECT_SOURCE_DIR}/../../../include/CameraModels
         ${PROJECT_SOURCE_DIR}/../../../src/Odom
         ${OpenCV_INCLUDE_DIRS}
         ${EIGEN3_INCLUDE_DIR}

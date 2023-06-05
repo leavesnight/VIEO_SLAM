@@ -37,7 +37,7 @@
 #include "KeyFrame.h"
 #include "LoopClosing.h"
 #include "Frame.h"
-#include "Pinhole.h"
+#include "common/camera_models/camera_pinhole.h"
 
 namespace VIEO_SLAM {
 
@@ -380,7 +380,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float deltaMono = sqrt(5.991);    // chi2(0.05,2)
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
-  Pinhole CamInst;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   assert(!pFrame->mpCameras.empty());
   bool usedistort = Frame::usedistort_;
   // configs for Prior Hessian
@@ -397,9 +397,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const auto &frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
   {
     if (!usedistort) {
-      auto params_tmp = pFrame->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      CamInst.setParameters(params_tmp);
+      CamInst = make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pFrame->mpCameras[0]).get());
     }
 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
@@ -410,7 +408,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       if (pMP) {
         // add fixed mp vertices for motion_only BA
         g2o::VertexSBAPointXYZ *vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
-        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
         int id = i + id_mp_beg;  //>=maxKFid+1
         vPoint->setId(id);
         vPoint->setFixed(true);
@@ -424,10 +422,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         {
           g2o::EdgeReprojectPVR *e = new g2o::EdgeReprojectPVR();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb);
+            e->SetParams(CamInst.get(), Rcb, tcb);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb);
           }
 
           // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
@@ -459,10 +457,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         {
           g2o::EdgeReprojectPVRStereo *e = new g2o::EdgeReprojectPVRStereo();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
+            e->SetParams(CamInst.get(), Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb,
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb,
                          &pFrame->stereoinfo_.baseline_bf_[1]);
           }
 

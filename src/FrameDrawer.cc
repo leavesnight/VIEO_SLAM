@@ -194,9 +194,11 @@ void FrameDrawer::Update(Tracking *pTracker) {
           continue;
         }
         auto &pcami = pTracker->mCurrentFrame.mpCameras[cami];
-        auto Tcw = pcami->GetTcr() * pTracker->mCurrentFrame.GetTcwCst();
-        auto cX = Tcw * Converter::toVector3d(pMP->GetWorldPos());
-        auto p2d = pcami->project(cX);
+        auto Tcw = pcami->GetTcr().cast<double>() * pTracker->mCurrentFrame.GetTcwCst();
+        Vector3d cX = Tcw * pMP->GetWorldPos().cast<double>();
+        using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
+        Vector2img p2d;
+        pcami->Project(cX, p2d);
         pt.pt = cv::Point2f(p2d[0], p2d[1]);
         if (cv::norm(pt.pt - mvCurrentKeys[i].pt) > 10)
           cout << "check pt norm=" << cv::norm(pt.pt - mvCurrentKeys[i].pt) << ";" << pt.pt << "/"
@@ -207,8 +209,8 @@ void FrameDrawer::Update(Tracking *pTracker) {
         dist_rmse[0] += dist * dist;
         if (dist_max_tot < dist) dist_max_tot = dist;
         Vector3d pt3dtest[2];
-        pt3dtest[0] = pcami->unproject(p2d);
-        pt3dtest[1] = pcami->unproject(Vector2d(mvCurrentKeys[i].pt.x, mvCurrentKeys[i].pt.y));
+        pcami->UnProject(p2d, &pt3dtest[0]);
+        pcami->UnProject(Vector2img(mvCurrentKeys[i].pt.x, mvCurrentKeys[i].pt.y), &pt3dtest[1]);
         dist = (pcami->toK() * (pt3dtest[0] - pt3dtest[1])).segment<2>(0).norm();
         dist_rmse[1] += dist * dist;
         ++count;

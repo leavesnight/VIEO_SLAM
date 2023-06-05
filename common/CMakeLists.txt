@@ -97,6 +97,9 @@ LIST(APPEND SOURCEFILES
         ${CMAKE_CURRENT_SOURCE_DIR}/mlog/log.cpp
         serialize/serialize.cpp
         multithread/multithreadbase.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_pinhole.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_radtan.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_kb8.cpp
         )
 
 message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})

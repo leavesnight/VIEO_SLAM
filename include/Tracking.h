@@ -34,7 +34,6 @@ class Map;
 class LocalMapping;
 class LoopClosing;
 class System;
-class GeometricCamera;
 
 class Tracking {
  public:
@@ -119,11 +118,7 @@ class Tracking {
  public:
   Tracking(System *pSys, ORBVocabulary *pVoc, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer, Map *pMap,
            KeyFrameDatabase *pKFDB, const string &strSettingPath, const int sensor);
-  ~Tracking() {
-    for (auto &pcam : mpCameras) {
-      delete pcam;
-    }
-  }
+  ~Tracking() {}
 
   void SetInitLastKeyFrame(KeyFrame *pKF) {
     if (!plast_kf_ || !pKF) plast_kf_ = pKF;
@@ -279,7 +274,7 @@ class Tracking {
 
   // Calibration matrix
   float mbf;
-  vector<GeometricCamera *> mpCameras;
+  vector<camm::Camera::Ptr> mpCameras;
 
   // New KeyFrame rules (according to fps)
   int mMinFrames;

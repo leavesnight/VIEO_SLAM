@@ -5,8 +5,7 @@
 #include "FrameBase.h"
 #include "common/serialize/serialize.h"
 #include "MapPoint.h"
-#include "KannalaBrandt8.h"
-#include "radtan.h"
+#include "common/camera_models/camera.h"
 #include "ORBVocabulary.h"
 
 #include "Converter.h"
@@ -188,16 +187,18 @@ void FrameBase::ComputeImageBounds(const vector<int> &wid_hei) {
   gridinfo_.minmax_xy_.resize(sz_cams + 1);
   for (size_t icam = 0; icam < sz_cams; ++icam) {
     // if not usedistort_ we should calc undistorted 4 corner pts(when it's pinhole, they're the same)
-    if (mpCameras[0]->GetType() != mpCameras[0]->CAM_PINHOLE && !usedistort_) {
+    if (mpCameras[0]->camera_model() != mpCameras[0]->kPinhole && !usedistort_) {
       Eigen::Matrix<float, 4, 2> mat;
       mat << 0.f, 0.f, (float)gridinfo_.sz_dims_[0], 0.f, 0.f, (float)gridinfo_.sz_dims_[1],
           (float)gridinfo_.sz_dims_[0], (float)gridinfo_.sz_dims_[1];
 
       // Undistort corners
       for (int i = 0; i < 4; ++i) {
-        cv::Mat mattmp = mpCameras[icam]->toKcv() * mpCameras[icam]->unprojectMat(cv::Point2f(mat(i, 0), mat(i, 1)));
-        mat(i, 0) = mattmp.at<float>(0);
-        mat(i, 1) = mattmp.at<float>(1);
+        Vector3d Pc;
+        mpCameras[icam]->UnProject(Vector2f(mat(i, 0), mat(i, 1)), &Pc);
+        Vector3f mattmp = mpCameras[icam]->toK() * Pc.cast<float>();
+        mat(i, 0) = mattmp(0);
+        mat(i, 1) = mattmp(1);
       }
 
       gridinfo_.minmax_xy_[icam][0] = min(mat(0, 0), mat(2, 0));
@@ -235,27 +236,15 @@ bool FrameBase::read(istream &is) {
   is.read((char *)&sz_cams, sizeof(sz_cams));
   mpCameras.resize(sz_cams);
   for (auto i = 0; i < sz_cams; ++i) {
-    int cam_type;
+    camm::Camera::CameraModel cam_type;
     is.read((char *)&cam_type, sizeof(cam_type));
     uint8_t sz_params_tmp;
     is.read((char *)&sz_params_tmp, sizeof(sz_params_tmp));
-    vector<float> params_tmp(sz_params_tmp);
+    vector<camm::Camera::Tdata> params_tmp(sz_params_tmp);
     Serialize::readVec(is, params_tmp);
-    switch (cam_type) {
-      case GeometricCamera::CAM_PINHOLE:
-        mpCameras[i] = new Pinhole();
-        break;
-      case GeometricCamera::CAM_RADTAN:
-        mpCameras[i] = new Radtan();
-        break;
-      case GeometricCamera::CAM_FISHEYE:
-        mpCameras[i] = new KannalaBrandt8();
-        break;
-      default:
-        PRINT_ERR_MUTEX("Unsupported Camera Model in " << __FUNCTION__ << endl);
-        exit(-1);
-    }
-    mpCameras[i]->setParameters(params_tmp);
+    camm::Camera::CamId icam = 0;
+    camm::Camera::Tsize sz_dims[2] = {0, 0};
+    mpCameras[i] = camm::CreateCameraInstance(cam_type, icam, sz_dims[0], sz_dims[1], params_tmp);
   }
 
   is.read((char *)&N, sizeof(N));
@@ -326,9 +315,9 @@ bool FrameBase::write(ostream &os) const {
   uint8_t sz_cams = (uint8_t)mpCameras.size();
   os.write((char *)&sz_cams, sizeof(sz_cams));
   for (auto i = 0; i < sz_cams; ++i) {
-    int cam_type = (int)mpCameras[i]->GetType();
+    camm::Camera::CameraModel cam_type = mpCameras[i]->camera_model();
     os.write((char *)&cam_type, sizeof(cam_type));
-    vector<float> params_tmp = mpCameras[i]->getParameters();
+    vector<camm::Camera::Tdata> params_tmp = mpCameras[i]->GetParameters();
     uint8_t sz_params_tmp = (uint8_t)params_tmp.size();
     os.write((char *)&sz_params_tmp, sizeof(sz_params_tmp));
     Serialize::writeVec(os, params_tmp);

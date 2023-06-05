@@ -14,7 +14,7 @@
 #include "optimizer/g2o/g2o/core/base_multi_edge.h"
 #include "optimizer/g2o/g2o/types/types_six_dof_expmap.h"
 #endif
-#include "GeometricCamera.h"
+#include "common/camera_models/camera_base.h"
 #include "NavState.h"
 #include "OdomPreIntegrator.h"
 
@@ -28,8 +28,9 @@ namespace g2o {
 using namespace VIEO_SLAM;
 using namespace Eigen;
 
-// extend edges to get H
+using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
 
+// extend edges to get H
 typedef enum HessianExactMode { kExactNoRobust, kExactRobust, kNotExact } eHessianExactMode;
 
 template <int D, typename E, typename VertexXi>
@@ -334,9 +335,11 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
 
   bool read(std::istream& is) { return true; }
   bool write(std::ostream& os) const { return true; }
-  static VectorDEd cam_project(GeometricCamera* intr, Vector3d x_C, double bf = 0) {
+  static VectorDEd cam_project(camm::Camera* intr, Vector3d x_C, double bf = 0) {
     VectorDEd res;
-    res.template segment<2>(0) = intr->project(x_C);
+    Vector2img x_img;
+    intr->Project(x_C, &x_img);
+    res.template segment<2>(0) = x_img.cast<double>();
     if (DE > 2) res[2] = res[0] - bf / x_C[2];
     return res;
   }
@@ -403,12 +406,12 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   }
   void linearizeOplus() override;
 
-  void SetParams(GeometricCamera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
+  void SetParams(camm::Camera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
                  const Vector3d tcrb_ = Vector3d::Zero(), const float* bf = NULL) {
     intr_ = intr;
-    Matrix3d Rccr = intr_->GetTcr().rotationMatrix();
+    Matrix3d Rccr = intr_->GetTcr().rotationMatrix().cast<double>();
     Rcb = Rccr * Rcrb_;
-    tcb = Rccr * tcrb_ + intr_->GetTcr().translation();
+    tcb = Rccr * tcrb_ + intr_->GetTcr().translation().cast<double>();
     if (bf) bf_ = *bf;
   }
   void SetParams(const Matrix3d& Rbch, const Vector3d& tbch) {
@@ -425,7 +428,7 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
 
  protected:
   double bf_;
-  GeometricCamera* intr_;  // Camera intrinsics
+  camm::Camera* intr_;  // Camera intrinsics
   // Camera-IMU extrinsics
   Matrix3d Rcb, Rbch_;
   Vector3d tcb, tbch_;
@@ -450,7 +453,11 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
 
   // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
   Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
-  Jproj.template block<2, 3>(0, 0) = -intr_->projectJac(Pc);
+  {
+    Matrix<double, 2, 3> Jproj_tmp;
+    intr_->Project(Pc, nullptr, &Jproj_tmp);
+    Jproj.template block<2, 3>(0, 0) = -Jproj_tmp;
+  }
   // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0 -fx*x/z^2+bf/z^2]
   if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), Jproj(0, 1), Jproj(0, 2) - bf_ * invz_2;
 

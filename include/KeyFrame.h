@@ -15,7 +15,6 @@ namespace VIEO_SLAM {
 class Map;
 class MapPoint;
 class KeyFrameDatabase;
-class GeometricCamera;
 
 class KeyFrame : public FrameBase, public MutexUsed {
   char mState;
@@ -165,7 +164,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat GetRotation();
   cv::Mat GetTranslation();
 
-  cv::Mat UnprojectStereo(int i);
+  Vector3f UnprojectStereo(int i);
 
   // Set/check bad flag
   bool isBad() override;  // mbBad

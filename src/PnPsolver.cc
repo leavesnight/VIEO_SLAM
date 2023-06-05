@@ -79,8 +79,8 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint *> &vpMapPointMatches
         mvP2D.push_back(kp.pt);
         mvSigma2.push_back(F.scalepyrinfo_.vlevelsigma2_[kp.octave]);
 
-        cv::Mat Pos = pMP->GetWorldPos();
-        mvP3Dw.push_back(cv::Point3f(Pos.at<float>(0), Pos.at<float>(1), Pos.at<float>(2)));
+        MapPoint::Vector3data Pos = pMP->GetWorldPos();
+        mvP3Dw.push_back(cv::Point3f(Pos(0), Pos(1), Pos(2)));
 
         mvKeyPointIndices.push_back(i);
         mvAllIndices.push_back(idx);
@@ -95,7 +95,7 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint *> &vpMapPointMatches
   }
 
   // Set camera calibration parameters
-  Matrix3d K_tmp = F.mpCameras[0]->toK();
+  camm::Camera::Mat3data K_tmp = F.mpCameras[0]->toK();
   fu = K_tmp(0, 0);
   fv = K_tmp(1, 1);
   uc = K_tmp(0, 2);
@@ -280,9 +280,11 @@ void PnPsolver::Getuv(const Vector3d &Pcr, double &ue, double &ve, size_t i) {
     ue = uc + fu * Pcr[0] * invZc;
     ve = vc + fv * Pcr[1] * invZc;
   } else {
-    GeometricCamera *pcam1 = pcams_[mapidx2cami_[i]];
-    Vector3d Pc = pcam1->GetTcr() * Pcr;
-    auto pt = pcam1->project(Pc);
+    camm::Camera *pcam1 = pcams_[mapidx2cami_[i]].get();
+    Vector3d Pc = pcam1->GetTcr().cast<double>() * Pcr;
+    using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
+    Vector2img pt;
+    pcam1->Project(Pc, &pt);
     ue = pt[0];
     ve = pt[1];
   }
@@ -346,9 +348,9 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
   cv::Point2d keyun;
   if (mapidx2cami_.size() > idx) {
     auto &pcam1 = pcams_[mapidx2cami_[idx]];
-    cv::Point3f cvPc = pcam1->unproject(cv::Point2f(u, v));
-    Vector3d Pc = Vector3d(cvPc.x, cvPc.y, cvPc.z);
-    Vector3d keyun_ = pcam1->toK() * (pcam1->GetTrc() * Pc);
+    Vector3d Pc;
+    pcam1->UnProject(Vector2f(u, v), &Pc);
+    Vector3d keyun_ = pcam1->toK().cast<double>() * (pcam1->GetTrc().cast<double>() * Pc);
     double invz = 1. / keyun_[2];
     keyun.x = keyun_[0] * invz;
     keyun.y = keyun_[1] * invz;

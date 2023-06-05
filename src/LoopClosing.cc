@@ -579,13 +579,12 @@ void LoopClosing::CorrectLoop() {
           continue;
 
         // Project with non-corrected pose and project back with corrected pose
-        cv::Mat P3Dw = pMPi->GetWorldPos();
-        Eigen::Matrix<double, 3, 1> eigP3Dw = Converter::toVector3d(P3Dw);  // noncorrected Pw
-        Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw = g2oCorrectedSwi.map(
-            g2oSiw.map(eigP3Dw));  // corrected Swi*Pi(noncorrected Siw*noncorrected Pw)=corrected Pw
+        MapPoint::Vector3data P3Dw = pMPi->GetWorldPos();
+        Eigen::Matrix<double, 3, 1> eigP3Dw = P3Dw.cast<double>();  // noncorrected Pw
+        // corrected Swi*Pi(noncorrected Siw*noncorrected Pw)=corrected Pw
+        Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw = g2oCorrectedSwi.map(g2oSiw.map(eigP3Dw));
 
-        cv::Mat cvCorrectedP3Dw = Converter::toCvMat(eigCorrectedP3Dw);  // corrected Pw
-        pMPi->SetWorldPos(cvCorrectedP3Dw);
+        pMPi->SetWorldPos(eigCorrectedP3Dw.cast<MapPoint::Tdata>());
         pMPi->mnCorrectedByKF = mpCurrentKF->nid_;  // update pMPi->mnCorrectedByKF
         pMPi->mnCorrectedReference = pKFi->nid_;
         pMPi->UpdateNormalAndDepth();  // update pMPi's normal for its mWordPos is changed
@@ -847,14 +846,16 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
             continue;
 
           // Map to non-corrected camera
-          cv::Mat Rcw = pRefKF->mTcwBefGBA.rowRange(0, 3).colRange(0, 3);  // old Rcw
-          cv::Mat tcw = pRefKF->mTcwBefGBA.rowRange(0, 3).col(3);          // old tcw
-          cv::Mat Xc = Rcw * pMP->GetWorldPos() + tcw;                     // Xc=(Tcw(old)*Pw(old))(0:2)
+          // old Tcw
+          Matrix3f Rcw = Converter::toMatrix3d(pRefKF->mTcwBefGBA.rowRange(0, 3).colRange(0, 3)).cast<float>();
+          Vector3f tcw = Converter::toVector3d(pRefKF->mTcwBefGBA.rowRange(0, 3).col(3)).cast<float>();
+          Vector3f Xc = Rcw * pMP->GetWorldPos() + tcw;  // Xc=(Tcw(old)*Pw(old))(0:2)
 
           // Backproject using corrected camera
-          cv::Mat Twc = pRefKF->GetPoseInverse();           // new Twc
-          cv::Mat Rwc = Twc.rowRange(0, 3).colRange(0, 3);  // new Rwc
-          cv::Mat twc = Twc.rowRange(0, 3).col(3);          // new twc
+          // new Twc
+          cv::Mat Twc = pRefKF->GetPoseInverse();
+          Matrix3f Rwc = Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)).cast<float>();
+          Vector3f twc = Converter::toVector3d(Twc.rowRange(0, 3).col(3)).cast<float>();
 
           pMP->SetWorldPos(Rwc * Xc + twc);  // update all (new)MPs' Pos to GBA optimized Pos/Pw(new)=Twc(new)*Pc
         }

@@ -7,11 +7,13 @@
 #include "Converter.h"
 #include "ORBmatcher.h"
 #include <thread>
-#include "KannalaBrandt8.h"
+#include "common/camera_models/camera_kb8.h"
 #include "common/config.h"
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
+using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
+
 // For stereo fisheye matching
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
 
@@ -214,7 +216,7 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
 }
 
 Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<ORBextractor *> &extractors,
-             ORBVocabulary *voc, const vector<GeometricCamera *> &CamInsts, const float &bf, const float &thDepth,
+             ORBVocabulary *voc, const vector<camm::Camera::Ptr> &CamInsts, const float &bf, const float &thDepth,
              IMUPreintegrator *ppreint_imu_kf, EncPreIntegrator *ppreint_enc_kf, bool usedistort,
              const float th_far_pts)
     : FrameBase(timeStamp),
@@ -264,10 +266,10 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
   auto sz_cams = CamInsts.size();
   assert(sz_extract == sz_cams || (sz_extract > sz_cams && !usedistort && !CamInsts.empty()));
   for (int i = 0; i < sz_extract; ++i) {
-    vector<int> *plapping_area = nullptr;
+    const vector<int> *plapping_area = nullptr;
     int icam = sz_cams > i ? i : 0;
-    if (CamInsts[icam]->CAM_FISHEYE == CamInsts[icam]->GetType()) {
-      plapping_area = &static_cast<KannalaBrandt8 *>(CamInsts[icam])->mvLappingArea;
+    if (CamInsts[icam]->kKB8 == CamInsts[icam]->camera_model()) {
+      plapping_area = &static_pointer_cast<camm::KB8Camera>(CamInsts[icam])->GetvLappingArea();
     }
     threads[i] = thread(&Frame::ExtractORB, this, i, ims[i], plapping_area);
   }
@@ -313,7 +315,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
   AssignFeaturesToGrid();
 }
 
-void Frame::ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea) {
+void Frame::ExtractORB(int flag, const cv::Mat &im, const std::vector<int> *pvLappingArea) {
   num_mono[flag] = (*mpORBextractors[flag])(im, cv::Mat(), vvkeys_[flag], vdescriptors_[flag], pvLappingArea);
 }
 
@@ -338,23 +340,24 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   trackinfo.Reset();
 
   // 3D in absolute coordinates
-  cv::Mat wP = pMP->GetWorldPos();
-  cv::Mat Pn = pMP->GetNormal();
+  MapPoint::Vector3data wP = pMP->GetWorldPos();
+  Eigen::Vector3f Pn = pMP->GetNormal();
   const float maxDistance = pMP->GetMaxDistanceInvariance();
   const float minDistance = pMP->GetMinDistanceInvariance();
-  cv::Mat Rcrw = Tcw_.rowRange(0, 3).colRange(0, 3);
+  Eigen::Matrix3f Rcrw = Converter::toMatrix3d(Tcw_.rowRange(0, 3).colRange(0, 3)).cast<float>();
   // 3D in camera coordinates
-  const cv::Mat Pcr = mRcw * wP + mtcw;
+  Eigen::Vector3f tcrw = Converter::toVector3d(mtcw).cast<float>();
+  const Eigen::Vector3f Pcr = Rcrw * wP + tcrw;
   float sum_depth = 0;
   for (size_t cami = 0; cami < n_cams; ++cami) {
     // TODO: unify this cycle with SBP to one func
-    Vector3d Pc = Converter::toVector3d(Pcr);
-    GeometricCamera *pcam1 = nullptr;
-    cv::Mat twc = mOw.clone();  // wO
+    Vector3f Pc = Pcr;
+    camm::Camera *pcam1 = nullptr;
+    Eigen::Vector3f twc = Converter::toVector3d(mOw).cast<float>();  // wO
     if (mpCameras.size() > cami) {
-      pcam1 = mpCameras[cami];
+      pcam1 = mpCameras[cami].get();
       Pc = pcam1->GetTcr() * Pc;
-      twc += Rcrw.t() * pcam1->Getcvtrc();
+      twc += Rcrw.transpose() * pcam1->GetTrc().translation();
     }
     const float &PcZ = Pc(2);
 
@@ -373,7 +376,8 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
       u = uv[0];
       v = uv[1];
     } else {
-      auto pt = pcam1->project(Pc);
+      Vector2img pt;
+      pcam1->Project(Pc.cast<double>(), &pt);
       u = pt[0];
       v = pt[1];
     }
@@ -382,8 +386,8 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
     if (v < gridinfo_.minmax_xy_[cami][2] || v > gridinfo_.minmax_xy_[cami][3]) continue;
 
     // Check viewing angle
-    const cv::Mat PO = wP - twc;
-    const float dist3D = cv::norm(PO);
+    const Vector3f PO = wP - twc;
+    const float dist3D = PO.norm();
     // Check distance is in the scale invariance region of the MapPoint
     // if it's out of the frustum, image pyramid is not effective
     if (dist3D < minDistance || dist3D > maxDistance) continue;
@@ -417,7 +421,7 @@ void Frame::UndistortKeyPoints() {
   assert(n_cams);
   bool bdirect_copy = true;
   for (size_t icam = 0; icam < n_cams; ++icam)
-    if (mpCameras[icam]->GetType() != mpCameras[icam]->CAM_PINHOLE) bdirect_copy = false;
+    if (mpCameras[icam]->camera_model() != mpCameras[icam]->kPinhole) bdirect_copy = false;
   if (bdirect_copy) {
     mvKeysUn = mvKeys;
     return;
@@ -427,9 +431,11 @@ void Frame::UndistortKeyPoints() {
   cv::Mat mat(N, 2, CV_32F);
   for (int i = 0; i < N; ++i) {
     size_t cami = mapn2in_.size() <= i ? 0 : get<0>(mapn2in_[i]);
-    cv::Mat mattmp = mpCameras[cami]->toKcv() * mpCameras[cami]->unprojectMat(mvKeys[i].pt);
-    mat.at<float>(i, 0) = mattmp.at<float>(0);
-    mat.at<float>(i, 1) = mattmp.at<float>(1);
+    Vector3d cP;
+    mpCameras[cami]->UnProject(Vector2f(mvKeys[i].pt.x, mvKeys[i].pt.y), &cP);
+    Vector3f mattmp = mpCameras[cami]->toK() * cP.cast<float>();
+    mat.at<float>(i, 0) = mattmp(0);
+    mat.at<float>(i, 1) = mattmp(1);
   }
 
   // Fill undistorted keypoint vector
@@ -626,7 +632,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos)) else
   // dmax=b/[2sqrt((1-thresh_cos)/(1+thresh_cos))], if thresh_cos is cos(fov), it's dmin
   assert(!mpCameras.empty());
-  Eigen::Matrix3d K = mpCameras[0]->toK();
+  camm::Camera::Mat3data K = mpCameras[0]->toK();
   float f_bar = (K(0, 0) + K(1, 1)) / 2.;
   double thresh_cosdisparity[2] = {0.9998, 1. - 1e-6};
   if (th_far_pts > 0) {
@@ -638,7 +644,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   // Check matches using Lowe's ratio
   assert(!stereoinfo_.goodmatches_.size() && !stereoinfo_.mapcamidx2idxs_.size() && !mvidxsMatches.size());
 #ifdef USE_STRATEGY_MIN_DIST
-  vector<vector<double>> lastdists;
+  vector<vector<float>> lastdists;
 #endif
   int num_thresh_try = thresh_cosdisparity[1] == thresh_cosdisparity[0] ? 1 : 2;
   for (int k = 0; k < num_thresh_try; ++k) {
@@ -658,8 +664,8 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
             size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
             const auto &keyi = vvkeys_[i][idxi], &keyj = vvkeys_[j][idxj];
             vector<float> sigmas = {scalepyrinfo_.vlevelsigma2_[keyi.octave], scalepyrinfo_.vlevelsigma2_[keyj.octave]};
-            aligned_vector<Eigen::Vector2d> kpts = {Vector2d(keyi.pt.x, keyi.pt.y), Vector2d(keyj.pt.x, keyj.pt.y)};
-            if (mpCameras[i]->FillMatchesFromPair(vector<GeometricCamera *>(1, mpCameras[j]), n_cams,
+            aligned_vector<Eigen::Vector2f> kpts = {Vector2f(keyi.pt.x, keyi.pt.y), Vector2f(keyj.pt.x, keyj.pt.y)};
+            if (mpCameras[i]->FillMatchesFromPair(vector<const camm::Camera *>(1, mpCameras[j].get()), n_cams,
                                                   vector<pair<size_t, size_t>>{make_pair(i, idxi), make_pair(j, idxj)},
                                                   (*it)[0].distance, mvidxsMatches, stereoinfo_.goodmatches_,
                                                   stereoinfo_.mapcamidx2idxs_, thresh_cosdisparity[0],
@@ -697,17 +703,17 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
     for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
       if (!stereoinfo_.goodmatches_[i]) continue;
       // For every good match, check parallax and reprojection error to discard spurious matches
-      cv::Mat p3D;
+      Vector3d p3D;
       auto &idx = mvidxsMatches[i];
       vector<float> sigmas;
       vector<size_t> vidx_used;
-      vector<GeometricCamera *> pcams_in;
-      aligned_vector<Eigen::Vector2d> kpts;
+      vector<const camm::Camera *> pcams_in;
+      aligned_vector<Eigen::Vector2f> kpts;
       for (int k = 0; k < idx.size(); ++k) {
         if (-1 != idx[k]) {
           vidx_used.push_back(idx[k]);
           sigmas.push_back(scalepyrinfo_.vlevelsigma2_[vvkeys_[k][idx[k]].octave]);
-          pcams_in.push_back(mpCameras[k]);
+          pcams_in.push_back(mpCameras[k].get());
           kpts.emplace_back(vvkeys_[k][idx[k]].pt.x, vvkeys_[k][idx[k]].pt.y);
         }
       }
@@ -720,8 +726,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
         }
       }
       if (bgoodmatch) {
-        stereoinfo_.v3dpoints_[i] =
-            Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
+        stereoinfo_.v3dpoints_[i] = p3D;  // here should return pt in cami's ref frame, usually 0
         nMatches++;
       } else
         stereoinfo_.goodmatches_[i] = false;
@@ -743,7 +748,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
       if (iteridxs != stereoinfo_.mapcamidx2idxs_.end()) {
         auto &ididxs = iteridxs->second;
         if (-1 != ididxs && stereoinfo_.goodmatches_[ididxs]) {
-          Vector3d x3Dc = ((KannalaBrandt8 *)mpCameras[i])->GetTcr() * stereoinfo_.v3dpoints_[ididxs];
+          Vector3d x3Dc = mpCameras[i]->GetTcr().cast<double>() * stereoinfo_.v3dpoints_[ididxs];
           stereoinfo_.vdepth_.push_back(x3Dc[2]);
         } else
           stereoinfo_.vdepth_.push_back(-1);
@@ -794,14 +799,15 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
     const float d = imDepth.at<float>(v, u);
     if (d > 0) {
       stereoinfo_.vdepth_[i] = d;
-      Vector2d kpuse;
+      camm::Camera::Vec2data kpuse;
       size_t cami = 0;
       if (usedistort_) {
-        kpuse = Vector2d(kp.pt.x, kp.pt.y);
+        kpuse = camm::Camera::Vec2data(kp.pt.x, kp.pt.y);
 
         // for Frame::UnprojectStereo
         cami = get<0>(mapn2in_[i]);
-        Vector3d kpun_norm = mpCameras[cami]->unproject(kpuse);
+        camm::Camera::Vec3io kpun_norm;
+        mpCameras[cami]->UnProject(kpuse, &kpun_norm);
         vector<size_t> idxs(n_cams_tot, -1);
         size_t idxi = i;
         idxs[cami] = idxi;
@@ -813,7 +819,7 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
         stereoinfo_.goodmatches_.emplace_back(true);
         stereoinfo_.v3dpoints_[ididxs] = kpun_norm * d;
       } else
-        kpuse = Vector2d(mvKeysUn[i].pt.x, mvKeysUn[i].pt.y);
+        kpuse = camm::Camera::Vec2data(mvKeysUn[i].pt.x, mvKeysUn[i].pt.y);
       // here maybe <0(Mono) and >=mnMaxX, suppose [mnMinX,mnMaxX), so d has dmin(corresponds to mnMinX/0)
       // even usedistort, this should exist to provide depth info for BA on single image(just trans unit m to pixel)
       stereoinfo_.vuright_[i] = kpuse[0] - stereoinfo_.baseline_bf_[1] / d;
@@ -836,17 +842,17 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
   }
 }
 
-cv::Mat Frame::UnprojectStereo(const int &i) {
+Vector3f Frame::UnprojectStereo(const int &i) {
   if (mapn2in_.size() > i) {
     const float z = stereoinfo_.vdepth_[i];
     if (z > 0) {
       auto ididxs = GetMapn2idxs(i);
-      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
+      assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
       Vector3d x3Dw =
           Converter::toMatrix3d(mRwc) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) + Converter::toVector3d(mOw);
-      return Converter::toCvMat(x3Dw);
+      return x3Dw.cast<float>();
     } else {
-      return cv::Mat();
+      return Vector3f::Constant(NAN);
     }
   }
 
@@ -858,10 +864,10 @@ cv::Mat Frame::UnprojectStereo(const int &i) {
     Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);
     const float x = uv_normal[0] * z;
     const float y = uv_normal[1] * z;
-    cv::Mat x3Dc = (cv::Mat_<float>(3, 1) << x, y, z);
-    return mRwc * x3Dc + mOw;
+    Vector3f x3Dc(x, y, z);
+    return Converter::toMatrix3d(mRwc).cast<float>() * x3Dc + Converter::toVector3d(mOw).cast<float>();
   } else
-    return cv::Mat();
+    return Vector3f::Constant(NAN);
 }
 
 }  // namespace VIEO_SLAM

@@ -853,20 +853,20 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
   if (bUpdate) UpdateBestCovisibles();
 }
 
-cv::Mat KeyFrame::UnprojectStereo(int i) {
+Vector3f KeyFrame::UnprojectStereo(int i) {
   if (mapn2in_.size() > i) {
     const float z = stereoinfo_.vdepth_[i];
     if (z > 0) {
       auto ididxs = GetMapn2idxs(i);
-      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
+      assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
 
       unique_lock<mutex> lock(mMutexPose);
       Vector3d x3Dw =
           Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) +
           Converter::toVector3d(Twc.rowRange(0, 3).col(3));
-      return Converter::toCvMat(x3Dw);
+      return x3Dw.cast<float>();
     } else {
-      return cv::Mat();
+      return Vector3f::Constant(NAN);
     }
   }
 
@@ -878,12 +878,13 @@ cv::Mat KeyFrame::UnprojectStereo(int i) {
     Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);
     const float x = uv_normal[0] * z;
     const float y = uv_normal[1] * z;
-    cv::Mat x3Dc = (cv::Mat_<float>(3, 1) << x, y, z);
+    Vector3f x3Dc(x, y, z);
 
     unique_lock<mutex> lock(mMutexPose);
-    return Twc.rowRange(0, 3).colRange(0, 3) * x3Dc + Twc.rowRange(0, 3).col(3);
+    return Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)).cast<float>() * x3Dc +
+           Converter::toVector3d(Twc.rowRange(0, 3).col(3)).cast<float>();
   } else
-    return cv::Mat();
+    return Vector3f::Constant(NAN);
 }
 
 float KeyFrame::ComputeSceneMedianDepth(const int q) {
@@ -898,13 +899,12 @@ float KeyFrame::ComputeSceneMedianDepth(const int q) {
 
   vector<float> vDepths;
   vDepths.reserve(N);
-  cv::Mat Rcw2 = Tcw.row(2).colRange(0, 3);
-  Rcw2 = Rcw2.t();
+  Eigen::Vector3f Rcw2 = Converter::toVector3d(Tcw.row(2).colRange(0, 3)).cast<float>();
   float zcw = Tcw.at<float>(2, 3);
   for (int i = 0; i < N; i++) {
     if (vpMapPoints[i]) {
       MapPoint *pMP = vpMapPoints[i];
-      cv::Mat x3Dw = pMP->GetWorldPos();
+      MapPoint::Vector3data x3Dw = pMP->GetWorldPos();
       float z = Rcw2.dot(x3Dw) + zcw;
       vDepths.push_back(z);
     }

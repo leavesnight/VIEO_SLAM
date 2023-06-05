@@ -12,7 +12,7 @@
 #include "ORBmatcher.h"
 
 #include "loop/DBoW2/DUtils/Random.h"
-#include "CameraModels/Pinhole.h"
+#include "common/camera_models/camera_pinhole.h"
 #include "Converter.h"
 
 namespace VIEO_SLAM {
@@ -49,22 +49,16 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
   if (usedistort_[0])
     pcams_[0] = pKF1->mpCameras;
   else {
-    camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
-    auto &CamInst = camsinst_.back();
-    auto params_tmp = pKF1->mpCameras[0]->getParameters();
-    params_tmp.resize(4);
-    CamInst->setParameters(params_tmp);
-    pcams_[0].push_back(CamInst.get());
+    camsinst_.push_back(static_pointer_cast<camm::Camera>(
+        make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF1->mpCameras[0]).get())));
+    pcams_[0].push_back(camsinst_.back());
   }
   if (usedistort_[1])
     pcams_[1] = pKF2->mpCameras;
   else {
-    camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
-    auto &CamInst = camsinst_.back();
-    auto params_tmp = pKF2->mpCameras[0]->getParameters();
-    params_tmp.resize(4);
-    CamInst->setParameters(params_tmp);
-    pcams_[1].push_back(CamInst.get());
+    camsinst_.push_back(static_pointer_cast<camm::Camera>(
+        make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF2->mpCameras[0]).get())));
+    pcams_[1].push_back(camsinst_.back());
   }
   for (int i1 = 0; i1 < mN1; i1++) {
     if (vpMatched12[i1]) {
@@ -97,10 +91,10 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
         mvpMapPoints2.push_back(pMP2);
         mvnIndices1.push_back(i1);
 
-        cv::Mat X3D1w = pMP1->GetWorldPos();     // cv::Mat(3,1,float)
+        cv::Mat X3D1w = Converter::toCvMat(Vector3d(pMP1->GetWorldPos().cast<double>()));
         mvX3Dc1.push_back(Rcw1 * X3D1w + tcw1);  // Xc1=(Tc1w*[Xw|1])(0:2)
 
-        cv::Mat X3D2w = pMP2->GetWorldPos();
+        cv::Mat X3D2w = Converter::toCvMat(Vector3d(pMP2->GetWorldPos().cast<double>()));
         mvX3Dc2.push_back(Rcw2 * X3D2w + tcw2);  // Xc2
 
         mvAllIndices.push_back(idx);
@@ -355,7 +349,7 @@ cv::Mat Sim3Solver::GetEstimatedTranslation() { return mBestTranslation.clone();
 
 float Sim3Solver::GetEstimatedScale() { return mBestScale; }
 
-void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, vector<GeometricCamera *> &pcams,
+void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, const vector<camm::Camera::Ptr> &pcams,
                          vector<size_t> &mapidx2cami, cv::Mat *pTcrw) {
   cv::Mat Rcw, tcw;
   if (pTcrw) {
@@ -367,11 +361,13 @@ void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, ve
   vP2D.reserve(vP3Dw.size());
 
   for (size_t i = 0, iend = vP3Dw.size(); i < iend; i++) {
-    Eigen::Vector3d crP3D = Converter::toVector3d(pTcrw ? Rcw * vP3Dw[i] + tcw : vP3Dw[i]);
+    Eigen::Vector3f crP3D = Converter::toVector3d(pTcrw ? Rcw * vP3Dw[i] + tcw : vP3Dw[i]).cast<float>();
     auto pcam = pcams[mapidx2cami[i]];
-    Eigen::Vector3d cP3d = pcam->GetTcr() * crP3D;
+    Eigen::Vector3d cP3d = (pcam->GetTcr() * crP3D).cast<double>();
 
-    Eigen::Vector2d p2dnorm = pcam->project(cP3d);
+    using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
+    Vector2img p2dnorm;
+    pcam->Project(cP3d, &p2dnorm);
     vP2D.push_back(cv::Mat_<float>(2, 1) << (p2dnorm[0], p2dnorm[1]));
   }
 }

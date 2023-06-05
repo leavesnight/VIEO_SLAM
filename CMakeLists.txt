@@ -96,7 +96,6 @@ message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS
 include_directories(
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include/CameraModels
         ${PROJECT_SOURCE_DIR}/src/Odom
         #${CHOLMOD_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}
@@ -163,11 +162,6 @@ LIST(APPEND ${PROJECT_NAME}_SRCS
         src/Odom/OdomPreIntegrator.cpp
         src/Odom/IMUInitialization.cpp
         src/Odom/g2otypes.cpp
-
-        src/CameraModels/GeometricCamera.cpp
-        src/CameraModels/Pinhole.cpp
-        src/CameraModels/KannalaBrandt8.cpp
-        src/CameraModels/radtan.cpp
         )
 
 add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}

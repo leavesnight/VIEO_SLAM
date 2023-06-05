@@ -34,7 +34,7 @@ class Sim3Solver {
 
   void CheckInliers();
 
-  void Project(const std::vector<cv::Mat> &vP3Dw, std::vector<cv::Mat> &vP2D, vector<GeometricCamera *> &pcam,
+  void Project(const std::vector<cv::Mat> &vP3Dw, std::vector<cv::Mat> &vP2D, const vector<camm::Camera::Ptr> &pcam,
                vector<size_t> &mapidx2cami, cv::Mat *pTcw = nullptr);
 
  protected:
@@ -51,8 +51,8 @@ class Sim3Solver {
   std::vector<MapPoint *> mvpMatches12;  // mvpMatches12[i] matched to mpKF1->mvpMapPoints[i]
 
   // Calibration
-  vector<shared_ptr<GeometricCamera>> camsinst_;
-  vector<GeometricCamera *> pcams_[2];
+  vector<shared_ptr<camm::Camera>> camsinst_;
+  vector<camm::Camera::Ptr> pcams_[2];
   vector<size_t> mapidx2cami_[2];
   bool usedistort_[2];
   std::vector<size_t> mvnIndices1;  // matched MPs' index in pKF1
