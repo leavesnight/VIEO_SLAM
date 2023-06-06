@@ -1156,6 +1156,7 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
 }
 
 size_t Frame::GetMapn2idxs(size_t i) {
+  if (mapn2in_.size() <= i) return -1;  // for no mpCameras mode sz is 0
   auto iteridx = mapcamidx2idxs_.find(mapn2in_[i]);
   if (iteridx == mapcamidx2idxs_.end())
     return -1;
