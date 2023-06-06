@@ -24,16 +24,20 @@ bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCame
   cv::Mat DistCoef(4, 1, CV_32F);
   DistCoef.at<float>(0) = fSettings[cam_name + ".k1"];
   DistCoef.at<float>(1) = fSettings[cam_name + ".k2"];
-  DistCoef.at<float>(2) = fSettings[cam_name + ".p1"];
-  DistCoef.at<float>(3) = fSettings[cam_name + ".p2"];
-  const float k3 = fSettings[cam_name + ".k3"];
-  if (k3 != 0) {
-    DistCoef.resize(5);
-    DistCoef.at<float>(4) = k3;
+  int id_distcoef = 2;
+  node_tmp = fSettings[cam_name + ".k3"];
+  if (!node_tmp.empty()) {
+    const float k3 = (float)node_tmp;
+    if (k3 != 0) {
+      DistCoef.resize(5);
+      DistCoef.at<float>(id_distcoef++) = k3;
+    }
   }
-  if (pDistCoef) DistCoef.copyTo(*pDistCoef);
+  DistCoef.at<float>(id_distcoef++) = fSettings[cam_name + ".p1"];
+  DistCoef.at<float>(id_distcoef++) = fSettings[cam_name + ".p2"];
 
   pCamInst = new Radtan(DistCoef, fSettings, id, b_miss_params);
+  if (pDistCoef) (dynamic_cast<Radtan *>(pCamInst))->toDistortCoeff_OpenCV().copyTo(*pDistCoef);
   if (b_miss_params) {
     cerr << "Error: miss params!" << endl;
     return false;
@@ -43,23 +47,31 @@ bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCame
   PRINT_INFO_MUTEX(endl << "Camera (Radtan) Parameters: " << endl);
   PRINT_INFO_MUTEX("- k1: " << DistCoef.at<float>(0) << endl);
   PRINT_INFO_MUTEX("- k2: " << DistCoef.at<float>(1) << endl);
-  if (DistCoef.rows == 5) PRINT_INFO_MUTEX("- k3: " << DistCoef.at<float>(4) << endl);
-  PRINT_INFO_MUTEX("- p1: " << DistCoef.at<float>(2) << endl);
-  PRINT_INFO_MUTEX("- p2: " << DistCoef.at<float>(3) << endl);
+  id_distcoef = 2;
+  if (DistCoef.rows == 5) PRINT_INFO_MUTEX("- k3: " << DistCoef.at<float>(id_distcoef++) << endl);
+  PRINT_INFO_MUTEX("- p1: " << DistCoef.at<float>(id_distcoef++) << endl);
+  PRINT_INFO_MUTEX("- p2: " << DistCoef.at<float>(id_distcoef++) << endl);
 
   // TODO: check the input
   return true;
 }
 
-cv::Mat Radtan::toDistortCoeff() {
-  CV_Assert(mvParameters.size() == 8);
-  return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[6], mvParameters[7]);
+cv::Mat Radtan::toDistortCoeff_OpenCV() {
+  if (mvParameters.size() == 8)
+    return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[6], mvParameters[7]);
+  else if (mvParameters.size() == 9)
+    return (cv::Mat_<float>(4, 1) << mvParameters[4], mvParameters[5], mvParameters[7], mvParameters[8],
+            mvParameters[6]);
+  else {
+    CV_Assert(0 && "Unimplemented Distort Radtan Model");
+    return cv::Mat();
+  }
 }
 Eigen::Vector2d Radtan::distortPoints(float x, float y) {
   Eigen::Vector2d pt;
   if (mvParameters.size() >= 8) {
     double x2 = x * x, y2 = y * y, r2 = x2 + y2, r4 = r2 * r2, xy = x * y;  //,r6=r2*r4;
-    float *k = mvParameters.data() + 4, *p = k + 2;
+    float *k = mvParameters.data() + 4, *p = k + mvParameters.size() - 6;
     double fd = 1 + k[0] * r2 + k[1] * r4;
     if (mvParameters.size() > 8) {
       double term_r = r4;
@@ -82,11 +94,11 @@ Eigen::Vector2d Radtan::project(const Eigen::Vector3d &v3D) {
 }
 
 Eigen::Vector3d Radtan::unproject(const Eigen::Vector2d &p2D) {
-  cv::Mat pt(1, 1, CV_32FC2); // for opencv3.2 cannot reshape 1x1x1 to 1x1x2
+  cv::Mat pt(1, 1, CV_32FC2);  // for opencv3.2 cannot reshape 1x1x1 to 1x1x2
   pt.at<cv::Point2f>(0, 0) = cv::Point2f(p2D[0], p2D[1]);
   auto K = toKcv();
   // final no K means undistort to normalized plane
-  cv::undistortPoints(pt, pt, K, toDistortCoeff(), cv::Mat(), cv::Mat::eye(3, 3, CV_32F));
+  cv::undistortPoints(pt, pt, K, toDistortCoeff_OpenCV(), cv::Mat(), cv::Mat::eye(3, 3, CV_32F));
   pt.reshape(1);
   return Eigen::Vector3d(pt.at<float>(0), pt.at<float>(1), 1);
 }
@@ -94,7 +106,7 @@ Eigen::Vector3d Radtan::unproject(const Eigen::Vector2d &p2D) {
 Eigen::Matrix<double, 2, 3> Radtan::projectJac(const Eigen::Vector3d &v3D) {
   Eigen::Matrix<double, 2, 3> jac;
   double invz = 1 / v3D[2];
-  CV_Assert(8 == mvParameters.size());
+  CV_Assert(8 <= mvParameters.size());
   double x = v3D[0] * invz, y = v3D[1] * invz;
   double x2 = x * x, y2 = y * y, r2 = x2 + y2, r4 = r2 * r2, xy = x * y;  //,r6=r2*r4;
   float *k = mvParameters.data() + 4, *p = k + mvParameters.size() - 6;

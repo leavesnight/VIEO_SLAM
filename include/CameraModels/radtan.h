@@ -29,7 +29,7 @@ class Radtan : public Pinhole {
   static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
                                 cv::Mat* pDistCoef);
 
-  cv::Mat toDistortCoeff();
+  cv::Mat toDistortCoeff_OpenCV();
   Eigen::Vector2d distortPoints(float x, float y);
   Eigen::Vector2d project(const Eigen::Vector3d& v3D) override;
 
