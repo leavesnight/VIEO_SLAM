@@ -8,6 +8,10 @@ foreach (tmp ${PARENT_PROJECT_NAME})
 endforeach ()
 message(STATUS "${PROJECT_NAME} parent project=" ${PARENT_PROJECT_NAME_STR})
 
+if (NOT USE_SOPHUS_NEWEST)
+    set(USE_SOPHUS_NEWEST 1)
+endif ()
+
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif ()
@@ -26,6 +30,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTO
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
 message(STATUS "${PROJECT_NAME} lib out=" ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
+
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
+message(STATUS "${PROJECT_NAME} CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
@@ -62,7 +69,7 @@ LIST(APPEND SOURCEFILES
 
 message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})
 include_directories(
-        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/../
         ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}
