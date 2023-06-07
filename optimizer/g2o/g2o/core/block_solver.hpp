@@ -29,9 +29,9 @@
 #include <fstream>
 #include <iomanip>
 
-#include "../stuff/timeutil.h"
-#include "../stuff/macros.h"
-#include "../stuff/misc.h"
+#include "optimizer/g2o/g2o/stuff/timeutil.h"
+#include "optimizer/g2o/g2o/stuff/macros.h"
+#include "optimizer/g2o/g2o/stuff/misc.h"
 
 namespace g2o {
 

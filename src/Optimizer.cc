@@ -8,7 +8,7 @@
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #else
-#include "Thirdparty/g2o/g2o/solvers/linear_solver_dense.h"
+#include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
 #endif
 
 #include <Eigen/StdVector>

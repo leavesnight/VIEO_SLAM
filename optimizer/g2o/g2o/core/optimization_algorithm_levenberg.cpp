@@ -31,7 +31,7 @@
 
 #include <iostream>
 
-#include "../stuff/timeutil.h"
+#include "optimizer/g2o/g2o/stuff/timeutil.h"
 
 #include "sparse_optimizer.h"
 #include "solver.h"
