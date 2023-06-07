@@ -52,20 +52,18 @@ namespace g2o {
     assert(_optimizer && "_optimizer not set");
     assert(_solver && "Solver not set");
     _solver->setWriteDebug(_writeDebug->value());
-    bool useSchur=false;
+    bool useSchur = false;
     for (OptimizableGraph::VertexContainer::const_iterator it=_optimizer->activeVertices().begin(); it!=_optimizer->activeVertices().end(); ++it) {
-      OptimizableGraph::Vertex* v= *it;
-      if (v->marginalized()){
-        useSchur=true;
+      OptimizableGraph::Vertex* v = *it;
+      if (v->marginalized()) {
+        useSchur = true;
         break;
       }
     }
-    if (useSchur){
-      if  (_solver->supportsSchur())
-        _solver->setSchur(true);
+    if (useSchur) {
+      if (_solver->supportsSchur()) _solver->setSchur(true);
     } else {
-      if  (_solver->supportsSchur())
-        _solver->setSchur(false);
+      if (_solver->supportsSchur()) _solver->setSchur(false);
     }
 
     bool initState = _solver->init(_optimizer, online);

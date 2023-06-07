@@ -72,7 +72,7 @@ void BlockSolver<Traits>::resize(int* blockPoseIndices, int numPoseBlocks,
 
   if (_doSchur) {
     // the following two are only used in schur
-    assert(_sizePoses > 0 && "allocating with wrong size");
+    assert(_sizePoses > 0 && s > 0 && "allocating with wrong size");
     _coefficients = new double [s];
     _bschur = new double[_sizePoses];
   }

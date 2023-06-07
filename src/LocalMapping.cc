@@ -592,7 +592,7 @@ void LocalMapping::CreateNewMapPoints() {
       nnew++;
     }
   }
-  // cout << "newmpsnum=" << nnew << endl;
+  PRINT_INFO_FILE("newmpsnum=" << nnew << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 }
 
 void LocalMapping::SearchInNeighbors() {

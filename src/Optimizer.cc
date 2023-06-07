@@ -146,11 +146,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   unsigned long maxKFid = 0;
 
   // Set Local KeyFrame vertices
+  bool bdimPoses = false;
   for (list<KeyFrame*>::const_iterator lit = lLocalKeyFrames.begin(), lend = lLocalKeyFrames.end(); lit != lend;
        ++lit) {
     KeyFrame* pKFi = *lit;
     int idKF = pKFi->mnId * 3;  // PRi,Vi,Biasi
     bool bFixed = pKFi->mnId == 0;
+    if (!bFixed) bdimPoses = true;
     NavState ns(pKFi->GetNavState());
     // Vertex of PR/V
     g2o::VertexNavStatePR* vNSPR = new g2o::VertexNavStatePR();
@@ -171,6 +173,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     optimizer.addVertex(vNSBias);
     if (idKF + 2 > maxKFid) maxKFid = idKF + 2;  // update maxKFid
   }
+  if (!bdimPoses) return;
 
   // Set Fixed KeyFrame vertices. Including the pKFPrevLocal. see VIORBSLAM paper Fig.3.
   for (list<KeyFrame*>::iterator lit = lFixedCameras.begin(), lend = lFixedCameras.end(); lit != lend; lit++) {
@@ -373,8 +376,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
     int id = pMP->mnId + maxKFid + 1;  //>=maxKFid+1
     vPoint->setId(id);
-    vPoint->setMarginalized(true);  // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
-                                    // [B-E*C^(-1)*E.t()]*deltaXc=v-E*C^(-1)*w, H*deltaX=g=[v;w]; used in Sparse solver
+    // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
+    // [B-E*C^(-1)*E.t()]*deltaXc=v-E*C^(-1)*w, H*deltaX=g=[v;w]; used in Sparse solver
+    vPoint->setMarginalized(true);
     optimizer.addVertex(vPoint);
 
     const map<KeyFrame*, set<size_t>> observations = pMP->GetObservations();
@@ -733,12 +737,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   long unsigned int maxKFid = 0, id_scale, id_g, id_mp_beg;
 
   // Set KeyFrame vertices
+  bool bdimPoses = false;
   for (size_t i = 0; i < vpKFs.size(); i++) {
     KeyFrame* pKFi = vpKFs[i];
     if (pKFi->isBad())  // don't add the bad KFs to optimizer
       continue;
     int idKF = pKFi->mnId * 3;  // PRi,Vi,Biasi
     bool bFixed = pKFi->mnId == 0;
+    if (!bFixed) bdimPoses = true;
     NavState ns(pKFi->GetNavState());
     // Vertex of PR/V
     g2o::VertexNavStatePR* vNSPR = new g2o::VertexNavStatePR();
@@ -768,6 +774,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     pvScale->setId(id_scale);
     pvScale->setFixed(false);
     optimizer.addVertex(pvScale);
+    bdimPoses = true;
   }
   // opt GDir
   Vector3d GI;
@@ -780,6 +787,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     vG->setId(id_g);
     vG->setFixed(false);
     optimizer.addVertex(vG);
+    bdimPoses = true;
     init_prior = true;
   }
   vector<bool> vadd_prior_bias;
@@ -1155,7 +1163,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
   optimizer.initializeOptimization();
   // 10 same as pure inliers iterations in localBA/motion-only BA/Sim3Motion-only BA,
   // maybe stopped by next CorrectLoop() in LoopClosing
-  optimizer.optimize(nIterations);
+  if (bdimPoses) optimizer.optimize(nIterations);
 
   unique_lock<mutex> lock(pMap->mMutexMapUpdate, defer_lock);
   if (nLoopKF == 0) {  // for safety, later globalbaprv may be called like lbaprv()
@@ -1303,6 +1311,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
   long unsigned int maxKFid = 0;
 
   // Set KeyFrame vertices
+  bool bdimPoses = false;
   for (size_t i = 0; i < vpKFs.size(); i++) {
     KeyFrame* pKF = vpKFs[i];
     if (pKF->isBad()) continue;
@@ -1313,7 +1322,9 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     pKF->UpdateNavStatePVRFromTcw();
     vns->setEstimate(pKF->GetNavState());
     vns->setId(pKF->mnId);
-    vns->setFixed(pKF->mnId == 0);  // GBA fix id0 KF, same in localBA
+    bool bfixed_tmp = pKF->mnId == 0;
+    if (!bfixed_tmp) bdimPoses = true;
+    vns->setFixed(bfixed_tmp);  // GBA fix id0 KF, same in localBA
     optimizer.addVertex(vns);
 
     if (pKF->mnId > maxKFid) maxKFid = pKF->mnId;
@@ -1374,8 +1385,9 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
     vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
     const int id = pMP->mnId + maxKFid + 1;  // same as localBA
     vPoint->setId(id);
-    vPoint->setMarginalized(true);  // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
-                                    // [B-E*C^(-1)*E.t()]*deltaXc=v-E*C^(-1)*w, H*deltaX=g=[v;w]; used in Sparse solver
+    // P(xc,xp)=P(xc)*P(xp|xc), P(xc) is called marginalized/Schur elimination,
+    // [B-E*C^(-1)*E.t()]*deltaXc=v-E*C^(-1)*w, H*deltaX=g=[v;w]; used in Sparse solver
+    vPoint->setMarginalized(true);
     optimizer.addVertex(vPoint);
 
     const map<KeyFrame*, set<size_t>> observations = pMP->GetObservations();
@@ -1479,8 +1491,11 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
 
   // Optimize!
   optimizer.initializeOptimization();
-  optimizer.optimize(nIterations);  // 10 same as pure inliers iterations in localBA/motion-only BA/Sim3Motion-only BA,
-                                    // maybe stopped by next CorrectLoop() in LoopClosing
+  // 10 same as pure inliers iterations in localBA/motion-only BA/Sim3Motion-only BA,
+  // maybe stopped by next CorrectLoop() in LoopClosing
+  // bdimPoses here to avoid block_solver buildStructure's resize(setMarg) /
+  // block6_3 requires 6x6 while pt is 3x3(No setMarg) seg bug in optimize
+  if (bdimPoses) optimizer.optimize(nIterations);
 
   // Recover optimized data in a intermediate way
 
@@ -1896,6 +1911,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
   size_t num_fixed_kf = 0;
   // Set Local KeyFrame vertices
+  bool bdimPoses = false;
   for (list<KeyFrame*>::iterator lit = lLocalKeyFrames.begin(), lend = lLocalKeyFrames.end(); lit != lend; lit++) {
     KeyFrame* pKFi = *lit;
     g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();
@@ -1903,10 +1919,14 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
     vns->setEstimate(pKFi->GetNavState());
     vns->setId(pKFi->mnId);
     if (pKFi->mnId == 0) ++num_fixed_kf;
-    vns->setFixed(pKFi->mnId == 0);  // only fix the vertex of initial KF(KF.mnId==0)
+    bool bfixed_tmp = pKFi->mnId == 0;
+    if (!bfixed_tmp) bdimPoses = true;
+    vns->setFixed(bfixed_tmp);  // only fix the vertex of initial KF(KF.mnId==0)
     optimizer.addVertex(vns);
     if (pKFi->mnId > maxKFid) maxKFid = pKFi->mnId;
   }
+  if (!bdimPoses) return;
+
   // Set Fixed KeyFrame vertices
   for (list<KeyFrame*>::iterator lit = lFixedCameras.begin(), lend = lFixedCameras.end(); lit != lend; lit++) {
     KeyFrame* pKFi = *lit;
