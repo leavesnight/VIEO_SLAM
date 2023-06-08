@@ -66,11 +66,9 @@ else ()
     endif ()
 endif ()
 
-find_package(Eigen3 3.3.7 MODULE REQUIRED)
 find_package(Pangolin REQUIRED)
-find_package(Cholmod REQUIRED)#added for cholmod linear solver
-
 find_package(PCL REQUIRED COMPONENT common io filters)
+find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
@@ -84,6 +82,27 @@ else ()
     message(FATAL_ERROR "Sophus not found.")
 endif ()
 
+include_directories(
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/include/CameraModels
+        ${PROJECT_SOURCE_DIR}/src/Odom
+        ${CHOLMOD_INCLUDE_DIR}
+        ${OpenCV_INCLUDE_DIRS}
+        ${Pangolin_INCLUDE_DIRS}
+        ${PCL_INCLUDE_DIRS}
+        ${Sophus_INCLUDE_DIR}
+        ${G2O_INCLUDE_DIR}
+)
+add_definitions(${PCL_DEFINITIONS})
+
+add_subdirectory(common)
+add_subdirectory(loop/DBoW2)
+LIST(APPEND ${PROJECT_NAME}_deps
+        ${PROJECT_NAME}_common
+        DBoW2
+        )
+message("g2o newest=" ${USE_G2O_NEWEST})
 #find g2o here for Eigen>3.2.10
 if (${USE_G2O_NEWEST})
     add_definitions(-DUSE_G2O_NEWEST)
@@ -91,33 +110,7 @@ if (${USE_G2O_NEWEST})
     find_package(G2O REQUIRED)
     SET(G2O_LIBRARIES ${G2O_STUFF_LIBRARY} ${G2O_CORE_LIBRARY} ${G2O_TYPES_SLAM3D} ${G2O_TYPES_SIM3} ${G2O_TYPES_SBA} ${G2O_SOLVER_DENSE} ${G2O_SOLVER_CHOLMOD} ${G2O_SOLVER_EIGEN})
     message(STATUS "g2o_Version=" ${G2O_INCLUDE_DIR}${G2O_LIBRARIES})
-endif ()
-
-include_directories(
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include/CameraModels
-        ${EIGEN3_INCLUDE_DIR}
-        ${Pangolin_INCLUDE_DIRS}
-        ${G2O_INCLUDE_DIR}
-
-        ${PROJECT_SOURCE_DIR}/src/Odom
-        ${CHOLMOD_INCLUDE_DIR}
-        ${OpenCV_INCLUDE_DIRS}
-        ${PCL_INCLUDE_DIRS}
-        ${Sophus_INCLUDE_DIR}
-)
-
-add_definitions(${PCL_DEFINITIONS})
-
-add_subdirectory(common)
-add_subdirectory(loop/DBoW2)
-message("g2o newest=" ${USE_G2O_NEWEST})
-LIST(APPEND ${PROJECT_NAME}_deps
-        ${PROJECT_NAME}_common
-        DBoW2
-        )
-if (NOT ${USE_G2O_NEWEST})
+else ()
     message(STATUS "Use Local Submodule g2o!")
     add_subdirectory(optimizer/g2o)
 
@@ -160,17 +153,13 @@ add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
         src/CameraModels/radtan.cpp)
 
 target_link_libraries(${PROJECT_NAME}
-        ${OpenCV_LIBS}
-        ${EIGEN3_LIBS}
-        ${Pangolin_LIBRARIES}
-        ${G2O_LIBRARIES}
-
+        ${${PROJECT_NAME}_deps}
         ${CHOLMOD_LIBRARIES}
-        ${BLAS_LIBRARIES}
-        ${LAPACK_LIBRARIES}
+        ${OpenCV_LIBS}
+        ${Pangolin_LIBRARIES}
         ${PCL_LIBRARIES}
         ${Sophus_LIBRARIES}
-        ${${PROJECT_NAME}_deps}
+        ${G2O_LIBRARIES}
         )
 
 # Build examples

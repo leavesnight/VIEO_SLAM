@@ -50,6 +50,30 @@ else ()
     message(STATUS "${PROJECT_NAME} Using c++17")
 endif ()
 
+#set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+if (WIN32)
+    set(${root_project_name}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin CACHE PATH "Target for the ${PROJECT_NAME} libraries")
+else (WIN32)
+    set(${root_project_name}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib CACHE PATH "Target for the ${PROJECT_NAME} libraries")
+endif (WIN32)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
+message(STATUS "${PROJECT_NAME} lib out=" ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
+
+if (${USE_OPENCV_NEWEST})
+    find_package(OpenCV 4.5 QUIET)
+else ()
+    find_package(OpenCV 3.2 QUIET)
+    if (NOT OpenCV_FOUND)
+        find_package(OpenCV 2.4.3 QUIET)
+        if (NOT OpenCV_FOUND)
+            message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
+        endif ()
+    endif ()
+endif ()
+message("OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
+
 set(HDRS_DBOW2
         DBoW2/BowVector.h
         DBoW2/FORB.h
@@ -69,30 +93,6 @@ set(HDRS_DUTILS
 set(SRCS_DUTILS
         DUtils/Random.cpp
         DUtils/Timestamp.cpp)
-
-if (${USE_OPENCV_NEWEST})
-    find_package(OpenCV 4.5 QUIET)
-else ()
-    find_package(OpenCV 3.2 QUIET)
-    if (NOT OpenCV_FOUND)
-        find_package(OpenCV 2.4.3 QUIET)
-        if (NOT OpenCV_FOUND)
-            message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
-        endif ()
-    endif ()
-endif ()
-message("OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
-
-#set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
-if (WIN32)
-    set(${root_project_name}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin CACHE PATH "Target for the ${PROJECT_NAME} libraries")
-else (WIN32)
-    set(${root_project_name}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib CACHE PATH "Target for the ${PROJECT_NAME} libraries")
-endif (WIN32)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
-message(STATUS "${PROJECT_NAME} lib out=" ${${root_project_name}_LIBRARY_OUTPUT_DIRECTORY})
 
 include_directories(${OpenCV_INCLUDE_DIRS})
 
