@@ -1,8 +1,5 @@
 build/
-#Examples/ROS/*/build/
-#Thirdparty/DBoW2/build/
 lib/
-#Thirdparty/DBoW2/lib/
 bin/
 cmake-build-*/
 .idea/

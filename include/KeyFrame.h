@@ -8,8 +8,8 @@
 #include "FrameBase.h"
 #include "MultiThreadBase.h"
 #include "MapPoint.h"
-#include "Thirdparty/DBoW2/DBoW2/BowVector.h"
-#include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
+#include "loop/DBoW2/DBoW2/BowVector.h"
+#include "loop/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
 

@@ -12,7 +12,7 @@
 #include "KeyFrame.h"
 #include "ORBmatcher.h"
 
-#include "Thirdparty/DBoW2/DUtils/Random.h"
+#include "loop/DBoW2/DUtils/Random.h"
 #include "CameraModels/Pinhole.h"
 #include "Converter.h"
 

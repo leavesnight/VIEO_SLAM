@@ -111,9 +111,11 @@ include_directories(
 add_definitions(${PCL_DEFINITIONS})
 
 add_subdirectory(common)
+add_subdirectory(loop/DBoW2)
 message("g2o newest=" ${USE_G2O_NEWEST})
 LIST(APPEND ${PROJECT_NAME}_deps
         ${PROJECT_NAME}_common
+        DBoW2
         )
 if (NOT ${USE_G2O_NEWEST})
     message(STATUS "Use Local Submodule g2o!")
@@ -161,7 +163,6 @@ target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}
         ${EIGEN3_LIBS}
         ${Pangolin_LIBRARIES}
-        ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
         ${G2O_LIBRARIES}
 
         ${CHOLMOD_LIBRARIES}
