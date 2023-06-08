@@ -890,6 +890,14 @@ void Tracking::SetViewer(Viewer* pViewer) { mpViewer = pViewer; }
 cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& timestamp, const bool inputRect) {
   mtmGrabDelay = chrono::steady_clock::now();  // zzh
   int n_cams = ims.size();
+  cv::Mat img_depth_;
+  if (System::RGBD == mSensor) {
+    // n_cams = 1;
+    mpFrameDrawer->showallimages_ = true;
+    img_depth_ = ims[1];
+    if ((fabs(mDepthMapFactor - 1.0f) > 1e-5) || img_depth_.type() != CV_32F)
+      img_depth_.convertTo(img_depth_, CV_32F, mDepthMapFactor);
+  }
   mImGrays.resize(n_cams);
   for (int i = 0; i < n_cams; ++i) {
     mImGrays[i] = ims[i];
@@ -905,51 +913,32 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
       } else {
         cvtColor(mImGrays[i], mImGrays[i], CV_BGRA2GRAY);
       }
+    } else if (mImGrays[i].type() == CV_16UC1) {
+      assert(mImGrays[i].channels() == 1 && mImGrays[i].elemSize() == 2);
+      mImGrays[i].convertTo(mImGrays[i], CV_8UC1, 10.f * mDepthMapFactor);
     }
   }
 
 #ifdef TIMER_FLOW
   timer_ = mlog::Timer();
 #endif
-  mCurrentFrame =
-      Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, &preint_imu_kf_,
-            &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_, mpLocalMapper->th_far_pts_);
+  if (System::STEREO == mSensor)
+    mCurrentFrame =
+        Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, &preint_imu_kf_,
+              &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_, mpLocalMapper->th_far_pts_);
+  else if (System::RGBD == mSensor)
+    mCurrentFrame = Frame(mImGrays[0], img_depth_, timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf,
+                          mThDepth, &preint_imu_kf_, &preint_enc_kf_);  // here extracting the ORB features of ImGray
+  else
+    assert(0 && "Unimplemented GrabImageMonocular in GragImageStereo!");
 #ifdef TIMER_FLOW
   timer_.GetDTfromInit(0, "tracking_thread_debug.txt", "tm curf=");
 #endif
 
-  Track();
-
-  return mCurrentFrame.GetTcwRef().clone();
-}
-
-cv::Mat Tracking::GrabImageRGBD(const cv::Mat& imRGB, const cv::Mat& imD, const double& timestamp) {
-  mtmGrabDelay = chrono::steady_clock::now();  // zzh
-  mImGrays[0] = imRGB;
-  cv::Mat imDepth = imD;
-
-  // may be improved here!!!
-  if (mImGrays[0].channels() == 3) {
-    if (mbRGB)
-      cvtColor(mImGrays[0], mImGrays[0], CV_RGB2GRAY);
-    else {
-      cvtColor(mImGrays[0], mImGrays[0], CV_BGR2GRAY);
-    }
-  } else if (mImGrays[0].channels() == 4) {
-    if (mbRGB)
-      cvtColor(mImGrays[0], mImGrays[0], CV_RGBA2GRAY);
-    else
-      cvtColor(mImGrays[0], mImGrays[0], CV_BGRA2GRAY);
-  }
-
-  if ((fabs(mDepthMapFactor - 1.0f) > 1e-5) || imDepth.type() != CV_32F)
-    imDepth.convertTo(imDepth, CV_32F, mDepthMapFactor);
-
-  mCurrentFrame = Frame(mImGrays[0], imDepth, timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf,
-                        mThDepth, &preint_imu_kf_, &preint_enc_kf_);  // here extracting the ORB features of ImGray
-
-  cv::Mat img[2] = {imRGB.clone(), imD.clone()};
-  Track(img);
+  vector<cv::Mat> imgs_dense;
+  if (System::RGBD == mSensor)
+    for (auto& im : ims) imgs_dense.emplace_back(im.clone());
+  Track(imgs_dense);
 
   return mCurrentFrame.GetTcwRef().clone();
 }
@@ -982,8 +971,8 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat& im, const double& timestamp)
   return mCurrentFrame.GetTcwRef().clone();
 }
 
-void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWang
-{
+// changed a lot by zzh inspired by JingWang
+void Tracking::Track(vector<cv::Mat> imgs_dense) {
   if (mState == NO_IMAGES_YET) {
     mState = NOT_INITIALIZED;
   }
@@ -1029,7 +1018,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
                   mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
-      StereoInitialization(img);
+      StereoInitialization(imgs_dense);
     else
       MonocularInitialization();
 
@@ -1343,7 +1332,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       if (NeedNewKeyFrame()) {
         // only create the only CurrentFrame viewed MapPoints without inliers+outliers in mpMap, to avoid possibly
         // replicated MapPoints
-        CreateNewKeyFrame(img);
+        CreateNewKeyFrame(imgs_dense);
       }
 
       // We allow points with high innovation (considererd outliers by the Huber Function)
@@ -1383,7 +1372,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
       if (NeedNewKeyFrame()) {
         // only create the only CurrentFrame viewed MapPoints without inliers+outliers in mpMap, to avoid possibly
         // replicated MapPoints
-        CreateNewKeyFrame(img);
+        CreateNewKeyFrame(imgs_dense);
       }
       const auto& curfmps2 = mCurrentFrame.GetMapPointMatches();
       for (int i = 0; i < mCurrentFrame.N; i++) {        // new created MPs' mvbOutlier[j] is default false
@@ -1435,7 +1424,7 @@ void Tracking::Track(cv::Mat img[2])  // changed a lot by zzh inspired by JingWa
   }
 }
 
-void Tracking::StereoInitialization(cv::Mat img[2]) {
+void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
   PreIntegration();  // PreIntegration Intialize, zzh
 
   if (mCurrentFrame.N > 500) {
@@ -1445,10 +1434,7 @@ void Tracking::StereoInitialization(cv::Mat img[2]) {
 
     // Create KeyFrame
     KeyFrame* pKFini = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true);
-    if (img) {
-      pKFini->Img[0] = img[0];
-      pKFini->Img[1] = img[1];
-    }
+    pKFini->imgs_dense_ = imgs_dense;
 
     // Insert KeyFrame in the map
     mpMap->AddKeyFrame(pKFini);
@@ -2215,7 +2201,7 @@ bool Tracking::NeedNewKeyFrame() {
     return false;
 }
 
-void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
+void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
   if (!mpLocalMapper->SetNotStop(true))  // if localMapper is stopped by loop closing thread/GUI, cannot add KFs; during
                                          // adding process, it cannot be stopped by others
     return;
@@ -2236,10 +2222,7 @@ void Tracking::CreateNewKeyFrame(cv::Mat img[2]) {
   PreIntegration(2);  // zzh, though it doesn't need to be calculated when IMU isn't initialized
 
   if (mSensor != System::MONOCULAR) {
-    if (img) {
-      pKF->Img[0] = img[0];
-      pKF->Img[1] = img[1];
-    }  // zzh for PCL map creation
+    pKF->imgs_dense_ = imgs_dense;  // zzh for PCL map creation
 
     mCurrentFrame.UpdatePoseMatrices();  // UnprojectStereo() use mRwc,mOw, maybe useless
 

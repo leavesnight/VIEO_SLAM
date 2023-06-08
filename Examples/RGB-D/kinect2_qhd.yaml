@@ -137,4 +137,5 @@ Viewer.ViewpointX: 0
 Viewer.ViewpointY: -0.7
 Viewer.ViewpointZ: -1.8
 Viewer.ViewpointF: 500
-
+# shown max cams number of viewer, -1 or no this term will use the number of images, 0 won't show any image
+Viewer.MaxCamsNum: 1

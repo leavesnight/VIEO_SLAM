@@ -95,11 +95,10 @@ set(LIBS
         -lboost_system
         )
 
-# Node for stereo-inertial camera
+# Node for stereo(-inertial)/rgbd(-inertial) camera
 rosbuild_add_executable(Stereo_Inertial
         src/ros_stereo_inertial.cc
         )
-
 target_link_libraries(Stereo_Inertial
         ${LIBS}
         )

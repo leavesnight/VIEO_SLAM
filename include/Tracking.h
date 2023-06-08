@@ -140,7 +140,6 @@ class Tracking {
 
   // Preprocess the input and call Track(). Extract features and performs stereo matching.
   cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
-  cv::Mat GrabImageRGBD(const cv::Mat &imRGB, const cv::Mat &imD, const double &timestamp);
   cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
 
   void SetLocalMapper(LocalMapping *pLocalMapper);
@@ -206,11 +205,11 @@ class Tracking {
   void Reset();
 
  protected:
-  // Main tracking function. It is independent of the input sensor.
-  void Track(cv::Mat img[2] = NULL);  // img[2] recorded by KFs
+  // Main tracking function. It is independent of the input sensor. imgs_dense is for dense points recover in SaveMap
+  void Track(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // Map initialization for stereo and RGB-D
-  void StereoInitialization(cv::Mat img[2] = NULL);
+  void StereoInitialization(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // Map initialization for monocular
   void MonocularInitialization();
@@ -246,7 +245,7 @@ class Tracking {
   void SearchLocalPoints();
 
   bool NeedNewKeyFrame();
-  void CreateNewKeyFrame(cv::Mat img[2] = NULL);
+  void CreateNewKeyFrame(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // In case of performing only localization, this flag is true when there are no matches to
   // points in the map. Still tracking will continue if there are enough matches with temporal points.

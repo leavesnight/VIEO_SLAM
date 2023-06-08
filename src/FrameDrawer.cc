@@ -167,7 +167,7 @@ void FrameDrawer::Update(Tracking *pTracker)
 {
     unique_lock<mutex> lock(mMutex);
     n_cams_ = pTracker->mImGrays.size();
-    if (showallimages_) CV_Assert(n_cams_ == pTracker->mCurrentFrame.mpCameras.size());
+    if (showallimages_) CV_Assert(n_cams_ >= pTracker->mCurrentFrame.mpCameras.size());
     mIms.resize(n_cams_);
     for (int i = 0; i < n_cams_; ++i)
       pTracker->mImGrays[i].copyTo(mIms[i]);

@@ -466,8 +466,9 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc,
     // poses.push_back(Twc);]
 
     PointCloud::Ptr current(new PointCloud);
-    cv::Mat color = pKF->Img[0];
-    cv::Mat depth = pKF->Img[1];
+    assert(2 == pKF->imgs_dense_.size());
+    cv::Mat color = pKF->imgs_dense_[0];
+    cv::Mat depth = pKF->imgs_dense_[1];
     Eigen::Isometry3d T = *(Twc);
     for (int v = 0; v < color.rows; ++v)
       for (int u = 0; u < color.cols; ++u) {
@@ -685,8 +686,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 }
 
 cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect) {
-  if (mSensor != STEREO) {
-    cerr << "ERROR: you called TrackStereo but input sensor was not set to STEREO." << endl;
+  if (mSensor != STEREO && mSensor != RGBD) {
+    cerr << "ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD." << endl;
     exit(-1);
   }
 
@@ -726,52 +727,6 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
   mTrackingState = mpTracker->mState;
   mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
   // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvvKeysUn[0];
-  return Tcw;
-}
-
-cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp) {
-  if (mSensor != RGBD) {
-    cerr << "ERROR: you called TrackRGBD but input sensor was not set to RGBD." << endl;
-    exit(-1);
-  }
-
-  // Check mode change
-  {
-    unique_lock<mutex> lock(mMutexMode);
-    if (mbActivateLocalizationMode) {
-      mpLocalMapper->RequestStop();
-
-      // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped()) {
-        usleep(1000);
-      }
-
-      mpTracker->InformOnlyTracking(true);
-      mbActivateLocalizationMode = false;
-    }
-    if (mbDeactivateLocalizationMode) {
-      mpTracker->InformOnlyTracking(false);
-      mpLocalMapper->Release();
-      mbDeactivateLocalizationMode = false;
-    }
-  }
-
-  // Check reset
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    if (mbReset) {
-      mpTracker->Reset();
-      mbReset = false;
-    }
-  }
-
-  // important tracking function!
-  cv::Mat Tcw = mpTracker->GrabImageRGBD(im, depthmap, timestamp);
-
-  unique_lock<mutex> lock2(mMutexState);
-  mTrackingState = mpTracker->mState;
-  mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
   return Tcw;
 }
 

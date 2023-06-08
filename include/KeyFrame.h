@@ -46,8 +46,8 @@ class KeyFrame : public FrameBase, public MutexUsed {
   Matrix<double, 15, 15> mMargCovInv;
   std::vector<bool> mvbOutlier;
   const bool mbPrior;  // always false
-  // PCL used image
-  cv::Mat Img[2];  // 0 is color,1 is depth
+  // PCL used image :now 0 is color,1 is depth
+  vector<cv::Mat> imgs_dense_;
 
   NavState GetNavState(void) override {  // cannot use const &(make mutex useless)
     unique_lock<mutex> lock(mMutexNavState);

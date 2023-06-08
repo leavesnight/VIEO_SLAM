@@ -83,14 +83,11 @@ class System {
   // Proccess the given stereo frame. Images must be synchronized.
   // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
   // inputRect=true(default) means Images are rectified.
+  // Also Process the given rgbd frame. Depthmap must be registered to the RGB frame.
+  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+  // ims[1]: depthmap: Float (CV_32F).
   // Returns the camera pose (empty if tracking fails).
   cv::Mat TrackStereo(const vector<cv::Mat>& ims, const double& timestamp, const bool inputRect = true);
-
-  // Process the given rgbd frame. Depthmap must be registered to the RGB frame.
-  // Input image: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // Input depthmap: Float (CV_32F).
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackRGBD(const cv::Mat& im, const cv::Mat& depthmap, const double& timestamp);
 
   // Proccess the given monocular frame
   // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
@@ -138,6 +135,7 @@ class System {
   int GetTrackingState();
   std::vector<MapPoint*> GetTrackedMapPoints();
   std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
+  const eSensor& GetSensor() const { return mSensor; }
 
  private:
   // Input sensor
