@@ -2,18 +2,13 @@
  * This file is part of VIEO_SLAM
  */
 
-#include "LoopClosing.h"
-
-#include "Sim3Solver.h"
-
-#include "Converter.h"
-
-#include "Optimizer.h"
-
-#include "ORBmatcher.h"
-
 #include <mutex>
 #include <thread>
+#include "LoopClosing.h"
+#include "Sim3Solver.h"
+#include "Converter.h"
+#include "Optimizer.h"
+#include "ORBmatcher.h"
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
@@ -166,7 +161,7 @@ bool LoopClosing::DetectLoop() {
       mpKeyFrameDB->add(mpCurrentKF);
       return false;
     }
-    PRINT_DEBUG_INFO_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
+    PRINT_DEBUG_FILE_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                            mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetNotErase();
   }
@@ -175,8 +170,9 @@ bool LoopClosing::DetectLoop() {
   // in time from last loop
   if (mpCurrentKF->mnId < mLastLoopKFid + 10) {
     mpKeyFrameDB->add(mpCurrentKF);  // add CurrentKF into KFDataBase
-    PRINT_INFO_FILE("Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
-                    mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
+    PRINT_INFO_FILE(
+        "Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
+        mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();  // allow CurrentKF to be erased
     return false;
   }
@@ -230,7 +226,7 @@ bool LoopClosing::DetectLoop() {
     set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
     // Each candidate expands a covisibility group(loop candidate+its connectedKFs in covisibility graph)
     spCandidateGroup.insert(pCandidateKF);
-    PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+    PRINT_DEBUG_FILE("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
                                << "]szcandigroup=" << spCandidateGroup.size() << endl,
                      mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
 
@@ -262,7 +258,7 @@ bool LoopClosing::DetectLoop() {
         }
         // if enough consecutive consistency counter/loop detections, here at least 3 new KFs
         // detect the consistent loop candidate group
-        PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+        PRINT_DEBUG_FILE("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
                                    << "]curconsist=" << nCurrentConsistency << endl,
                          mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
         if (nCurrentConsistency >= th_covisibility_consistency_[2] && !bEnoughConsistent) {
@@ -429,7 +425,7 @@ bool LoopClosing::ComputeSim3() {
 
   if (!bMatch)  // if BA inliers validation is not passed
   {
-    PRINT_DEBUG_INFO_MUTEX(
+    PRINT_DEBUG_FILE_MUTEX(
         "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "debug.txt");
     for (int i = 0; i < nInitialCandidates; i++)
@@ -609,7 +605,7 @@ void LoopClosing::CorrectLoop() {
         MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];  // matched MP of pCurMP
         MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i);
         if (pCurMP) {
-          PRINT_DEBUG_INFO_MUTEX("cl" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+          PRINT_DEBUG_FILE_MUTEX("cl" << endl, mlog::vieo_slam_debug_path, "debug.txt");
           pCurMP->Replace(pLoopMP);  // use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected
                                      // by Sim3Motion-only BA optimized S12
         } else                       // may happen for additional matched MPs by last SBP() in ComputeSim3()
@@ -695,7 +691,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose& CorrectedPosesMap) {
     for (int i = 0; i < nLP; i++) {
       MapPoint* pRep = vpReplacePoints[i];
       if (pRep) {
-        PRINT_DEBUG_INFO_MUTEX("saf" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("saf" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pRep->Replace(
             mvpLoopMapPoints[i]);  // replace vpReplacePoints[i]/pKF->mvpMapPoints[bestIdx] by mvpLoopMapPoints[i]
       }

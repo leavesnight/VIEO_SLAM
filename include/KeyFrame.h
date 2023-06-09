@@ -145,53 +145,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   // for LoadMap() in System.cc
   KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is);
-  template <class T>
-  static inline bool readVec(istream &is, T &vec) {  // can also be used for set/list
-    for (typename T::iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      is.read((char *)&(*iter), sizeof(*iter));
-    }
-    return is.good();
-  }
-  template <class T>
-  static inline bool writeVec(ostream &os, const T &vec) {
-    for (typename T::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      os.write((char *)&(*iter), sizeof(*iter));
-    }
-    return os.good();
-  }
-  template <class _OdomData>
-  inline bool readListOdom(std::istream &is, listeig(_OdomData) & lis) {
-    for (typename listeig(_OdomData)::iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->read(is);
-    return is.good();
-  }
-  template <class _OdomData>
-  bool writeListOdom(std::ostream &os, const listeig(_OdomData) & lis) const {
-    for (typename listeig(_OdomData)::const_iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->write(os);
-    return os.good();
-  }
-  static inline bool readMat(istream &is, cv::Mat &mat) {
-    for (int i = 0; i < mat.rows; ++i) {
-      is.read((char *)mat.ptr(i), mat.cols * mat.elemSize());
-    }
-    return is.good();
-  }
-  static inline bool writeMat(ostream &os, const cv::Mat &mat) {
-    for (int i = 0; i < mat.rows; ++i) {
-      os.write((char *)mat.ptr(i), mat.cols * mat.elemSize());
-    }
-    return os.good();
-  }
-  template <class T>
-  static inline bool readEigMat(istream &is, T &mat) {
-    is.read((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
-    return is.good();
-  }
-  template <class T>
-  static inline bool writeEigMat(ostream &os, const T &mat) {               // for Eigen::Matrix<_Scalar,_Rows,_Cols>
-    os.write((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));  // mat.size()==mat.rows()*mat.cols(), saved
-                                                                            // acquiescently as the column-major order
-    return os.good();
-  }
   bool read(istream &is);
   bool write(ostream &os) const;
 
@@ -311,19 +264,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat mTcwBefGBA;
   long unsigned int mnBAGlobalForKF;  // mpCurrentKF used to correct loop and call GBA
 
-  // Calibration parameters
-  const float fx, fy, cx, cy, invfx, invfy, mbf, mb, mThDepth;
-
-  // Number of KeyPoints
-  const int N;
-
-  // KeyPoints, stereo coordinate and descriptors (all associated by an index)
-  const std::vector<cv::KeyPoint> mvKeys;
-  const std::vector<cv::KeyPoint> mvKeysUn;
-  const std::vector<float> mvuRight;  // negative value for monocular points
-  const std::vector<float> mvDepth;   // negative value for monocular points
-  const cv::Mat mDescriptors;
-
   // BoW
   DBoW2::BowVector mBowVec;
   DBoW2::FeatureVector mFeatVec;
@@ -378,8 +318,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   // Loop Edges
   std::set<KeyFrame *> mspLoopEdges;
-
-  float mHalfBaseline;  // Only for visualization
 
   mutable mutex mMutexPose;
   mutable mutex mMutexConnections;

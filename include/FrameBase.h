@@ -2,8 +2,7 @@
 // Created by leavesnight on 2021/12/20.
 //
 
-#ifndef VIEO_SLAM_FRAMEBASE_H
-#define VIEO_SLAM_FRAMEBASE_H
+#pragma once
 
 #include <stddef.h>
 #include <vector>
@@ -22,6 +21,11 @@ using common::TS2S;
 
 class FrameBase {
  public:
+  template <typename _Tp>
+  using vector = std::vector<_Tp>;
+  using ostream = std::ostream;
+  using istream = std::istream;
+
   // const Tbc,Tce, so it can be used in multi threads
   static cv::Mat mTbc, mTce;
   static Eigen::Matrix3d meigRcb;
@@ -95,6 +99,29 @@ class FrameBase {
   int8_t id_cam_ = 0;
   int8_t bcam_fixed_ = 1;
 
+  // flow related
+  // Threshold close/far points. Close points are inserted from 1 view.
+  // Far points are inserted as in the monocular case from 2 views.
+  float mThDepth;
+
+  // Number of KeyPoints. The left members are all associated by the index
+  int N;
+  // Vector of original keypoints and undistorted kpts
+  std::vector<cv::KeyPoint> mvKeys;
+  std::vector<cv::KeyPoint> mvKeysUn;
+  // ORB descriptor, each row associated to a keypoint.
+  cv::Mat mDescriptors;
+  // for keyframe judge and culling, filled in frame (half)constructor, unchanged after
+  typedef struct _StereoInfo {
+    // Corresponding stereo depth and right coordinate for each keypoint.
+    vector<float> vdepth_;   // this size(n) >= v3dpoints_.size()(idxs)
+    vector<float> vuright_;  // to speed up ba for rectified stereo; "Monocular" keypoints have a negative value.
+    // Stereo baseline in meters; bf means Stereo baseline multiplied by fx; bf = b * f
+    float baseline_bf_[2] = {15.f / 250, 15.f};
+  } StereoInfo;
+  // mean if this key pt or mp is triangulated by precalibrated Tcicj
+  StereoInfo stereoinfo_;
+
  protected:
   inline const Sophus::SE3d GetTcwCst() const {
     auto Tcw = Sophus::SE3d(Sophus::SO3exd(Converter::toMatrix3d(Tcw_.rowRange(0, 3).colRange(0, 3))),
@@ -117,6 +144,24 @@ class FrameBase {
 
   // Bad flags
   bool mbBad = false;
+
+ public:  // for serialize
+  // can also be used for set/list
+  template <class T>
+  static inline bool writeVec(ostream &os, const T &vec);
+  template <class T>
+  static inline bool writeVecwrite(std::ostream &os, const T &lis);
+  static inline bool writeMat(ostream &os, const cv::Mat &mat);
+  // for Eigen::Matrix<_Scalar,_Rows,_Cols>
+  template <class T>
+  static inline bool writeEigMat(ostream &os, const T &mat);
+  template <class T>
+  static inline bool readVec(istream &is, T &vec);
+  template <class T>
+  static inline bool readVecread(std::istream &is, T &lis);
+  static inline bool readMat(istream &is, cv::Mat &mat);
+  template <class T>
+  static inline bool readEigMat(istream &is, T &mat);
 };
 
 template <>
@@ -131,6 +176,55 @@ template <>
 void FrameBase::PreIntegration<IMUData>(FrameBase *plastfb, const typename aligned_list<IMUData>::const_iterator &iteri,
                                         const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                         int8_t verbose);
-}  // namespace VIEO_SLAM
 
-#endif  // VIEO_SLAM_FRAMEBASE_H
+// hpp
+template <class T>
+bool FrameBase::writeVec(ostream &os, const T &vec) {
+  for (typename T::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
+    os.write((char *)&(*iter), sizeof(*iter));
+  }
+  return os.good();
+}
+template <class T>
+bool FrameBase::writeVecwrite(std::ostream &os, const T &lis) {
+  for (typename T::const_iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->write(os);
+  return os.good();
+}
+bool FrameBase::writeMat(ostream &os, const cv::Mat &mat) {
+  for (int i = 0; i < mat.rows; ++i) {
+    os.write((char *)mat.ptr(i), mat.cols * mat.elemSize());
+  }
+  return os.good();
+}
+template <class T>
+bool FrameBase::writeEigMat(ostream &os, const T &mat) {
+  // mat.size()==mat.rows()*mat.cols(), saved
+  os.write((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
+  // acquiescently as the column-major order
+  return os.good();
+}
+template <class T>
+bool FrameBase::readVec(istream &is, T &vec) {
+  for (typename T::iterator iter = vec.begin(); iter != vec.end(); ++iter) {
+    is.read((char *)&(*iter), sizeof(*iter));
+  }
+  return is.good();
+}
+template <class T>
+bool FrameBase::readVecread(std::istream &is, T &lis) {
+  for (typename T::iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->read(is);
+  return is.good();
+}
+bool FrameBase::readMat(istream &is, cv::Mat &mat) {
+  for (int i = 0; i < mat.rows; ++i) {
+    is.read((char *)mat.ptr(i), mat.cols * mat.elemSize());
+  }
+  return is.good();
+}
+template <class T>
+bool FrameBase::readEigMat(istream &is, T &mat) {
+  is.read((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
+  return is.good();
+}
+
+}  // namespace VIEO_SLAM

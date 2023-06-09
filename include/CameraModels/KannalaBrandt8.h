@@ -41,8 +41,7 @@ class KannalaBrandt8 final : public Pinhole {
     mnType = CAM_FISHEYE;
   }
 
-  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
-                                cv::Mat* pDistCoef);
+  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance);
 
   Eigen::Vector2d project(const Eigen::Vector3d& v3D) override;
 

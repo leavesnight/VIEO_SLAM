@@ -2,21 +2,17 @@
  * This file is part of VIEO_SLAM
  */
 
-#include "Optimizer.h"
-#include "common/mlog/log.h"
-
+#include <Eigen/StdVector>
+#include <mutex>
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #else
 #include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
 #endif
-
-#include <Eigen/StdVector>
-
+#include "Optimizer.h"
 #include "Converter.h"
-
-#include <mutex>
 #include "FrameBase_impl.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {  // changed a lot refering to the JingWang's code
 
@@ -402,7 +398,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
           const cv::KeyPoint& kpUn = !usedistort ? pKFi->mvKeysUn[idx] : pKFi->mvKeys[idx];
 
           // Monocular observation
-          if (pKFi->mvuRight[idx] < 0) {
+          if (pKFi->stereoinfo_.vuright_[idx] < 0) {
             g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
 
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
@@ -420,15 +416,14 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
               e->SetParams(&CamInst, Rcb, tcb);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
+              assert(pKFi->mapn2in_.size() > idx);
               e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
             }
 
@@ -447,7 +442,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId * 3)));
 
             Eigen::Matrix<double, 3, 1> obs;
-            const float kp_ur = pKFi->mvuRight[idx];
+            const float kp_ur = pKFi->stereoinfo_.vuright_[idx];
             obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
             e->setMeasurement(obs);
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
@@ -460,16 +455,15 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
+              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
+              assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -593,7 +587,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+        PRINT_DEBUG_FILE("2 PRVedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
                          mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
@@ -602,7 +596,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_DEBUG_INFO("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
+        PRINT_DEBUG_FILE("2 Biasedge " << redSTR << i << whiteSTR << ", chi2 " << e->chi2() << ". ",
                          mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
@@ -649,7 +643,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
   }
-  PRINT_DEBUG_INFO("vToErase sz=" << vToErase.size() << ":" << (float)vToErase.size() / num_pts_good_bef << endl,
+  PRINT_DEBUG_FILE("vToErase sz=" << vToErase.size() << ":" << (float)vToErase.size() / num_pts_good_bef << endl,
                    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Get Map Mutex
@@ -949,7 +943,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     for (int i = 0; i < pvvnsbias_beg.size(); ++i) {
       auto pFBtmp = pvvnsbias_beg[i];
       if (pFBtmp && i != pFBtmp->id_cam_) {
-        PRINT_DEBUG_INFO_MUTEX(
+        PRINT_DEBUG_FILE_MUTEX(
             redSTR << "Wrong pFBtmp: i,idcam=" << i << "," << pFBtmp->id_cam_ << ", check!" << whiteSTR << endl,
             mlog::vieo_slam_debug_path, "common_thread_debug.txt");
       }
@@ -1018,7 +1012,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
         auto idx = *iter;
         const cv::KeyPoint& kpUn = !usedistort ? pKFi->mvKeysUn[idx] : pKFi->mvKeys[idx];
 
-        if (pKFi->mvuRight[idx] < 0)  // monocular MPs use 2*1 error
+        if (pKFi->stereoinfo_.vuright_[idx] < 0)  // monocular MPs use 2*1 error
         {
           Eigen::Matrix<double, 2, 1> obs;
           obs << kpUn.pt.x, kpUn.pt.y;
@@ -1038,15 +1032,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
             }
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
               e->SetParams(&CamInst, Rcb, tcb);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
+              assert(pKFi->mapn2in_.size() > idx);
               e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
             }
 
@@ -1067,15 +1060,14 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
             }
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
               e->SetParams(&CamInst, Rcb, tcb);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
+              assert(pKFi->mapn2in_.size() > idx);
               e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
             }
 
@@ -1084,7 +1076,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
         } else  // stereo MPs uses 3*1 error
         {
           Eigen::Matrix<double, 3, 1> obs;
-          const float kp_ur = pKFi->mvuRight[idx];
+          const float kp_ur = pKFi->stereoinfo_.vuright_[idx];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
           if (!bScaleOpt) {  // scaled Xw
@@ -1102,16 +1094,15 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
             }
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
+              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
+              assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -1130,16 +1121,15 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
             }
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
+              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
+              assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -1409,7 +1399,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
         auto idx = *iter;
         const cv::KeyPoint& kpUn = !usedistort ? pKFi->mvKeysUn[idx] : pKFi->mvKeys[idx];
 
-        if (pKFi->mvuRight[idx] < 0)  // monocular MPs use 2*1 error
+        if (pKFi->stereoinfo_.vuright_[idx] < 0)  // monocular MPs use 2*1 error
         {
           Eigen::Matrix<double, 2, 1> obs;
           obs << kpUn.pt.x, kpUn.pt.y;
@@ -1429,15 +1419,14 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
           }
           if (!usedistort) {
             if (!binitcaminst) {
-              CamInst.setParameter(pKFi->fx, 0);
-              CamInst.setParameter(pKFi->fy, 1);
-              CamInst.setParameter(pKFi->cx, 2);
-              CamInst.setParameter(pKFi->cy, 3);
+              auto params_tmp = pKFi->mpCameras[0]->getParameters();
+              params_tmp.resize(4);
+              CamInst.setParameters(params_tmp);
               binitcaminst = true;
             }
             e->SetParams(&CamInst, Rcb, tcb);
           } else {
-            CV_Assert(pKFi->mapn2in_.size() > idx);
+            assert(pKFi->mapn2in_.size() > idx);
             e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
           }
 
@@ -1445,7 +1434,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
         } else  // stereo MPs uses 3*1 error
         {
           Eigen::Matrix<double, 3, 1> obs;
-          const float kp_ur = pKFi->mvuRight[idx];
+          const float kp_ur = pKFi->stereoinfo_.vuright_[idx];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
           g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
@@ -1463,16 +1452,15 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
           }
           if (!usedistort) {
             if (!binitcaminst) {
-              CamInst.setParameter(pKFi->fx, 0);
-              CamInst.setParameter(pKFi->fy, 1);
-              CamInst.setParameter(pKFi->cx, 2);
-              CamInst.setParameter(pKFi->cy, 3);
+              auto params_tmp = pKFi->mpCameras[0]->getParameters();
+              params_tmp.resize(4);
+              CamInst.setParameters(params_tmp);
               binitcaminst = true;
             }
-            e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
+            e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
           } else {
-            CV_Assert(pKFi->mapn2in_.size() > idx);
-            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
+            assert(pKFi->mapn2in_.size() > idx);
+            e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
           }
 
           optimizer.addEdge(e);
@@ -1628,10 +1616,9 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
   {
     if (!usedistort) {
-      CamInst.setParameter(pFrame->fx, 0);
-      CamInst.setParameter(pFrame->fy, 1);
-      CamInst.setParameter(pFrame->cx, 2);
-      CamInst.setParameter(pFrame->cy, 3);
+      auto params_tmp = pFrame->mpCameras[0]->getParameters();
+      params_tmp.resize(4);
+      CamInst.setParameters(params_tmp);
     }
 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints
@@ -1653,13 +1640,13 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         pFrame->mvbOutlier[i] = false;
 
         // Monocular observation
-        if (pFrame->mvuRight[i] < 0)  // this may happen in RGBD case!
+        if (pFrame->stereoinfo_.vuright_[i] < 0)  // this may happen in RGBD case!
         {
           g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
           if (!usedistort)
             e->SetParams(&CamInst, Rcb, tcb);
           else {
-            CV_Assert(pFrame->mapn2in_.size() > i);
+            assert(pFrame->mapn2in_.size() > i);
             e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
           }
 
@@ -1691,10 +1678,11 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
         {
           g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb, &pFrame->mbf);
+            e->SetParams(&CamInst, Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
           else {
-            CV_Assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb, &pFrame->mbf);
+            assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb,
+                         &pFrame->stereoinfo_.baseline_bf_[1]);
           }
 
           e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
@@ -1703,7 +1691,7 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
           // SET EDGE
           Eigen::Matrix<double, 3, 1> obs;
           const cv::KeyPoint& kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
-          const float& kp_ur = pFrame->mvuRight[i];
+          const float& kp_ur = pFrame->stereoinfo_.vuright_[i];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
           e->setMeasurement(obs);  // edge parameter/measurement formula output z
           const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
@@ -2036,7 +2024,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
           const cv::KeyPoint& kpUn = !usedistort ? pKFi->mvKeysUn[idx] : pKFi->mvKeys[idx];
 
           // Monocular observation
-          if (pKFi->mvuRight[idx] < 0) {
+          if (pKFi->stereoinfo_.vuright_[idx] < 0) {
             g2o::EdgeReprojectPR* e = new g2o::EdgeReprojectPR();
 
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
@@ -2054,15 +2042,14 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
               e->SetParams(&CamInst, Rcb, tcb);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
+              assert(pKFi->mapn2in_.size() > idx);
               e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb);
             }
 
@@ -2081,7 +2068,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
 
             Eigen::Matrix<double, 3, 1> obs;
-            const float kp_ur = pKFi->mvuRight[idx];
+            const float kp_ur = pKFi->stereoinfo_.vuright_[idx];
             obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
             e->setMeasurement(obs);
             const float& invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
@@ -2094,16 +2081,15 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
             if (!usedistort) {
               if (!binitcaminst) {
-                CamInst.setParameter(pKFi->fx, 0);
-                CamInst.setParameter(pKFi->fy, 1);
-                CamInst.setParameter(pKFi->cx, 2);
-                CamInst.setParameter(pKFi->cy, 3);
+                auto params_tmp = pKFi->mpCameras[0]->getParameters();
+                params_tmp.resize(4);
+                CamInst.setParameters(params_tmp);
                 binitcaminst = true;
               }
-              e->SetParams(&CamInst, Rcb, tcb, &pKFi->mbf);
+              e->SetParams(&CamInst, Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             } else {
-              CV_Assert(pKFi->mapn2in_.size() > idx);
-              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->mbf);
+              assert(pKFi->mapn2in_.size() > idx);
+              e->SetParams(pKFi->mpCameras[get<0>(pKFi->mapn2in_[idx])], Rcb, tcb, &pKFi->stereoinfo_.baseline_bf_[1]);
             }
 
             optimizer.addEdge(e);
@@ -2680,14 +2666,10 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
   bool usedistort = Frame::usedistort_ && pKF1->mpCameras.size() && pKF2->mpCameras.size();
   Pinhole CamInst;
   if (!usedistort) {
-    CamInst.setParameter(pKF1->fx, 0);
-    CamInst.setParameter(pKF1->fy, 1);
-    CamInst.setParameter(pKF1->cx, 2);
-    CamInst.setParameter(pKF1->cy, 3);
-    CV_Assert(pKF2->fx == pKF1->fx);
-    CV_Assert(pKF2->fy == pKF1->fy);
-    CV_Assert(pKF2->cx == pKF1->cx);
-    CV_Assert(pKF2->cy == pKF1->cy);
+    auto params_tmp = pKF1->mpCameras[0]->getParameters();
+    params_tmp.resize(4);
+    CamInst.setParameters(params_tmp);
+    CV_Assert(pKF2->mpCameras[0]->getParameters() == pKF1->mpCameras[0]->getParameters());
   }
   for (int i = 0; i < N; i++) {
     if (!vpMatches1[i]) continue;
@@ -2746,7 +2728,7 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
     if (!usedistort) {
       e12->SetParams(&CamInst);
     } else {
-      CV_Assert(pKF1->mapn2in_.size() > i);
+      assert(pKF1->mapn2in_.size() > i);
       e12->SetParams(pKF1->mpCameras[get<0>(pKF1->mapn2in_[i])]);
     }
 
@@ -2770,7 +2752,7 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
     if (!usedistort) {
       e21->SetParams(&CamInst);
     } else {
-      CV_Assert(pKF2->mapn2in_.size() > i2);
+      assert(pKF2->mapn2in_.size() > i2);
       e21->SetParams(pKF2->mpCameras[get<0>(pKF2->mapn2in_[i2])]);
     }
 

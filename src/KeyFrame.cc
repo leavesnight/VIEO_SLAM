@@ -2,12 +2,12 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <mutex>
 #include "KeyFrame.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
-#include <mutex>
-#include "common/mlog/log.h"
 #include "common/config.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 
@@ -118,21 +118,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      fx(F.fx),
-      fy(F.fy),
-      cx(F.cx),
-      cy(F.cy),
-      invfx(F.invfx),
-      invfy(F.invfy),
-      mbf(F.mbf),
-      mb(F.mb),
-      mThDepth(F.mThDepth),
-      N(F.N),
-      mvKeys(F.mvKeys),
-      mvKeysUn(F.mvKeysUn),
-      mvuRight(F.mvuRight),
-      mvDepth(F.mvDepth),
-      mDescriptors(F.mDescriptors.clone()),
       mBowVec(F.mBowVec),
       mFeatVec(F.mFeatVec),
       mnScaleLevels(F.mnScaleLevels),
@@ -145,17 +130,17 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mnMinY(F.mnMinY),
       mnMaxX(F.mnMaxX),
       mnMaxY(F.mnMaxY),
-      mK(F.mK),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
       mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(false),
       mpParent(NULL),
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
-      mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mbPrior(false)  //,mbPNChanging(false)//zzh
 {
+  mDescriptors = F.mDescriptors.clone();
+
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
   mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
@@ -174,48 +159,29 @@ bool KeyFrame::read(istream &is) {
     size_t NOdom;
     is.read((char *)&NOdom, sizeof(NOdom));
     lenc.resize(NOdom);
-    readListOdom<EncData>(is, lenc);
+    readVecread(is, lenc);
     SetPreIntegrationList<EncData>(lenc.begin(), lenc.end());
     listeig(IMUData) limu;
     is.read((char *)&NOdom, sizeof(NOdom));
     limu.resize(NOdom);
-    readListOdom<IMUData>(is, limu);
+    readVecread(is, limu);
     SetPreIntegrationList<IMUData>(limu.begin(), limu.end());
   }
-  if (mpPrevKeyFrame !=
-      NULL) {  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  if (mpPrevKeyFrame) {
     PreIntegration<EncData>(mpPrevKeyFrame);
     PreIntegration<IMUData>(mpPrevKeyFrame);
   }
   is.read(&mState, sizeof(mState));
-  mHalfBaseline = mb / 2;
   // we've loaded mNavState in Frame
   // we have calculated vgrids_ in Frame and load it in constructor
   return is.good();
 }
 bool KeyFrame::write(ostream &os) const {
   if (!FrameBase::write(os)) return false;
-  // we don't save Frame ID for it's useless in LoadMap(), we save old KF ID/mnId in SaveMap()
-  //   os.write((char*)&mnFrameId,sizeof(mnFrameId));
   // we can get these from mnMaxX...
-  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));
-  os.write((char *)&fx, sizeof(fx));
-  os.write((char *)&fy, sizeof(fy));
-  os.write((char *)&cx, sizeof(cx));
-  os.write((char *)&cy, sizeof(cy));
-  // also from the former ones
-  //   os.write((char*)&invfx,sizeof(invfx));
-  //   os.write((char*)&invfy,sizeof(invfy));
-  os.write((char *)&mbf, sizeof(mbf));
-  os.write((char *)&mThDepth, sizeof(mThDepth));
-  // mb=mbf/fx
-  //   os.write((char*)&mb,sizeof(mb));
-  os.write((char *)&N, sizeof(N));
-  writeVec(os, mvKeys);
-  writeVec(os, mvKeysUn);
-  writeVec(os, mvuRight);
-  writeVec(os, mvDepth);
-  writeMat(os, mDescriptors);
+  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));
+  //   os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));
   // we can directly ComputeBoW() from mDescriptors
   //   mBowVec.write(os);
   //   mFeatVec.write(os);
@@ -229,8 +195,6 @@ bool KeyFrame::write(ostream &os) const {
   // from fx~cy
   //   writeMat(os,mK);
   // save mvpMapPoints,mpParent,mbNotErase(mspLoopEdges) in LoadMap for convenience
-  // =mb/2;
-  //   os.write((char*)&mHalfBaseline,sizeof(mHalfBaseline));
   {  // save mNavState
     const double *pdData;
     unique_lock<mutex> lock(mMutexNavState);
@@ -253,17 +217,18 @@ bool KeyFrame::write(ostream &os) const {
   // we can still get it from mvKeysUn
   //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
   //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
+
   // we add extra info for KF at the end for KeyFrame::write & Frame::read+KeyFrame::read
   {  // save odom lists
     unique_lock<mutex> lock(mMutexOdomData);
     const listeig(EncData) &lenc = mOdomPreIntEnc.getlOdom();
     size_t NOdom = lenc.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeListOdom<EncData>(os, lenc);
+    writeVecwrite(os, lenc);
     const listeig(IMUData) &limu = mOdomPreIntIMU.getlOdom();
     NOdom = limu.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeListOdom<IMUData>(os, limu);
+    writeVecwrite(os, limu);
     // we don't save mOdomPreIntOdom for it can be computed from the former odom list
   }
   os.write(&mState, sizeof(mState));
@@ -290,21 +255,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      fx(F.fx),
-      fy(F.fy),
-      cx(F.cx),
-      cy(F.cy),
-      invfx(F.invfx),
-      invfy(F.invfy),
-      mbf(F.mbf),
-      mb(F.mb),
-      mThDepth(F.mThDepth),
-      N(F.N),
-      mvKeys(F.mvKeys),
-      mvKeysUn(F.mvKeysUn),
-      mvuRight(F.mvuRight),
-      mvDepth(F.mvDepth),
-      mDescriptors(copy_shallow ? F.mDescriptors : F.mDescriptors.clone()),
       mBowVec(F.mBowVec),
       mFeatVec(F.mFeatVec),
       mnScaleLevels(F.mnScaleLevels),
@@ -317,18 +267,18 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mnMinY(F.mnMinY),
       mnMaxX(F.mnMaxX),
       mnMaxY(F.mnMaxY),
-      mK(F.mK),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
       mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(true),
       mpParent(NULL),
       mbNotErase(false),
       mbToBeErased(false),
-      mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mState(state),
       mbPrior(false)  //,mbPNChanging(false)//zzh
 {
+  if (!copy_shallow) mDescriptors = F.mDescriptors.clone();
+
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
   mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
@@ -349,10 +299,10 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
-  PRINT_DEBUG_INFO_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   size_t i = 0;
   for (auto iter : mvpMapPoints) {
-    if (iter) PRINT_DEBUG_INFO_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
+    if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
     ++i;
   }
 }
@@ -377,7 +327,7 @@ void KeyFrame::SetPose(const cv::Mat &Tcw) {
   Twc = cv::Mat::eye(4, 4, Tcw_.type());
   Rwc.copyTo(Twc.rowRange(0, 3).colRange(0, 3));
   Ow.copyTo(Twc.rowRange(0, 3).col(3));
-  cv::Mat center = (cv::Mat_<float>(4, 1) << mHalfBaseline, 0, 0, 1);
+  cv::Mat center = (cv::Mat_<float>(4, 1) << stereoinfo_.baseline_bf_[0] / 2.f, 0, 0, 1);
   Cw = Twc * center;  // 4cm right of the Ow for kinect2
 }
 
@@ -559,7 +509,7 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 }
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
-  PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
 #ifdef USE_SIMPLE_REPLACE
   if (!pMP || pMP->isBad()) return;
@@ -585,7 +535,7 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
   {
     pMP->AddObservation(this, idx);
-    PRINT_DEBUG_INFO_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
     AddMapPoint(pMP, idx);
   }
 }
@@ -979,12 +929,13 @@ bool KeyFrame::IsInImage(const float &x, const float &y) const {
 
 cv::Mat KeyFrame::UnprojectStereo(int i) {
   // TODO: if right u used for fisheye, change implementation here
-  const float z = mvDepth[i];
+  const float z = stereoinfo_.vdepth_[i];
   if (z > 0) {
-    const float u = mvKeys[i].pt.x;
-    const float v = mvKeys[i].pt.y;
-    const float x = (u - cx) * z * invfx;
-    const float y = (v - cy) * z * invfy;
+    const float u = mvKeysUn[i].pt.x;
+    const float v = mvKeysUn[i].pt.y;
+    Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);
+    const float x = uv_normal[0] * z;
+    const float y = uv_normal[1] * z;
     cv::Mat x3Dc = (cv::Mat_<float>(3, 1) << x, y, z);
 
     unique_lock<mutex> lock(mMutexPose);

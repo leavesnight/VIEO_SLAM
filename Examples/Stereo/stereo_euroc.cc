@@ -197,7 +197,7 @@ int main(int argc, char **argv) {
   bool bclahe = false;
   if (!node_tmp.empty() && (int)(node_tmp) == 1) {
     bclahe = true;
-    PRINT_INFO("bcalhe ON!" << endl);
+    PRINT_INFO_MUTEX("bcalhe ON!" << endl);
   }
   for (int ni = 0; ni < nImages; ni++) {
     // Read left and right images from file

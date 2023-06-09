@@ -2,22 +2,14 @@
 #ifndef ODOMDATA_H
 #define ODOMDATA_H
 
-#ifdef NDEBUG  // assert in Release, should be put at the last include in .cpp
-#undef NDEBUG
-#include <assert.h>
-//#define NDEBUG//else you have to annote this line
-#else
-#include <assert.h>
-#endif
-
 #define TRACK_WITH_IMU
 
 // for Jacobi calculation & member data
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-
 // for typedef listEncData
 #include "common/eigen_utils.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 

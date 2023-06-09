@@ -81,9 +81,9 @@ void System::SaveKeyFrameTrajectoryNavState(const string &filename, bool bUseTbc
     Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
     Eigen::Vector3d t = ns.mpwb;                       // twb
     Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
-    f << setprecision(9) << pKF->ftimestamp_ << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " " << q.y()
-      << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " " << bg(1)
-      << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+    f << setprecision(9) << pKF->ftimestamp_ << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " "
+      << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " "
+      << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
   }
 
   f.close();
@@ -316,8 +316,8 @@ void System::SaveMapPCL(const string &filename) {
     // cv::Mat R = pKF->GetRotation().t();
     // vector<float> q = Converter::toQuaternion(R);
     // cv::Mat t = pKF->GetCameraCenter();
-    // f << setprecision(6) << pKF->ftimestamp_ << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << "
-    // " << t.at<float>(2)
+    // f << setprecision(6) << pKF->ftimestamp_ << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) <<
+    // " " << t.at<float>(2)
     //<< " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
     cv::Mat cvTwc = pKF->GetPoseInverse();
     Eigen::Matrix3d r;
@@ -622,7 +622,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   // cv::FileStorage
   fsSettings.open(strSettingsFile.c_str(), cv::FileStorage::READ);
   if (!fsSettings.isOpened()) {
-    cerr << "Failed to open settings file at: " << strSettingsFile << endl;
+    PRINT_ERR_MUTEX("Failed to open settings file at: " << strSettingsFile << endl);
     exit(-1);
   }
 
@@ -637,8 +637,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   } else
     bVocLoad = mpVocabulary->loadFromBinaryFile(strVocFile);
   if (!bVocLoad) {
-    cerr << "Wrong path to vocabulary. " << endl;
-    cerr << "Falied to open at: " << strVocFile << endl;
+    PRINT_ERR_MUTEX("Wrong path to vocabulary. " << endl);
+    PRINT_ERR_MUTEX("Falied to open at: " << strVocFile << endl);
     exit(-1);
   }
   PRINT_INFO_MUTEX("Vocabulary loaded!" << endl << endl);
@@ -701,7 +701,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
 cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect) {
   if (mSensor != STEREO && mSensor != RGBD) {
-    cerr << "ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD." << endl;
+    PRINT_ERR_MUTEX("ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD." << endl);
     exit(-1);
   }
 
@@ -741,7 +741,7 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
     }
   }
 
-  cv::Mat Tcw = mpTracker->GrabImageStereo(ims, timestamp, inputRect);
+  cv::Mat Tcw = mpTracker->GrabImageStereo(ims, timestamp);
 
   unique_lock<mutex> lock2(mMutexState);
   mTrackingState = mpTracker->mState;
@@ -752,7 +752,7 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
 
 cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp) {
   if (mSensor != MONOCULAR) {
-    cerr << "ERROR: you called TrackMonocular but input sensor was not set to Monocular." << endl;
+    PRINT_ERR_MUTEX("ERROR: you called TrackMonocular but input sensor was not set to Monocular." << endl);
     exit(-1);
   }
 
@@ -786,7 +786,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp) {
     }
   }
 
-  cv::Mat Tcw = mpTracker->GrabImageMonocular(im, timestamp);
+  cv::Mat Tcw = mpTracker->GrabImageStereo(vector<cv::Mat>{im}, timestamp);
 
   unique_lock<mutex> lock2(mMutexState);
   mTrackingState = mpTracker->mState;

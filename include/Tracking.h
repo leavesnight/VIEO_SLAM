@@ -138,9 +138,8 @@ class Tracking {
     }
   }
 
-  // Preprocess the input and call Track(). Extract features and performs stereo matching.
-  cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
-  cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
+  // Preprocess the input and call Track(). Extract features and performs stereo matching for stereo cameras.
+  cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp);
 
   void SetLocalMapper(LocalMapping *pLocalMapper);
   void SetLoopClosing(LoopClosing *pLoopClosing);
@@ -260,7 +259,7 @@ class Tracking {
 
   // ORB
   vector<ORBextractor *> mpORBextractors = vector<ORBextractor *>(1, nullptr);
-  ORBextractor *mpIniORBextractor;
+  vector<ORBextractor *> mpIniORBextractors = vector<ORBextractor *>(1, nullptr);
 
   // BoW
   ORBVocabulary *mpORBVocabulary;
@@ -286,8 +285,6 @@ class Tracking {
   Map *mpMap;
 
   // Calibration matrix
-  cv::Mat mK;
-  cv::Mat mDistCoef;
   float mbf;
   vector<GeometricCamera *> mpCameras;
 

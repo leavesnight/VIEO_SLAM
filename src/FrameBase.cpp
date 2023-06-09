@@ -4,6 +4,8 @@
 
 #include "FrameBase.h"
 #include "MapPoint.h"
+#include "KannalaBrandt8.h"
+#include "radtan.h"
 
 using namespace VIEO_SLAM;
 using std::pair;
@@ -73,11 +75,77 @@ void FrameBase::PreIntegration<IMUData>(FrameBase *plastfb, const typename align
 }
 
 bool FrameBase::read(istream &is) {
+  // we don't save old ID for it's useless in LoadMap()
   is.read((char *)&timestamp_, sizeof(timestamp_));
   ftimestamp_ = TS2S(timestamp_);
+
+  uint8_t sz_cams;
+  is.read((char *)&sz_cams, sizeof(sz_cams));
+  mpCameras.resize(sz_cams);
+  for (auto i = 0; i < sz_cams; ++i) {
+    int cam_type;
+    is.read((char *)&cam_type, sizeof(cam_type));
+    uint8_t sz_params_tmp;
+    is.read((char *)&sz_params_tmp, sizeof(sz_params_tmp));
+    vector<float> params_tmp(sz_params_tmp);
+    readVec(is, params_tmp);
+    switch (cam_type) {
+      case GeometricCamera::CAM_PINHOLE:
+        mpCameras[i] = new Pinhole();
+        break;
+      case GeometricCamera::CAM_RADTAN:
+        mpCameras[i] = new Radtan();
+        break;
+      case GeometricCamera::CAM_FISHEYE:
+        mpCameras[i] = new KannalaBrandt8();
+        break;
+      default:
+        PRINT_ERR_MUTEX("Unsupported Camera Model in " << __FUNCTION__ << endl);
+        exit(-1);
+    }
+    mpCameras[i]->setParameters(params_tmp);
+  }
+  // Notice K.copyTo(mK) here mK will be allocated for it does not have a proper size or type before the operation
+
+  is.read((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_));
+  is.read((char *)&mThDepth, sizeof(mThDepth));
+  is.read((char *)&N, sizeof(N));
+  mvKeys.resize(N);
+  mvKeysUn.resize(N);
+  KeyFrame::readVec(is, mvKeys);
+  KeyFrame::readVec(is, mvKeysUn);
+  stereoinfo_.vdepth_.resize(N);
+  stereoinfo_.vuright_.resize(N);
+  KeyFrame::readVec(is, stereoinfo_.vdepth_);
+  KeyFrame::readVec(is, stereoinfo_.vuright_);
+
   return is.good();
 }
 bool FrameBase::write(ostream &os) const {
+  // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/mnId in SaveMap()
   os.write((char *)&timestamp_, sizeof(timestamp_));
+
+  uint8_t sz_cams = (uint8_t)mpCameras.size();
+  os.write((char *)&sz_cams, sizeof(sz_cams));
+  for (auto i = 0; i < sz_cams; ++i) {
+    int cam_type = (int)mpCameras[i]->GetType();
+    os.write((char *)&cam_type, sizeof(cam_type));
+    vector<float> params_tmp = mpCameras[i]->getParameters();
+    uint8_t sz_params_tmp = (uint8_t)params_tmp.size();
+    os.write((char *)&sz_params_tmp, sizeof(sz_params_tmp));
+    writeVec(os, params_tmp);
+  }
+
+  os.write((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_));
+  os.write((char *)&mThDepth, sizeof(mThDepth));
+  // mb=mbf/fx
+  //   os.write((char*)&mb,sizeof(mb));
+  os.write((char *)&N, sizeof(N));
+  writeVec(os, mvKeys);
+  writeVec(os, mvKeysUn);
+  writeVec(os, stereoinfo_.vdepth_);
+  writeVec(os, stereoinfo_.vuright_);
+  writeMat(os, mDescriptors);
+
   return os.good();
 }

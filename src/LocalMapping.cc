@@ -2,13 +2,12 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <mutex>
 #include "LocalMapping.h"
 #include "LoopClosing.h"
 #include "ORBmatcher.h"
 #include "Optimizer.h"
 #include "common/mlog/log.h"
-
-#include <mutex>
 
 //#define NO_GBA_THREAD
 //#define NO_LOCALMAP_PROCESS
@@ -61,9 +60,9 @@ void LocalMapping::Run() {
     if (CheckNewKeyFrames()) {
       chrono::steady_clock::time_point t0 = chrono::steady_clock::now();
       // BoW conversion and insertion in Map
-      PRINT_DEBUG_INFO_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
+      PRINT_DEBUG_FILE_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
       ProcessNewKeyFrame();
-      PRINT_DEBUG_INFO_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+      PRINT_DEBUG_FILE_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
@@ -354,7 +353,7 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
       kps.push_back(kp);
       kps2d.push_back(Eigen::Vector2d(kp.pt.x, kp.pt.y));
       sigma_lvs.push_back(pKF1->mvLevelSigma2[kp.octave]);
-      urbfs.push_back(vector<float>({pKF1->mvuRight[idx], pKF1->mbf}));
+      urbfs.push_back(vector<float>({pKF1->stereoinfo_.vuright_[idx], pKF1->stereoinfo_.baseline_bf_[1]}));
       // TODO: record cosdisparity in Frame.cc for StereoDistort one
       if (!bStereos) {
         if (0 <= urbfs.back()[0]) bStereos = true;
@@ -363,7 +362,8 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
       if (bStereos) {
         // this cos value is the min stereo parallax value, (the point with certain depth has max stereo parallax angle
         // when its Xc is at the centre of baseline), here stereo parallax!=Rays parallax
-        const float cosParallaxRays = cos(2 * atan2(pKF1->mb / 2., pKF1->mvDepth[idx]));
+        const float cosParallaxRays =
+            cos(2 * atan2(pKF1->stereoinfo_.baseline_bf_[0] / 2., pKF1->stereoinfo_.vdepth_[idx]));
         if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
       }
     }
@@ -440,13 +440,6 @@ void LocalMapping::CreateNewMapPoints() {
   tcw1.copyTo(Tcw1.col(3));
   cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
 
-  const float &fx1 = mpCurrentKeyFrame->fx;
-  const float &fy1 = mpCurrentKeyFrame->fy;
-  const float &cx1 = mpCurrentKeyFrame->cx;
-  const float &cy1 = mpCurrentKeyFrame->cy;
-  const float &invfx1 = mpCurrentKeyFrame->invfx;
-  const float &invfy1 = mpCurrentKeyFrame->invfy;
-
   const float ratioFactor = 1.5f * mpCurrentKeyFrame->mfScaleFactor;  // 1.5*1.2=1.8
 
   int nnew = 0;  // unused here
@@ -465,9 +458,9 @@ void LocalMapping::CreateNewMapPoints() {
     const float baseline = cv::norm(vBaseline);
 
     if (!mbMonocular) {
-      if (baseline < pKF2->mb)  // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe
-                                // for it cannot see farther than depth camera
-        continue;
+      // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe
+      // for it cannot see farther than depth camera
+      if (baseline < pKF2->stereoinfo_.baseline_bf_[0]) continue;
     } else {
       const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
       const float ratioBaselineDepth = baseline / medianDepthKF2;
@@ -482,11 +475,16 @@ void LocalMapping::CreateNewMapPoints() {
 
     shared_ptr<Pinhole> pcaminst[2];
     vector<GeometricCamera *> pcams_in[2];
-    bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
+    assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
+    bool usedistort[2] = {Frame::usedistort_, Frame::usedistort_};
     if (!usedistort[0]) {
       CV_Assert(!usedistort[1]);
-      pcaminst[0] = make_shared<Pinhole>(vector<float>({pKF1->fx, pKF1->fy, pKF1->cx, pKF1->cy}));
-      pcaminst[1] = make_shared<Pinhole>(vector<float>({pKF2->fx, pKF2->fy, pKF2->cx, pKF2->cy}));
+      auto params_tmp = pKF1->mpCameras[0]->getParameters();
+      params_tmp.resize(4);
+      pcaminst[0] = make_shared<Pinhole>(params_tmp);
+      params_tmp = pKF2->mpCameras[0]->getParameters();
+      params_tmp.resize(4);
+      pcaminst[1] = make_shared<Pinhole>(params_tmp);
       pcams_in[0].push_back(pcaminst[0].get());
       pcams_in[1].push_back(pcaminst[1].get());
     } else {
@@ -573,7 +571,7 @@ void LocalMapping::CreateNewMapPoints() {
       // Triangulation is succesfull
       MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
 
-      PRINT_DEBUG_INFO_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+      PRINT_DEBUG_FILE_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       for (auto idx : idxs1) {
         if (-1 == idx) continue;
         pMP->AddObservation(pKF1, idx);
@@ -655,7 +653,7 @@ void LocalMapping::SearchInNeighbors() {
     KeyFrame *pKFi = *vit;
     num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
   }
-  PRINT_DEBUG_INFO("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
+  PRINT_DEBUG_FILE("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
                    "localmapping_thread_debug.txt");
 
 #ifdef ORB3_STRATEGY
@@ -684,7 +682,7 @@ void LocalMapping::SearchInNeighbors() {
   }
 
   num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_INFO("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+  PRINT_DEBUG_FILE("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
   vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
@@ -699,7 +697,7 @@ void LocalMapping::SearchInNeighbors() {
       }
     }
   }
-  PRINT_DEBUG_INFO(
+  PRINT_DEBUG_FILE(
       "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
@@ -894,7 +892,7 @@ void LocalMapping::KeyFrameCulling() {
           // if RGBD/Stereo
           if (!mbMonocular) {
             // only consider close stereo points(exclude far or monocular points)
-            if (pKF->mvDepth[i] > pKF->mThDepth || pKF->mvDepth[i] < 0) continue;
+            if (pKF->stereoinfo_.vdepth_[i] > pKF->mThDepth || pKF->stereoinfo_.vdepth_[i] < 0) continue;
           }
 
           nMPs++;
@@ -941,7 +939,7 @@ void LocalMapping::KeyFrameCulling() {
         }  // must done before pKF->SetBadFlag()!
 
         // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
-        PRINT_DEBUG_INFO("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+        PRINT_DEBUG_FILE("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
                          mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();

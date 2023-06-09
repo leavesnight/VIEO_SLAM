@@ -2,12 +2,11 @@
  * This file is part of VIEO_SLAM
  */
 
-#include "common/mlog/log.h"
-#include "Tracking.h"
-
+#include <iostream>
+#include <mutex>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
-
+#include "Tracking.h"
 #include "radtan.h"
 #include "KannalaBrandt8.h"
 #include "ORBmatcher.h"
@@ -15,13 +14,9 @@
 #include "Converter.h"
 #include "Map.h"
 #include "Initializer.h"
-
 #include "Optimizer.h"
 #include "PnPsolver.h"
-
-#include <iostream>
-
-#include <mutex>
+#include "common/mlog/log.h"
 
 using namespace std;
 
@@ -162,7 +157,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
 
 void Tracking::PreIntegration(const int8_t type) {
   unique_lock<mutex> lock(mMutexOdom);
-  PRINT_DEBUG_INFO_MUTEX("type=" << (int)type << "...", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("type=" << (int)type << "...", mlog::vieo_slam_debug_path, "debug.txt");
   FrameBase *plastfb, *pcurfb;
   if (type == 1 || type == 3) {
     if (type == 1)
@@ -218,7 +213,7 @@ void Tracking::PreIntegration(const int8_t type) {
   }
   if (type == 2) {
     size_t N = mpReferenceKF->GetListIMUData().size(), N2 = mpReferenceKF->GetListEncData().size();
-    PRINT_DEBUG_INFO_MUTEX("List size: " << N << " " << N2 << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_DEBUG_FILE_MUTEX("List size: " << N << " " << N2 << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
@@ -301,7 +296,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
   int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR,
                                             mpLocalMapper->th_far_pts_);
-  PRINT_DEBUG_INFO("math num2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("math num2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -343,7 +338,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
                                               true);
 #endif
   }
-  PRINT_DEBUG_INFO("inliers2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("inliers2 imu=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 #ifdef TIMER_FLOW
   timer_tmp.GetDTfromInit(6, "tracking_thread_debug.txt", "ba1=");
 #endif
@@ -383,7 +378,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated) {
   return nmatchesMap >= 6;  // 10;//Track ok when enough inlier MapPoints, changed by JingWang
 }
 static void print_debug_navstate(const NavState& ns, const string& prefix) {
-  PRINT_DEBUG_INFO(prefix << ns.mpwb.transpose() << ";" << ns.mRwb.log().transpose() << ";" << ns.mvwb.transpose()
+  PRINT_DEBUG_FILE(prefix << ns.mpwb.transpose() << ";" << ns.mRwb.log().transpose() << ";" << ns.mvwb.transpose()
                           << ";" << ns.mbg.transpose() << "+" << ns.mdbg.transpose() << ";" << ns.mba.transpose() << "+"
                           << ns.mdba.transpose() << endl,
                    mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
@@ -402,7 +397,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
     if (preint) PreIntegration(3);
 
     print_debug_navstate(ns, "lastkf's p,r,v,bias=");
-    PRINT_DEBUG_INFO("lastkftm=" << fixed << setprecision(9) << mpLastKeyFrame->timestamp_ << endl,
+    PRINT_DEBUG_FILE("lastkftm=" << fixed << setprecision(9) << mpLastKeyFrame->timestamp_ << endl,
                      mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   }
   // Map not updated, optimize with last Frame
@@ -413,7 +408,7 @@ bool Tracking::PredictNavStateByIMU(bool bMapUpdated, bool preint) {
     if (preint) PreIntegration(1);
     //     cout<<"LastF's pwb="<<ns.mpwb.transpose()<<endl;
   }
-  PRINT_DEBUG_INFO("lastftm=" << fixed << setprecision(9) << mLastFrame.timestamp_
+  PRINT_DEBUG_FILE("lastftm=" << fixed << setprecision(9) << mLastFrame.timestamp_
                               << ",imupreintdt=" << mCurrentFrame.GetIMUPreInt().mdeltatij << endl,
                    mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   if (mCurrentFrame.GetIMUPreInt().mdeltatij == 0) {
@@ -794,23 +789,22 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   if (!nodeCameraName.empty()) sCameraName = string(nodeCameraName);
   PRINT_INFO_MUTEX("Camera.type=" << sCameraName << endl);
   mpCameras.resize(4);  // TODO: detect the size
-  mDistCoef = cv::Mat::zeros(4, 1, CV_32F);
   for (int i = 0; i < 4; ++i) {
     bool bexist_cam = false;
     if (sCameraName == "KannalaBrandt8") {
       pSys->usedistort_ = true;  // TODO: now fisheye only usedistort_ is confirmed
-      bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, nullptr);
+      bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i]);
     } else {
       if (sCameraName == "Pinhole") {
         CV_Assert(!pSys->usedistort_);
-        cv::Mat* pDistCoef = !i ? &mDistCoef : nullptr;
-        bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+        bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i]);
       } else if (sCameraName == "Radtan") {
-        cv::Mat* pDistCoef = (!pSys->usedistort_ && !i) ? &mDistCoef : nullptr;
-        bexist_cam = Radtan::ParseCamParamFile(fSettings, i, mpCameras[i], !i ? &mK : nullptr, pDistCoef);
+        bexist_cam = Radtan::ParseCamParamFile(fSettings, i, mpCameras[i]);
         // pSys->usedistort_ = false;
-      } else
-        CV_Assert(0 && "Unsupported Camera Model");
+      } else {
+        PRINT_ERR_MUTEX("Unsupported Camera Model in " << __FUNCTION__ << endl);
+        exit(-1);
+      }
     }
     if (!bexist_cam) {
       mpCameras.resize(i);
@@ -819,12 +813,12 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   }
   if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
   PRINT_INFO_MUTEX("Cam size = " << mpCameras.size() << endl);
-  CLEAR_DEBUG_INFO("start debug:", mlog::vieo_slam_debug_path, "debug.txt");
-  CLEAR_DEBUG_INFO("start tracking debug:", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start imu init debug:", mlog::vieo_slam_debug_path, "imu_init_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start localmapping debug:", mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start loopclosing thread debug:", mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
-  CLEAR_DEBUG_INFO("start gba thread debug:", mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
+  CLEAR_INFO_FILE("start debug:", mlog::vieo_slam_debug_path, "debug.txt");
+  CLEAR_INFO_FILE("start tracking debug:", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  CLEAR_INFO_FILE("start imu init debug:", mlog::vieo_slam_debug_path, "imu_init_thread_debug.txt");
+  CLEAR_INFO_FILE("start localmapping debug:", mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+  CLEAR_INFO_FILE("start loopclosing thread debug:", mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
+  CLEAR_INFO_FILE("start gba thread debug:", mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
 
   mbf = fSettings["Camera.bf"];
 
@@ -860,7 +854,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   }
 
   if (sensor == System::MONOCULAR)
-    mpIniORBextractor = new ORBextractor(2 * nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
+    mpIniORBextractors[0] = new ORBextractor(2 * nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
   PRINT_INFO_MUTEX(endl << "ORB Extractor Parameters: " << endl);
   PRINT_INFO_MUTEX("- Number of Features: " << nFeatures << endl);
@@ -871,7 +865,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
 
   auto node_tmp = fSettings["ThDepth"];
   if (!node_tmp.empty()) {
-    mThDepth = mbf * (float)node_tmp / mK.at<float>(0, 0);
+    mThDepth = mbf * (float)node_tmp / mpCameras[0]->getParameters()[0];
   }
   PRINT_INFO_MUTEX(endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl);
 
@@ -888,13 +882,14 @@ void Tracking::SetLocalMapper(LocalMapping* pLocalMapper) { mpLocalMapper = pLoc
 void Tracking::SetLoopClosing(LoopClosing* pLoopClosing) { mpLoopClosing = pLoopClosing; }
 void Tracking::SetViewer(Viewer* pViewer) { mpViewer = pViewer; }
 
-cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& timestamp, const bool inputRect) {
+cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& timestamp) {
   mtmGrabDelay = chrono::steady_clock::now();  // zzh
   int n_cams = ims.size();
   cv::Mat img_depth_;
   if (System::RGBD == mSensor) {
     // n_cams = 1;
     mpFrameDrawer->showallimages_ = true;
+    // no clone here for cvtColor and convertTo will both reallocate memory for Mat
     img_depth_ = ims[1];
     if ((fabs(mDepthMapFactor - 1.0f) > 1e-5) || img_depth_.type() != CV_32F)
       img_depth_.convertTo(img_depth_, CV_32F, mDepthMapFactor);
@@ -924,14 +919,19 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
   timer_ = mlog::Timer();
 #endif
   if (System::STEREO == mSensor)
-    mCurrentFrame =
-        Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, &preint_imu_kf_,
-              &preint_enc_kf_, inputRect ? nullptr : &mpCameras, System::usedistort_, mpLocalMapper->th_far_pts_);
+    mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mpCameras, mbf, mThDepth,
+                          &preint_imu_kf_, &preint_enc_kf_, System::usedistort_, mpLocalMapper->th_far_pts_);
   else if (System::RGBD == mSensor)
-    mCurrentFrame = Frame(mImGrays[0], img_depth_, timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf,
-                          mThDepth, &preint_imu_kf_, &preint_enc_kf_);  // here extracting the ORB features of ImGray
-  else
-    assert(0 && "Unimplemented GrabImageMonocular in GragImageStereo!");
+    mCurrentFrame = Frame(vector<cv::Mat>({mImGrays[0], img_depth_}), timestamp, mpORBextractors, mpORBVocabulary,
+                          mpCameras, mbf, mThDepth, &preint_imu_kf_, &preint_enc_kf_, false);
+  else {
+    if (mState == NOT_INITIALIZED || mState == NO_IMAGES_YET)
+      mCurrentFrame = Frame(mImGrays, timestamp, mpIniORBextractors, mpORBVocabulary, mpCameras, mbf, mThDepth,
+                            &preint_imu_kf_, &preint_enc_kf_, false);
+    else
+      mCurrentFrame = Frame(mImGrays, timestamp, mpORBextractors, mpORBVocabulary, mpCameras, mbf, mThDepth,
+                            &preint_imu_kf_, &preint_enc_kf_, false);
+  }
 #ifdef TIMER_FLOW
   timer_.GetDTfromInit(0, "tracking_thread_debug.txt", "tm curf=");
 #endif
@@ -940,34 +940,6 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
   if (System::RGBD == mSensor)
     for (auto& im : ims) imgs_dense.emplace_back(im.clone());
   Track(imgs_dense);
-
-  return mCurrentFrame.GetTcwRef().clone();
-}
-
-cv::Mat Tracking::GrabImageMonocular(const cv::Mat& im, const double& timestamp) {
-  mtmGrabDelay = chrono::steady_clock::now();  // zzh
-  mImGrays[0] = im;
-
-  if (mImGrays[0].channels() == 3) {
-    if (mbRGB)
-      cvtColor(mImGrays[0], mImGrays[0], CV_RGB2GRAY);
-    else
-      cvtColor(mImGrays[0], mImGrays[0], CV_BGR2GRAY);
-  } else if (mImGrays[0].channels() == 4) {
-    if (mbRGB)
-      cvtColor(mImGrays[0], mImGrays[0], CV_RGBA2GRAY);
-    else
-      cvtColor(mImGrays[0], mImGrays[0], CV_BGRA2GRAY);
-  }
-
-  if (mState == NOT_INITIALIZED || mState == NO_IMAGES_YET)
-    mCurrentFrame = Frame(mImGrays[0], timestamp, mpIniORBextractor, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
-                          &preint_imu_kf_, &preint_enc_kf_);
-  else
-    mCurrentFrame = Frame(mImGrays[0], timestamp, mpORBextractors[0], mpORBVocabulary, mK, mDistCoef, mbf, mThDepth,
-                          &preint_imu_kf_, &preint_enc_kf_);
-
-  Track();
 
   return mCurrentFrame.GetTcwRef().clone();
 }
@@ -997,8 +969,8 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     unique_lock<mutex> lock2(mMutexOdom);
     if (sensorType == 1 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.ftimestamp_) ||
         sensorType == 2 && (mlOdomIMU.empty() || mlOdomIMU.back().mtm < mCurrentFrame.ftimestamp_) ||
-        sensorType == 3 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.ftimestamp_ || mlOdomIMU.empty() ||
-                            mlOdomIMU.back().mtm < mCurrentFrame.ftimestamp_)) {
+        sensorType == 3 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.ftimestamp_ ||
+                            mlOdomIMU.empty() || mlOdomIMU.back().mtm < mCurrentFrame.ftimestamp_)) {
       lock2.unlock();  // then delay some ms to ensure some Odom data to come if it runs well
       mtmGrabDelay +=
           chrono::duration_cast<chrono::nanoseconds>(chrono::duration<double>(mDelayCache));  // delay default=20ms
@@ -1088,8 +1060,8 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
           if (mVelocity.empty()) {  // || mCurrentFrame.mnId<mnLastRelocFrameId+2){
             // if (!mVelocity.empty()) cerr<<redSTR"Error in Velocity.empty()!!!"<<endl;
             bOK = TrackReferenceKeyFrame();  // match with rKF, use lF as initial & m-o BA
-            cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " "
-                 << mCurrentFrame.mnId << " " << (int)bOK << endl;
+            cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.ftimestamp_
+                 << " " << mCurrentFrame.mnId << " " << (int)bOK << endl;
           } else {
             bOK = TrackWithMotionModel();  // match with lF, use v*lF(velocityMM) as initial & m-o BA
             if (!bOK) {
@@ -1431,7 +1403,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
   if (mCurrentFrame.N > 500) {
     // Set Frame pose to the origin
     mCurrentFrame.SetPose(cv::Mat::eye(4, 4, CV_32F));
-    cout << "check init tm=" << mCurrentFrame.ftimestamp_ << endl;
+    PRINT_INFO_MUTEX("init tm=" << mCurrentFrame.ftimestamp_ << endl);
 
     // Create KeyFrame
     KeyFrame* pKFini = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true);
@@ -1444,7 +1416,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
     // every points with depth info!
     if (mCurrentFrame.mv3Dpoints.empty()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
-        float z = mCurrentFrame.mvDepth[i];
+        float z = mCurrentFrame.stereoinfo_.vdepth_[i];
         if (z > 0) {
           cv::Mat x3D =
               mCurrentFrame.UnprojectStereo(i);  // use camera intrinsics to backproject the piont from (u,v) to x3Dw
@@ -1471,7 +1443,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
           MapPoint* pNewMP = new MapPoint(x3D, pKFini, mpMap);
           auto idxs = mCurrentFrame.mvidxsMatches[k];
           bool icheck = false;
-          PRINT_DEBUG_INFO_MUTEX("addmap-1, kf0:", mlog::vieo_slam_debug_path, "debug.txt");
+          PRINT_DEBUG_FILE_MUTEX("addmap-1, kf0:", mlog::vieo_slam_debug_path, "debug.txt");
           CV_Assert(idxs.size());
           for (int cami = 0; cami < idxs.size(); ++cami) {
             if (-1 != idxs[cami]) {
@@ -1483,7 +1455,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
               mCurrentFrame.AddMapPoint(pNewMP, icami);  // the realization of the AddMapPiont in class Frame
             }
           }
-          PRINT_DEBUG_INFO_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
+          PRINT_DEBUG_FILE_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
           CV_Assert(icheck);
           pNewMP->ComputeDistinctiveDescriptors();  // choose the observed descriptor having the least median distance
                                                     // to the left
@@ -1744,11 +1716,11 @@ void Tracking::CheckReplacedInLastFrame() {
           continue;
         }
         // cannot lock1 then lock2 while other thread lock2 then lock1!
-        PRINT_DEBUG_INFO(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), mlog::vieo_slam_debug_path,
+        PRINT_DEBUG_FILE(i << "lfreplace" << pRep->mnId << ":bad" << (int)pRep->isBad(), mlog::vieo_slam_debug_path,
                          "tracking_thread_debug.txt");
 #ifndef CHECK_REPLACE_ALL
         if (spAlreadyFound.end() != spAlreadyFound.find(make_pair(pRep, cami)))
-          PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+          PRINT_DEBUG_FILE(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
           //        CV_Assert(spAlreadyFound.end() == spAlreadyFound.find(pRep));
 #endif
         mLastFrame.ReplaceMapPointMatch(i, pRep);  // if it's replaced by localMapper, use the replaced one
@@ -1757,7 +1729,7 @@ void Tracking::CheckReplacedInLastFrame() {
       }
     }
   }
-  PRINT_DEBUG_INFO("replace num=" << num_pts_replaced << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("replace num=" << num_pts_replaced << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 }
 
 bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
@@ -1772,7 +1744,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
   int nmatches = matcher.SearchByBoW(mpReferenceKF, mCurrentFrame,
                                      vpMapPointMatches);  // match with rKF,rectify the vpMapPointMatches, SBBoW better
                                                           // than SBP for the mCurrentFrame.Tcw is unknown
-  PRINT_DEBUG_INFO("math num=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("math num=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   if (nmatches < thMatch)  // 15)//looser than 20 in TrackWithMotionModel()
     return false;
@@ -1782,7 +1754,7 @@ bool Tracking::TrackReferenceKeyFrame(int thInMPs, int thMatch) {
   mCurrentFrame.SetPose(mLastFrame.GetTcwRef());  // but use lF as the initial value for BA
 
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame);  // motion-only BA
-  PRINT_DEBUG_INFO("inliers=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("inliers=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // Discard outliers
   int nmatchesMap = 0;
@@ -1823,7 +1795,7 @@ void Tracking::UpdateLastFrame() {
   vector<pair<float, int>> vDepthIdx;
   vDepthIdx.reserve(mLastFrame.N);
   for (int i = 0; i < mLastFrame.N; i++) {
-    float z = mLastFrame.mvDepth[i];
+    float z = mLastFrame.stereoinfo_.vdepth_[i];
     if (z > 0) {
       vDepthIdx.push_back(make_pair(z, i));
     }
@@ -1902,7 +1874,7 @@ bool Tracking::TrackWithMotionModel() {
     th = 7;
   // has CurrentFrame.mvpMapPoints[bestIdx2]=pMP; in this func. then it can use m-o BA
   int nmatches = matcher.SearchByProjection(mCurrentFrame, mLastFrame, th, mSensor == System::MONOCULAR);
-  PRINT_DEBUG_INFO("math num2=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("math num2=" << nmatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   // If few matches, uses a wider window search
   if (nmatches < 20) {
@@ -1921,7 +1893,7 @@ bool Tracking::TrackWithMotionModel() {
   // Optimize frame pose with all matches
   int num_inliers = Optimizer::PoseOptimization(&mCurrentFrame, &mLastFrame);  // motion-only BA
   //     Optimizer::PoseOptimization(&mCurrentFrame);//motion-only BA
-  PRINT_DEBUG_INFO("inliers2=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("inliers2=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 #ifdef CHECK_JITTER
   using Tdata = double;
   NavStated newns = mCurrentFrame.GetNavState();
@@ -1972,7 +1944,7 @@ bool Tracking::TrackLocalMap() {
 
   UpdateLocalMap();
 
-  PRINT_DEBUG_INFO_MUTEX("SLP" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("SLP" << endl, mlog::vieo_slam_debug_path, "debug.txt");
   SearchLocalPoints();
 
 #ifdef CHECK_JITTER
@@ -1998,7 +1970,7 @@ bool Tracking::TrackLocalMap() {
 #endif
 
   mnMatchesInliers = 0;
-  PRINT_DEBUG_INFO("num_inliers22=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("num_inliers22=" << num_inliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   // Update MapPoints Statistics
   set<MapPoint*> sMP;
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -2026,7 +1998,7 @@ bool Tracking::TrackLocalMap() {
     }
   }
 
-  PRINT_DEBUG_INFO("inliers_map=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("inliers_map=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
   int threInlierReloc = 50, threInliers = 30;
@@ -2090,7 +2062,8 @@ bool Tracking::NeedNewKeyFrame() {
     const auto& curfmps = mCurrentFrame.GetMapPointMatches();
     if (!mCurrentFrame.mv3Dpoints.size()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
-        if (mCurrentFrame.mvDepth[i] > 0 && mCurrentFrame.mvDepth[i] < mThDepth)  // it's a close point
+        if (mCurrentFrame.stereoinfo_.vdepth_[i] > 0 &&
+            mCurrentFrame.stereoinfo_.vdepth_[i] < mThDepth)  // it's a close point
         {
           if (curfmps[i] && !mCurrentFrame.mvbOutlier[i])  // it's a inlier map point or tracked one
             nTrackedClose++;
@@ -2103,7 +2076,7 @@ bool Tracking::NeedNewKeyFrame() {
         if (mCurrentFrame.goodmatches_[k]) {
           size_t i = mCurrentFrame.mapidxs2n_[k];
           CV_Assert(-1 != i);
-          float z = mCurrentFrame.mvDepth[i];
+          float z = mCurrentFrame.stereoinfo_.vdepth_[i];
           CV_Assert(z > 0);
           if (z < mThDepth) {
             // it's a inlier map point or tracked one
@@ -2234,7 +2207,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
     vDepthIdx.reserve(mCurrentFrame.N);
     if (!mCurrentFrame.mv3Dpoints.size()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
-        float z = mCurrentFrame.mvDepth[i];
+        float z = mCurrentFrame.stereoinfo_.vdepth_[i];
         if (z > 0) {
           vDepthIdx.push_back(make_pair(z, i));
         }
@@ -2243,7 +2216,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
       for (int k = 0; k < mCurrentFrame.mv3Dpoints.size(); ++k) {
         if (mCurrentFrame.goodmatches_[k]) {
           int i = mCurrentFrame.mapidxs2n_[k];
-          float z = mCurrentFrame.mvDepth[i];
+          float z = mCurrentFrame.stereoinfo_.vdepth_[i];
           CV_Assert(-1 != i && z > 0);
           vDepthIdx.push_back(make_pair(z, i));
         }
@@ -2296,7 +2269,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
           cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
           MapPoint* pNewMP = new MapPoint(x3D, pKF, mpMap);
           size_t ididxs = mCurrentFrame.GetMapn2idxs(i);
-          PRINT_DEBUG_INFO_MUTEX("mp0[" << pKF->mnId << "," << i << "]:", mlog::vieo_slam_debug_path, "debug.txt");
+          PRINT_DEBUG_FILE_MUTEX("mp0[" << pKF->mnId << "," << i << "]:", mlog::vieo_slam_debug_path, "debug.txt");
           if (-1 == ididxs) {
             pNewMP->AddObservation(pKF, i);
             pKF->AddMapPoint(pNewMP, i);
@@ -2314,7 +2287,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
                 mCurrentFrame.AddMapPoint(pNewMP, icami);
               }
             }
-            PRINT_DEBUG_INFO_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
+            PRINT_DEBUG_FILE_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
             CV_Assert(icheck);
           }
           pNewMP->ComputeDistinctiveDescriptors();
@@ -2335,7 +2308,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
 #ifndef NO_LBA_THREAD
   mpLocalMapper->InsertKeyFrame(pKF);
 #endif
-  PRINT_DEBUG_INFO("curf is kf" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("curf is kf" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   mpLocalMapper->SetNotStop(false);
 
@@ -2383,7 +2356,7 @@ void Tracking::SearchLocalPoints() {
       nToMatch++;
     }
   }
-  PRINT_DEBUG_INFO("extra init=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("extra init=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
   if (nToMatch > 0) {
     ORBmatcher matcher(0.8);  // 0.8 is the threshold for mindist/mindist2(<th is nice matching)
@@ -2406,7 +2379,7 @@ void Tracking::SearchLocalPoints() {
     // rectify the mCurrentFrame.mvpMapPoints
     nToMatch = matcher.SearchByProjection(mCurrentFrame, mvpLocalMapPoints, th, mpLocalMapper->th_far_pts_);
   }
-  PRINT_DEBUG_INFO("befopt2 extra=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_DEBUG_FILE("befopt2 extra=" << nToMatch << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 }
 
 void Tracking::UpdateLocalMap() {

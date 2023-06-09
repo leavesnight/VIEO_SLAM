@@ -81,21 +81,11 @@ class Frame : public FrameBase {
   // though descriptors can be deep copied for safety here, but we'll pay attention, so it's shallow copied now
   explicit Frame(const Frame &frame, bool copy_shallow = false);
 
-  // Constructor for stereo cameras.
-  Frame(const vector<cv::Mat> &ims, const double &timeStamp, vector<ORBextractor *> extractors, ORBVocabulary *voc,
-        cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
-        IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr,
-        const vector<GeometricCamera *> *pCamInsts = nullptr, bool usedistort = true, const float th_far_pts = 0);
-
-  // Constructor for RGB-D cameras.
-  Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor *extractor,
-        ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth,
-        IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr);
-
-  // Constructor for Monocular cameras.
-  Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor *extractor, ORBVocabulary *voc, cv::Mat &K,
-        cv::Mat &distCoef, const float &bf, const float &thDepth, IMUPreintegrator *ppreint_imu_kf = nullptr,
-        EncPreIntegrator *ppreint_enc_kf = nullptr);
+  // Constructor for stereo/RGB-D(ims.size()>extractors.size())/Monocular(ims.size()==1) cameras.
+  Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<ORBextractor *> &extractors,
+        ORBVocabulary *voc, const vector<GeometricCamera *> &CamInsts, const float &bf, const float &thDepth,
+        IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr, bool usedistort = true,
+        const float th_far_pts = 0);
 
   bool IsInImage(const float &x, const float &y) const {
     return (x >= mnMinX && x < mnMaxX && y >= mnMinY && y < mnMaxY);
@@ -141,31 +131,15 @@ class Frame : public FrameBase {
   cv::Mat UnprojectStereo(const int &i);
 
  public:
-  // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
-  // In the stereo case, mvKeysUn is redundant as images must be rectified.
-  // In the RGB-D case, RGB images can be distorted.
-  std::vector<cv::KeyPoint> mvKeys;
-  std::vector<cv::KeyPoint> mvKeysUn;
-
-  // Corresponding stereo coordinate and depth for each keypoint.
-  // "Monocular" keypoints have a negative value.
-  std::vector<float> mvuRight;
-  std::vector<float> mvDepth;
 
   // Flag to identify outlier associations.
   std::vector<bool> mvbOutlier;
-
-  // Threshold close/far points. Close points are inserted from 1 view.
-  // Far points are inserted as in the monocular case from 2 views.
-  float mThDepth;
 
   // Current and Next Frame id.
   static long unsigned int nNextId;
 
   // Vocabulary used for relocalization.
   ORBVocabulary *mpORBvocabulary;
-  // ORB descriptor, each row associated to a keypoint.
-  cv::Mat mDescriptors;
   // Bag of Words Vector structures.
   DBoW2::BowVector mBowVec;
   DBoW2::FeatureVector mFeatVec;
@@ -173,24 +147,6 @@ class Frame : public FrameBase {
   // Feature extractor. The right is used only in the stereo case.
   vector<ORBextractor *> mpORBextractors;
 
-  // Calibration matrix and OpenCV distortion parameters.
-  cv::Mat mK;
-  static float fx;
-  static float fy;
-  static float cx;
-  static float cy;
-  static float invfx;
-  static float invfy;
-  cv::Mat mDistCoef;
-
-  // Stereo baseline multiplied by fx.
-  float mbf;
-
-  // Stereo baseline in meters.
-  float mb;
-
-  // Number of KeyPoints.
-  int N;
   // Number of Non Lapping Keypoints
   vector<size_t> num_mono = vector<size_t>(1);
   std::vector<std::vector<cv::KeyPoint>> vvkeys_ = std::vector<std::vector<cv::KeyPoint>>(1);
@@ -214,7 +170,7 @@ class Frame : public FrameBase {
   std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
 
   // Reference Keyframe.
-  KeyFrame *mpReferenceKF;
+  KeyFrame *mpReferenceKF = nullptr;
 
   // Scale pyramid info.
   vector<float> mvScaleFactors;

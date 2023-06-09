@@ -27,15 +27,14 @@
 #ifndef G2O_FACTORY_H
 #define G2O_FACTORY_H
 
+#include <string>
+#include <map>
+#include <iostream>
 #include "../../config.h"
 #include "../stuff/misc.h"
 #include "hyper_graph.h"
 #include "creators.h"
 #include "common/mlog/log.h"
-
-#include <string>
-#include <map>
-#include <iostream>
 
 // define to get some verbose output
 //#define G2O_DEBUG_FACTORY

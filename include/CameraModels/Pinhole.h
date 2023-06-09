@@ -30,15 +30,14 @@ class Pinhole : public GeometricCamera {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
-  Pinhole(const vector<float> &params) : GeometricCamera(params) {
+  Pinhole(const vector<float>& params) : GeometricCamera(params) {
     mnId = nNextId++;
     mnType = CAM_PINHOLE;
   }
   Pinhole(cv::FileStorage& fSettings, int id, bool& bmiss_param);
   ~Pinhole() {}
 
-  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance, cv::Mat* pK,
-                                cv::Mat* pDistCoef);
+  static bool ParseCamParamFile(cv::FileStorage& fSettings, int id, GeometricCamera*& pCameraInstance);
 
   Eigen::Vector2d project(const Eigen::Vector3d& p3D) override;
 

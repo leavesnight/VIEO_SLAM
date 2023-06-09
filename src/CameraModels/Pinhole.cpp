@@ -93,16 +93,13 @@ Pinhole::Pinhole(cv::FileStorage &fSettings, int id, bool &bmiss_param) {
   mnType = CAM_PINHOLE;
 }
 
-bool Pinhole::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,
-                                cv::Mat *pDistCoef) {
+bool Pinhole::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst) {
   bool b_miss_params = false;
   pCamInst = new Pinhole(fSettings, id, b_miss_params);
   if (b_miss_params) {
     cerr << "Error: miss params!" << endl;
     return false;
   }
-  if (pK) pCamInst->toKcv().copyTo(*pK);
-  if (pDistCoef) *pDistCoef = cv::Mat::zeros(4, 1, CV_32F);
 
   return true;
 }

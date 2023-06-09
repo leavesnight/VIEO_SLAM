@@ -2,21 +2,16 @@
  * This file is part of VIEO_SLAM
  */
 
-#include "ORBmatcher.h"
-
 #include <limits.h>
-
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
-
-#include "loop/DBoW2/DBoW2/FeatureVector.h"
-
 #include <stdint-gcc.h>
-
+#include "ORBmatcher.h"
+#include "loop/DBoW2/DBoW2/FeatureVector.h"
 #include "Pinhole.h"
 #include "Converter.h"
-#include "common/mlog/log.h"
 #include "common/config.h"
+#include "common/mlog/log.h"
 
 using namespace std;
 
@@ -35,7 +30,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
   bool usedistort = pKF->mpCameras.size() && Frame::usedistort_;
   bool only1match = !(SBPMatchMultiCam & mode), fuselater = SBPFuseLater & mode;
   CV_Assert(!fuselater || pvnMatch1);
-  PRINT_DEBUG_INFO_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, mlog::vieo_slam_debug_path, "debug.txt");
   size_t N1 = vpMapPoints1.size();
   if (pvnMatch1) {
     pvnMatch1->clear();
@@ -83,16 +78,14 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
       // Project into Image
       const float invz = 1 / Pc(2);
       float u, v;
+      assert(pcam1);
       if (!usedistort) {
         // Get Calibration Parameters for later projection
-        const float &fx = pKF->fx;
-        const float &fy = pKF->fy;
-        const float &cx = pKF->cx;
-        const float &cy = pKF->cy;
-        u = fx * Pc(0) * invz + cx;
-        v = fy * Pc(1) * invz + cy;
+        Vector3f p_normalize = Vector3f(Pc(0) * invz, Pc(1) * invz, 1);
+        Vector3f uv = pcam1->toK().cast<float>() * p_normalize;  // K*Xc
+        u = uv[0];
+        v = uv[1];
       } else {
-        CV_Assert(pcam1);
         auto pt = pcam1->project(Pc);
         u = pt[0];
         v = pt[1];
@@ -139,11 +132,11 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
         if (pbf) {
           // chi2 check
           // stereo feature points(have depth data)
-          if (pKF->mvuRight[idx] >= 0) {
+          if (pKF->stereoinfo_.vuright_[idx] >= 0) {
             // Check reprojection error in stereo
             const float &kpx = kp.pt.x;
             const float &kpy = kp.pt.y;
-            const float &kpr = pKF->mvuRight[idx];
+            const float &kpr = pKF->stereoinfo_.vuright_[idx];
             const float ex = u - kpx;  // ref-rectiying
             const float ey = v - kpy;
             const float ur = u - (*pbf) * invz;
@@ -165,7 +158,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
           }
         }
 
-        CV_Assert(!pKF->mapn2in_.size() || get<0>(pKF->mapn2in_[idx]) == cami);
+        assert(pKF->mapn2in_.empty() || (pKF->mapn2in_.size() > idx && get<0>(pKF->mapn2in_[idx]) == cami));
         const cv::Mat &dKF = pKF->mDescriptors.row(idx);
 
         const int dist = DescriptorDistance(dMP, dKF);
@@ -182,9 +175,9 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
           //            }
           //            if (!check) {
           //              for (auto iter = idxsOf1mp.begin(), iterend = idxsOf1mp.end(); iter != iterend; ++iter) {
-          //                PRINT_DEBUG_INFO_MUTEX("iter=" << *iter << " ", mlog::vieo_slam_debug_path, "debug.txt");
+          //                PRINT_DEBUG_FILE_MUTEX("iter=" << *iter << " ", mlog::vieo_slam_debug_path, "debug.txt");
           //              }
-          //              PRINT_DEBUG_INFO_MUTEX(
+          //              PRINT_DEBUG_FILE_MUTEX(
           //                  pKF->mnId << "kfidx" << idx << "mpid" << pMP2->mnId << ";check kf bad=" <<
           //                  (int)pKF->isBad()
           //                            << ";check mpobs=" << pMP2->Observations() << "/" <<
@@ -295,8 +288,8 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoin
                              // TrackWithMotionModel/TrackReferenceKeyFrame() or by this function)
           if (frame_mps[idx]->Observations() > 0) continue;
 
-        if (F.mvuRight[idx] > 0) {
-          const float er = fabs(*iter_proj[2] - F.mvuRight[idx]);
+        if (F.stereoinfo_.vuright_[idx] > 0) {
+          const float er = fabs(*iter_proj[2] - F.stereoinfo_.vuright_[idx]);
           if (er > r * F.mvScaleFactors[nPredictedLevel])  // if right virtual image's error is too large(>r')
             continue;
         }
@@ -324,7 +317,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoin
         // if bestDist/bestDist2 <= threshold then this bestIdx can be matched with this MP
         if (bestLevel == bestLevel2 && bestDist > mfNNratio * bestDist2) continue;
 
-        PRINT_DEBUG_INFO_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", mlog::vieo_slam_debug_path,
+        PRINT_DEBUG_FILE_MUTEX("bestidx" << bestIdx << "," << pMP->mnId << " ", mlog::vieo_slam_debug_path,
                                "debug.txt");
         F.AddMapPoint(pMP, bestIdx);
         nmatches++;
@@ -333,7 +326,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoin
     }
   }
   for (size_t cami = 0; cami < nmatches_cami.size(); ++cami)
-    PRINT_DEBUG_INFO("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, mlog::vieo_slam_debug_path,
+    PRINT_DEBUG_FILE("nmatches_cami[]" << cami << "=" << nmatches_cami[cami] << endl, mlog::vieo_slam_debug_path,
                      "tracking_thread_debug.txt");
 
   return nmatches;  // this is not all the matches in mCurrentFrame.mvpMapPoints, just the addition part by local map
@@ -555,14 +548,13 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
       // Project into Image
       const float invz = 1 / Pc(2);
       float u, v;
-      if (!pcam1 || !Frame::usedistort_) {
+      assert(pcam1);
+      if (!Frame::usedistort_) {
         // Get Calibration Parameters for later projection
-        const float &fx = pKF->fx;
-        const float &fy = pKF->fy;
-        const float &cx = pKF->cx;
-        const float &cy = pKF->cy;
-        u = fx * Pc(0) * invz + cx;
-        v = fy * Pc(1) * invz + cy;
+        Vector3f p_normalize = Vector3f(Pc(0) * invz, Pc(1) * invz, 1);
+        Vector3f uv = pcam1->toK().cast<float>() * p_normalize;  // K*Xc
+        u = uv[0];
+        v = uv[1];
       } else {
         auto pt = pcam1->project(Pc);
         u = pt[0];
@@ -914,14 +906,16 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
   cv::Mat Cw = pKF1->GetCameraCenter();
   cv::Mat R2w = pKF2->GetRotation();
   cv::Mat t2w = pKF2->GetTranslation();
-  cv::Mat C2 =
-      R2w * Cw + t2w;  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
+  //(Tc2w*Twc1).col(3).copyTo(Tc2c1.col(3)), don't consider Tc2c1.col(3)=(Tc2w*Twc1).col(3)!
+  cv::Mat C2 = R2w * Cw + t2w;
   float ex, ey;
   auto Tr1r2 = pKF1->GetTcw() * pKF2->GetTwc();
   if (!usedistort[1]) {
     const float invz = 1.0f / C2.at<float>(2);
-    ex = pKF2->fx * C2.at<float>(0) * invz + pKF2->cx;
-    ey = pKF2->fy * C2.at<float>(1) * invz + pKF2->cy;
+    Vector3f p_normalize = Vector3f(C2.at<float>(0) * invz, C2.at<float>(1) * invz, 1);
+    Vector3f uv = pKF2->mpCameras[0]->toK().cast<float>() * p_normalize;  // K*Xc
+    ex = uv[0];
+    ey = uv[1];
   } else {
     auto pt = pKF2->mpCameras[0]->project(C2);
     ex = pt.x;
@@ -947,8 +941,12 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
   shared_ptr<Pinhole> pcaminst[2];
   if (!usedistort[0]) {
     CV_Assert(!usedistort[1]);
-    pcaminst[0] = make_shared<Pinhole>(vector<float>({pKF1->fx, pKF1->fy, pKF1->cx, pKF1->cy}));
-    pcaminst[1] = make_shared<Pinhole>(vector<float>({pKF2->fx, pKF2->fy, pKF2->cx, pKF2->cy}));
+    auto params_tmp = pKF1->mpCameras[0]->getParameters();
+    params_tmp.resize(4);
+    pcaminst[0] = make_shared<Pinhole>(params_tmp);
+    params_tmp = pKF2->mpCameras[0]->getParameters();
+    params_tmp.resize(4);
+    pcaminst[1] = make_shared<Pinhole>(params_tmp);
   } else
     CV_Assert(usedistort[1]);
 
@@ -969,7 +967,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
         // If there is already a MapPoint skip
         if (pMP1) continue;
 
-        const bool bStereo1 = pKF1->mvuRight[idx1] >= 0;  // can be optimized in RGBD by using mvDepth[idx1]>0
+        const bool bStereo1 =
+            pKF1->stereoinfo_.vuright_[idx1] >= 0;  // can be optimized in RGBD by using mvDepth[idx1]>0
 
         // in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point
         // without stereo matches(may happen in RGBD even with depth>0)
@@ -996,7 +995,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
           auto iterj = mapcamidx2idxs.find(make_pair(cam2, idx2));
           if (mapcamidx2idxs.end() != iterj && -1 != vidxs_matches[iterj->second][cam1]) continue;
 
-          const bool bStereo2 = pKF2->mvuRight[idx2] >= 0;
+          const bool bStereo2 = pKF2->stereoinfo_.vuright_[idx2] >= 0;
 
           if (bOnlyStereo)
             if (!bStereo2) continue;
@@ -1037,7 +1036,9 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
             pcam1 = pcaminst[0].get();
             pcam2 = pcaminst[1].get();
           } else {
+            assert(pKF1->mapn2in_.size() > idx1);
             pcam1 = pKF1->mpCameras[get<0>(pKF1->mapn2in_[idx1])];
+            assert(pKF2->mapn2in_.size() > idx2);
             pcam2 = pKF2->mpCameras[get<0>(pKF2->mapn2in_[idx2])];
           }
           auto T12 = pcam1->GetTcr() * Tr1r2 * pcam2->GetTrc();
@@ -1157,7 +1158,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
   int nFused = 0;
 
   vector<set<int>> vnMatch;
-  const float &bf = pKF->mbf;
+  const float &bf = pKF->stereoinfo_.baseline_bf_[1];
   // like the threshold in SBBoW, though this is like a SBP method maybe for it should be stricter when used in far
   // position matching (fuse in LocalMapping, 0.6, true)
   SearchByProjectionBase(vpMapPoints, Rcw, tcw, pKF, th, TH_LOW, true, &bf, &nFused);
@@ -1209,7 +1210,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
       } else  // pKF->mvpMapPoints[bestIdx]==nullptr
       {       // directly add pMP into pKF and update pMP's mObservations
         pMP->AddObservation(pKF, bestIdx);
-        PRINT_DEBUG_INFO_MUTEX("addmp2" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("addmp2" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pKF->AddMapPoint(pMP, bestIdx);
       }
       nFused++;  // notice vpReplacePoint[idx] may appear many times, so nFuse <= the real fused/added matched MPs in
@@ -1316,8 +1317,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
   const auto &Tlrcr = Tlrw * Tcrw.inverse();
   const auto &tlrcr = Tlrcr.translation();
 
-  const bool bForward = tlrcr(2) > CurrentFrame.mb && !bMono;    // delta z >0.08m
-  const bool bBackward = -tlrcr(2) > CurrentFrame.mb && !bMono;  // delta z<-0.08m
+  const bool bForward = tlrcr(2) > CurrentFrame.stereoinfo_.baseline_bf_[0] && !bMono;    // delta z >0.08m
+  const bool bBackward = -tlrcr(2) > CurrentFrame.stereoinfo_.baseline_bf_[0] && !bMono;  // delta z<-0.08m
 
   size_t num_mp = 0;
   set<MapPoint *> sMP;
@@ -1334,12 +1335,12 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
     Eigen::Vector3d x3Dr = Tcrw * x3Dw, x3Dc;
     if (th_far_pts > 0 && x3Dr(2) > th_far_pts) continue;
 
-    PRINT_DEBUG_INFO_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_DEBUG_FILE_MUTEX("i" << i << "lfmpid=" << pMP->mnId << ":", mlog::vieo_slam_debug_path, "debug.txt");
     ++num_mp;
     size_t n_camsj = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
-    // CV_Assert(LastFrame.mapn2in_.size() > i);
+    // assert(LastFrame.mapn2in_.size() > i);
     // size_t camj = get<0>(LastFrame.mapn2in_[i]);
-    // CV_Assert(CurrentFrame.mpCameras.size() > camj;)
+    // assert(CurrentFrame.mpCameras.size() > camj;)
     for (size_t camj = 0; camj < n_camsj; ++camj) {
       if (CurrentFrame.mpCameras.size() > camj) {
         x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
@@ -1359,8 +1360,10 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         u = pt[0];
         v = pt[1];
       } else {
-        u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;  // K*Xc
-        v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
+        Vector3f p_normalize = Vector3f(xc * invzc, yc * invzc, 1);
+        Vector3f uv = CurrentFrame.mpCameras[camj]->toK().cast<float>() * p_normalize;  // K*Xc
+        u = uv[0];
+        v = uv[1];
       }
 
       if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX)  // out of img range,cannot be photoed
@@ -1404,9 +1407,9 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         if (curfmps[i2])
           if (curfmps[i2]->Observations() > 0) continue;
 
-        if (CurrentFrame.mvuRight[i2] > 0) {
-          const float ur = u - CurrentFrame.mbf * invzc;  // leftKP.x-mbf/leftKP.depth
-          const float er = fabs(ur - CurrentFrame.mvuRight[i2]);
+        if (CurrentFrame.stereoinfo_.vuright_[i2] > 0) {
+          const float ur = u - CurrentFrame.stereoinfo_.baseline_bf_[1] * invzc;  // leftKP.x-bf/leftKP.depth
+          const float er = fabs(ur - CurrentFrame.stereoinfo_.vuright_[i2]);
           if (er > radius)  // rectangle window should also be suitable in virtual right camera for RGBD,can use >= here
             continue;
         }
@@ -1415,7 +1418,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         // CurrentFrame.vdescriptors_[cami].row(get<2>(CurrentFrame.mapn2ijn_[i2]));
         Frame &F = CurrentFrame;
         auto idx = i2;
-        CV_Assert(!F.mapn2in_.size() || get<0>(F.mapn2in_[idx]) == camj);
+        assert(F.mapn2in_.empty() || (F.mapn2in_.size() > idx && get<0>(F.mapn2in_[idx]) == camj));
         const cv::Mat &d = F.mDescriptors.row(idx);
 
         const int dist = DescriptorDistance(dMP, d);
@@ -1429,7 +1432,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
 
       if (bestDist <= TH_HIGH)  // 256>100 so bestIdx2!=-1
       {
-        PRINT_DEBUG_INFO_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("cfbestidx" << bestIdx2 << ":" << pMP->mnId, mlog::vieo_slam_debug_path, "debug.txt");
         CurrentFrame.AddMapPoint(pMP, bestIdx2);
         nmatches++;
 
@@ -1512,13 +1515,16 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
       const float invzc = 1.0 / Pc(2);
 
       float u, v;
-      if (!pcam1 || !Frame::usedistort_) {
+      assert(pcam1);
+      if (!Frame::usedistort_) {
         const float xc = Pc(0);
         const float yc = Pc(1);
-        u = CurrentFrame.fx * xc * invzc + CurrentFrame.cx;
-        v = CurrentFrame.fy * yc * invzc + CurrentFrame.cy;
+        Vector3f p_normalize = Vector3f(xc * invzc, yc * invzc, 1);
+        Vector3f uv = pcam1->toK().cast<float>() * p_normalize;  // K*Xc
+        u = uv[0];
+        v = uv[1];
       } else {
-        auto pt = CurrentFrame.mpCameras[cami]->project(Pc);
+        auto pt = pcam1->project(Pc);
         u = pt[0];
         v = pt[1];
       }

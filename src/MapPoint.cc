@@ -2,12 +2,11 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <mutex>
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
 #include "common/mlog/log.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 
@@ -162,9 +161,9 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   CV_Assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
-  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
 
-  if (pKF->mvuRight[idx] >= 0)
+  if (pKF->stereoinfo_.vuright_[idx] >= 0)
     nObs += 2;
   else
     nObs++;
@@ -180,7 +179,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF, size_t idx) {
       if (-1 == idx) {
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
           auto idx = *iter;
-          if (pKF->mvuRight[idx] >= 0)
+          if (pKF->stereoinfo_.vuright_[idx] >= 0)
             nObs -= 2;
           else
             nObs--;
@@ -188,7 +187,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF, size_t idx) {
 
         mObservations.erase(pKF);
       } else {
-        if (pKF->mvuRight[idx] >= 0)
+        if (pKF->stereoinfo_.vuright_[idx] >= 0)
           nObs -= 2;
         else
           --nObs;
@@ -250,7 +249,7 @@ MapPoint* MapPoint::GetReplaced() {
 void MapPoint::Replace(MapPoint* pMP) {
   if (pMP->mnId == this->mnId) return;
 
-  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   int nvisible, nfound;
   map<KeyFrame*, set<size_t>> obs;
   {
@@ -284,7 +283,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }
@@ -403,9 +402,10 @@ bool MapPoint::IsInKeyFrame(KeyFrame* pKF, size_t idx, size_t cami) {
     if (-1 == cami)
       return true;
     else {
-      if (!pKF->mapn2in_.size()) return 0 == cami;
+      if (pKF->mapn2in_.empty()) return 0 == cami;
       bool ret = false;
       for (auto iteridx : iter->second) {
+        assert(pKF->mapn2in_.size() > iteridx);
         if (cami == get<0>(pKF->mapn2in_[iteridx])) {
           ret = true;
           break;

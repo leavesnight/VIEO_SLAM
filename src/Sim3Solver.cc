@@ -1,7 +1,6 @@
 /**
-* This file is part of VIEO_SLAM
-*/
-
+ * This file is part of VIEO_SLAM
+ */
 
 #include "Sim3Solver.h"
 
@@ -16,12 +15,13 @@
 #include "CameraModels/Pinhole.h"
 #include "Converter.h"
 
-namespace VIEO_SLAM
-{
+namespace VIEO_SLAM {
 
-
-Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> &vpMatched12, const bool bFixScale):
-    mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale)//pKF1 is mpCurrentKF, pKF2 is loop candidate KFs, vpMatched12[i] matched to pKF1->mvpMapPoints[i], bFixScale=true for RGBD
+Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> &vpMatched12, const bool bFixScale)
+    : mnIterations(0),
+      mnBestInliers(0),
+      mbFixScale(bFixScale)  // pKF1 is mpCurrentKF, pKF2 is loop candidate KFs, vpMatched12[i] matched to
+                             // pKF1->mvpMapPoints[i], bFixScale=true for RGBD
 {
   mpKF1 = pKF1;
   mpKF2 = pKF2;
@@ -52,10 +52,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
   else {
     camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
     auto &CamInst = camsinst_.back();
-    CamInst->setParameter(pKF1->fx, 0);
-    CamInst->setParameter(pKF1->fy, 1);
-    CamInst->setParameter(pKF1->cx, 2);
-    CamInst->setParameter(pKF1->cy, 3);
+    auto params_tmp = pKF1->mpCameras[0]->getParameters();
+    params_tmp.resize(4);
+    CamInst->setParameters(params_tmp);
     pcams_[0].push_back(CamInst.get());
   }
   if (usedistort_[1])
@@ -63,10 +62,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
   else {
     camsinst_.push_back(static_pointer_cast<GeometricCamera>(make_shared<Pinhole>()));
     auto &CamInst = camsinst_.back();
-    CamInst->setParameter(pKF2->fx, 0);
-    CamInst->setParameter(pKF2->fy, 1);
-    CamInst->setParameter(pKF2->cx, 2);
-    CamInst->setParameter(pKF2->cy, 3);
+    auto params_tmp = pKF2->mpCameras[0]->getParameters();
+    params_tmp.resize(4);
+    CamInst->setParameters(params_tmp);
     pcams_[1].push_back(CamInst.get());
   }
   for (int i1 = 0; i1 < mN1; i1++) {
@@ -92,7 +90,8 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
         const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
         const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
 
-        mvnMaxError1.push_back(9.210 * sigmaSquare1);  // to use chi2 distribution for e^2 with sigma^2, we need expand its standard table like chi2(0.01,2)*sigma2
+        mvnMaxError1.push_back(9.210 * sigmaSquare1);  // to use chi2 distribution for e^2 with sigma^2, we need expand
+                                                       // its standard table like chi2(0.01,2)*sigma2
         mvnMaxError2.push_back(9.210 * sigmaSquare2);  // chi2(0.01,2)=9.21
 
         mvpMapPoints1.push_back(pMP1);
@@ -106,246 +105,228 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
         mvX3Dc2.push_back(Rcw2 * X3D2w + tcw2);  // Xc2
 
         mvAllIndices.push_back(idx);
+        if (usedistort_[0]) assert(pKF1->mapn2in_.size() > indexKF1);
         mapidx2cami_[0].push_back(usedistort_[0] ? get<0>(pKF1->mapn2in_[indexKF1]) : 0);
+        if (usedistort_[1]) assert(pKF2->mapn2in_.size() > indexKF2);
         mapidx2cami_[1].push_back(usedistort_[1] ? get<0>(pKF2->mapn2in_[indexKF2]) : 0);
         idx++;
       }
     }
   }
 
-  // maybe not using real 2d obs means camera obs won't be more accurate than projecting for BE loop closing(after lots of opt.)
+  // maybe not using real 2d obs means camera obs won't be more accurate than projecting for BE loop closing(after lots
+  // of opt.)
   Project(mvX3Dc1, mvP1im1, pcams_[0], mapidx2cami_[0]);
   Project(mvX3Dc2, mvP2im2, pcams_[1], mapidx2cami_[1]);
 
   SetRansacParameters();  // use default settings for safe
 }
 
-void Sim3Solver::SetRansacParameters(double probability, int minInliers, int maxIterations)
-{
-    mRansacProb = probability;
-    mRansacMinInliers = minInliers;
-    mRansacMaxIts = maxIterations;    
+void Sim3Solver::SetRansacParameters(double probability, int minInliers, int maxIterations) {
+  mRansacProb = probability;
+  mRansacMinInliers = minInliers;
+  mRansacMaxIts = maxIterations;
 
-    N = mvpMapPoints1.size(); // number of correspondences
+  N = mvpMapPoints1.size();  // number of correspondences
 
-    mvbInliersi.resize(N);
+  mvbInliersi.resize(N);
 
-    // Adjust Parameters according to number of correspondences
-    float epsilon = (float)mRansacMinInliers/N;
+  // Adjust Parameters according to number of correspondences
+  float epsilon = (float)mRansacMinInliers / N;
 
-    // Set RANSAC iterations according to probability, epsilon, and max iterations
-    int nIterations;
+  // Set RANSAC iterations according to probability, epsilon, and max iterations
+  int nIterations;
 
-    if(mRansacMinInliers==N)
-        nIterations=1;
-    else
-        nIterations = ceil(log(1-mRansacProb)/log(1-pow(epsilon,3)));
+  if (mRansacMinInliers == N)
+    nIterations = 1;
+  else
+    nIterations = ceil(log(1 - mRansacProb) / log(1 - pow(epsilon, 3)));
 
-    mRansacMaxIts = max(1,min(nIterations,mRansacMaxIts));
+  mRansacMaxIts = max(1, min(nIterations, mRansacMaxIts));
 
-    mnIterations = 0;
+  mnIterations = 0;
 }
 
-cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers)
-{
-    bNoMore = false;
-    vbInliers = vector<bool>(mN1,false);
-    nInliers=0;
+cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers) {
+  bNoMore = false;
+  vbInliers = vector<bool>(mN1, false);
+  nInliers = 0;
 
-    if(N<mRansacMinInliers)
-    {
-        std::cout<<"bNoMore by N: "<<N<<std::endl;
-        bNoMore = true;
-        return cv::Mat();
-    }
-
-    vector<size_t> vAvailableIndices;
-
-    cv::Mat P3Dc1i(3,3,CV_32F);
-    cv::Mat P3Dc2i(3,3,CV_32F);
-
-    int nCurrentIterations = 0;
-    while(mnIterations<mRansacMaxIts && nCurrentIterations<nIterations)
-    {
-        nCurrentIterations++;
-        mnIterations++;
-
-        vAvailableIndices = mvAllIndices;
-
-        // Get min set of points
-        for(short i = 0; i < 3; ++i) {
-          int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size() - 1);
-
-          int idx = vAvailableIndices[randi];
-
-          mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
-          mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
-
-          // don't pick the same point, so log(1-p)/log(1-w^n) is just the upper limit")" of the max iter.
-          vAvailableIndices[randi] = vAvailableIndices.back();
-          vAvailableIndices.pop_back();
-        }
-
-        ComputeSim3(P3Dc1i,P3Dc2i); // TODO: check the implementation
-
-        CheckInliers();
-
-        if(mnInliersi>=mnBestInliers)
-        {
-            mvbBestInliers = mvbInliersi;
-            mnBestInliers = mnInliersi;
-            mBestT12 = mT12i.clone();
-            mBestRotation = mR12i.clone();
-            mBestTranslation = mt12i.clone();
-            mBestScale = ms12i;
-
-            if(mnInliersi>mRansacMinInliers)
-            {
-                nInliers = mnInliersi;
-                for(int i=0; i<N; i++)
-                    if(mvbInliersi[i])
-                        vbInliers[mvnIndices1[i]] = true;
-                return mBestT12;
-            }
-        }
-    }
-
-    if(mnIterations>=mRansacMaxIts)
-        bNoMore=true;
-
+  if (N < mRansacMinInliers) {
+    std::cout << "bNoMore by N: " << N << std::endl;
+    bNoMore = true;
     return cv::Mat();
-}
+  }
 
-cv::Mat Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
-{
-    bool bFlag;
-    return iterate(mRansacMaxIts,bFlag,vbInliers12,nInliers);
-}
+  vector<size_t> vAvailableIndices;
 
-void Sim3Solver::ComputeCentroid(cv::Mat &P, cv::Mat &Pr, cv::Mat &C)
-{
-    cv::reduce(P,C,1,CV_REDUCE_SUM);
-    C = C/P.cols;
+  cv::Mat P3Dc1i(3, 3, CV_32F);
+  cv::Mat P3Dc2i(3, 3, CV_32F);
 
-    for(int i=0; i<P.cols; i++)
-    {
-        Pr.col(i)=P.col(i)-C;
+  int nCurrentIterations = 0;
+  while (mnIterations < mRansacMaxIts && nCurrentIterations < nIterations) {
+    nCurrentIterations++;
+    mnIterations++;
+
+    vAvailableIndices = mvAllIndices;
+
+    // Get min set of points
+    for (short i = 0; i < 3; ++i) {
+      int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size() - 1);
+
+      int idx = vAvailableIndices[randi];
+
+      mvX3Dc1[idx].copyTo(P3Dc1i.col(i));
+      mvX3Dc2[idx].copyTo(P3Dc2i.col(i));
+
+      // don't pick the same point, so log(1-p)/log(1-w^n) is just the upper limit")" of the max iter.
+      vAvailableIndices[randi] = vAvailableIndices.back();
+      vAvailableIndices.pop_back();
     }
-}
 
-void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2)
-{
-    // Custom implementation of:
-    // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
+    ComputeSim3(P3Dc1i, P3Dc2i);  // TODO: check the implementation
 
-    // Step 1: Centroid and relative coordinates
+    CheckInliers();
 
-    cv::Mat Pr1(P1.size(),P1.type()); // Relative coordinates to centroid (set 1)
-    cv::Mat Pr2(P2.size(),P2.type()); // Relative coordinates to centroid (set 2)
-    cv::Mat O1(3,1,Pr1.type()); // Centroid of P1
-    cv::Mat O2(3,1,Pr2.type()); // Centroid of P2
+    if (mnInliersi >= mnBestInliers) {
+      mvbBestInliers = mvbInliersi;
+      mnBestInliers = mnInliersi;
+      mBestT12 = mT12i.clone();
+      mBestRotation = mR12i.clone();
+      mBestTranslation = mt12i.clone();
+      mBestScale = ms12i;
 
-    ComputeCentroid(P1,Pr1,O1);
-    ComputeCentroid(P2,Pr2,O2);
-
-    // Step 2: Compute M matrix
-
-    cv::Mat M = Pr2*Pr1.t();
-
-    // Step 3: Compute N matrix
-
-    double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
-
-    cv::Mat N(4,4,P1.type());
-
-    N11 = M.at<float>(0,0)+M.at<float>(1,1)+M.at<float>(2,2);
-    N12 = M.at<float>(1,2)-M.at<float>(2,1);
-    N13 = M.at<float>(2,0)-M.at<float>(0,2);
-    N14 = M.at<float>(0,1)-M.at<float>(1,0);
-    N22 = M.at<float>(0,0)-M.at<float>(1,1)-M.at<float>(2,2);
-    N23 = M.at<float>(0,1)+M.at<float>(1,0);
-    N24 = M.at<float>(2,0)+M.at<float>(0,2);
-    N33 = -M.at<float>(0,0)+M.at<float>(1,1)-M.at<float>(2,2);
-    N34 = M.at<float>(1,2)+M.at<float>(2,1);
-    N44 = -M.at<float>(0,0)-M.at<float>(1,1)+M.at<float>(2,2);
-
-    N = (cv::Mat_<float>(4,4) << N11, N12, N13, N14,
-                                 N12, N22, N23, N24,
-                                 N13, N23, N33, N34,
-                                 N14, N24, N34, N44);
-
-
-    // Step 4: Eigenvector of the highest eigenvalue
-
-    cv::Mat eval, evec;
-
-    cv::eigen(N,eval,evec); //evec[0] is the quaternion of the desired rotation
-
-    cv::Mat vec(1,3,evec.type());
-    (evec.row(0).colRange(1,4)).copyTo(vec); //extract imaginary part of the quaternion (sin*axis)
-
-    // Rotation angle. sin is the norm of the imaginary part, cos is the real part
-    double ang=atan2(norm(vec),evec.at<float>(0,0));
-
-    vec = 2*ang*vec/norm(vec); //Angle-axis representation. quaternion angle is the half
-
-    mR12i.create(3,3,P1.type());
-
-    cv::Rodrigues(vec,mR12i); // computes the rotation matrix from angle-axis
-
-    // Step 5: Rotate set 2
-
-    cv::Mat P3 = mR12i*Pr2;
-
-    // Step 6: Scale
-
-    if(!mbFixScale)
-    {
-        double nom = Pr1.dot(P3);
-        cv::Mat aux_P3(P3.size(),P3.type());
-        aux_P3=P3;
-        cv::pow(P3,2,aux_P3);
-        double den = 0;
-
-        for(int i=0; i<aux_P3.rows; i++)
-        {
-            for(int j=0; j<aux_P3.cols; j++)
-            {
-                den+=aux_P3.at<float>(i,j);
-            }
-        }
-
-        ms12i = nom/den;
+      if (mnInliersi > mRansacMinInliers) {
+        nInliers = mnInliersi;
+        for (int i = 0; i < N; i++)
+          if (mvbInliersi[i]) vbInliers[mvnIndices1[i]] = true;
+        return mBestT12;
+      }
     }
-    else
-        ms12i = 1.0f;
+  }
 
-    // Step 7: Translation
+  if (mnIterations >= mRansacMaxIts) bNoMore = true;
 
-    mt12i.create(1,3,P1.type());
-    mt12i = O1 - ms12i*mR12i*O2;
-
-    // Step 8: Transformation
-
-    // Step 8.1 T12
-    mT12i = cv::Mat::eye(4,4,P1.type());
-
-    cv::Mat sR = ms12i*mR12i;
-
-    sR.copyTo(mT12i.rowRange(0,3).colRange(0,3));
-    mt12i.copyTo(mT12i.rowRange(0,3).col(3));
-
-    // Step 8.2 T21
-
-    mT21i = cv::Mat::eye(4,4,P1.type());
-
-    cv::Mat sRinv = (1.0/ms12i)*mR12i.t();
-
-    sRinv.copyTo(mT21i.rowRange(0,3).colRange(0,3));
-    cv::Mat tinv = -sRinv*mt12i;
-    tinv.copyTo(mT21i.rowRange(0,3).col(3));
+  return cv::Mat();
 }
 
+cv::Mat Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers) {
+  bool bFlag;
+  return iterate(mRansacMaxIts, bFlag, vbInliers12, nInliers);
+}
+
+void Sim3Solver::ComputeCentroid(cv::Mat &P, cv::Mat &Pr, cv::Mat &C) {
+  cv::reduce(P, C, 1, CV_REDUCE_SUM);
+  C = C / P.cols;
+
+  for (int i = 0; i < P.cols; i++) {
+    Pr.col(i) = P.col(i) - C;
+  }
+}
+
+void Sim3Solver::ComputeSim3(cv::Mat &P1, cv::Mat &P2) {
+  // Custom implementation of:
+  // Horn 1987, Closed-form solution of absolute orientataion using unit quaternions
+
+  // Step 1: Centroid and relative coordinates
+
+  cv::Mat Pr1(P1.size(), P1.type());  // Relative coordinates to centroid (set 1)
+  cv::Mat Pr2(P2.size(), P2.type());  // Relative coordinates to centroid (set 2)
+  cv::Mat O1(3, 1, Pr1.type());       // Centroid of P1
+  cv::Mat O2(3, 1, Pr2.type());       // Centroid of P2
+
+  ComputeCentroid(P1, Pr1, O1);
+  ComputeCentroid(P2, Pr2, O2);
+
+  // Step 2: Compute M matrix
+
+  cv::Mat M = Pr2 * Pr1.t();
+
+  // Step 3: Compute N matrix
+
+  double N11, N12, N13, N14, N22, N23, N24, N33, N34, N44;
+
+  cv::Mat N(4, 4, P1.type());
+
+  N11 = M.at<float>(0, 0) + M.at<float>(1, 1) + M.at<float>(2, 2);
+  N12 = M.at<float>(1, 2) - M.at<float>(2, 1);
+  N13 = M.at<float>(2, 0) - M.at<float>(0, 2);
+  N14 = M.at<float>(0, 1) - M.at<float>(1, 0);
+  N22 = M.at<float>(0, 0) - M.at<float>(1, 1) - M.at<float>(2, 2);
+  N23 = M.at<float>(0, 1) + M.at<float>(1, 0);
+  N24 = M.at<float>(2, 0) + M.at<float>(0, 2);
+  N33 = -M.at<float>(0, 0) + M.at<float>(1, 1) - M.at<float>(2, 2);
+  N34 = M.at<float>(1, 2) + M.at<float>(2, 1);
+  N44 = -M.at<float>(0, 0) - M.at<float>(1, 1) + M.at<float>(2, 2);
+
+  N = (cv::Mat_<float>(4, 4) << N11, N12, N13, N14, N12, N22, N23, N24, N13, N23, N33, N34, N14, N24, N34, N44);
+
+  // Step 4: Eigenvector of the highest eigenvalue
+
+  cv::Mat eval, evec;
+
+  cv::eigen(N, eval, evec);  // evec[0] is the quaternion of the desired rotation
+
+  cv::Mat vec(1, 3, evec.type());
+  (evec.row(0).colRange(1, 4)).copyTo(vec);  // extract imaginary part of the quaternion (sin*axis)
+
+  // Rotation angle. sin is the norm of the imaginary part, cos is the real part
+  double ang = atan2(norm(vec), evec.at<float>(0, 0));
+
+  vec = 2 * ang * vec / norm(vec);  // Angle-axis representation. quaternion angle is the half
+
+  mR12i.create(3, 3, P1.type());
+
+  cv::Rodrigues(vec, mR12i);  // computes the rotation matrix from angle-axis
+
+  // Step 5: Rotate set 2
+
+  cv::Mat P3 = mR12i * Pr2;
+
+  // Step 6: Scale
+
+  if (!mbFixScale) {
+    double nom = Pr1.dot(P3);
+    cv::Mat aux_P3(P3.size(), P3.type());
+    aux_P3 = P3;
+    cv::pow(P3, 2, aux_P3);
+    double den = 0;
+
+    for (int i = 0; i < aux_P3.rows; i++) {
+      for (int j = 0; j < aux_P3.cols; j++) {
+        den += aux_P3.at<float>(i, j);
+      }
+    }
+
+    ms12i = nom / den;
+  } else
+    ms12i = 1.0f;
+
+  // Step 7: Translation
+
+  mt12i.create(1, 3, P1.type());
+  mt12i = O1 - ms12i * mR12i * O2;
+
+  // Step 8: Transformation
+
+  // Step 8.1 T12
+  mT12i = cv::Mat::eye(4, 4, P1.type());
+
+  cv::Mat sR = ms12i * mR12i;
+
+  sR.copyTo(mT12i.rowRange(0, 3).colRange(0, 3));
+  mt12i.copyTo(mT12i.rowRange(0, 3).col(3));
+
+  // Step 8.2 T21
+
+  mT21i = cv::Mat::eye(4, 4, P1.type());
+
+  cv::Mat sRinv = (1.0 / ms12i) * mR12i.t();
+
+  sRinv.copyTo(mT21i.rowRange(0, 3).colRange(0, 3));
+  cv::Mat tinv = -sRinv * mt12i;
+  tinv.copyTo(mT21i.rowRange(0, 3).col(3));
+}
 
 void Sim3Solver::CheckInliers() {
   vector<cv::Mat> vP1im2, vP2im1;
@@ -369,25 +350,17 @@ void Sim3Solver::CheckInliers() {
   }
 }
 
-cv::Mat Sim3Solver::GetEstimatedRotation()
-{
-    return mBestRotation.clone();
-}
+cv::Mat Sim3Solver::GetEstimatedRotation() { return mBestRotation.clone(); }
 
-cv::Mat Sim3Solver::GetEstimatedTranslation()
-{
-    return mBestTranslation.clone();
-}
+cv::Mat Sim3Solver::GetEstimatedTranslation() { return mBestTranslation.clone(); }
 
-float Sim3Solver::GetEstimatedScale()
-{
-    return mBestScale;
-}
+float Sim3Solver::GetEstimatedScale() { return mBestScale; }
 
-void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, vector<GeometricCamera*> &pcams, vector<size_t> &mapidx2cami, cv::Mat *pTcrw) {
+void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, vector<GeometricCamera *> &pcams,
+                         vector<size_t> &mapidx2cami, cv::Mat *pTcrw) {
   cv::Mat Rcw, tcw;
   if (pTcrw) {
-    Rcw= pTcrw->rowRange(0, 3).colRange(0, 3);
+    Rcw = pTcrw->rowRange(0, 3).colRange(0, 3);
     tcw = pTcrw->rowRange(0, 3).col(3);
   }
 
@@ -404,4 +377,4 @@ void Sim3Solver::Project(const vector<cv::Mat> &vP3Dw, vector<cv::Mat> &vP2D, ve
   }
 }
 
-} //namespace ORB_SLAM
+}  // namespace VIEO_SLAM

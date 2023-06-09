@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
 
     // Pass the image to the SLAM system
     if (bMode == 0)
-      SLAM.TrackStereo({imRGB, imD}, tframe);
+      SLAM.TrackStereo(vector<cv::Mat>({imRGB, imD}), tframe);
     else
       SLAM.TrackMonocular(imRGB, tframe);
 

@@ -21,12 +21,9 @@
 #define CAMERAMODELS_GEOMETRICCAMERA_H
 
 #include <opencv2/core/core.hpp>
-
-#include "common/mlog/log.h"
 #include "common/eigen_utils.h"
 #include "sophus/se3.hpp"
-
-//#include "TwoViewReconstruction.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 class GeometricCamera {
@@ -42,6 +39,9 @@ class GeometricCamera {
   virtual ~GeometricCamera() {}
 
   void setParameter(const float p, const size_t i) { mvParameters[i] = p; }
+  // for Map Reuse
+  const std::vector<float>& getParameters() const { return mvParameters; }
+  void setParameters(std::vector<float>& params) { mvParameters = params; }
 
   virtual Eigen::Vector2d project(const Eigen::Vector3d& v3D) = 0;
   virtual cv::Point2f project(const cv::Point3f& p3D);

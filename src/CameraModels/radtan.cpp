@@ -14,8 +14,7 @@ using std::vector;
 
 namespace VIEO_SLAM {
 
-bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,
-                               cv::Mat *pDistCoef) {
+bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst) {
   string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
   cv::FileNode node_tmp = fSettings[cam_name + ".fx"];
   if (node_tmp.empty()) return false;
@@ -37,12 +36,10 @@ bool Radtan::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCame
   DistCoef.at<float>(id_distcoef++) = fSettings[cam_name + ".p2"];
 
   pCamInst = new Radtan(DistCoef, fSettings, id, b_miss_params);
-  if (pDistCoef) (dynamic_cast<Radtan *>(pCamInst))->toDistortCoeff_OpenCV().copyTo(*pDistCoef);
   if (b_miss_params) {
     cerr << "Error: miss params!" << endl;
     return false;
   }
-  if (pK) pCamInst->toKcv().copyTo(*pK);
 
   PRINT_INFO_MUTEX(endl << "Camera (Radtan) Parameters: " << endl);
   PRINT_INFO_MUTEX("- k1: " << DistCoef.at<float>(0) << endl);

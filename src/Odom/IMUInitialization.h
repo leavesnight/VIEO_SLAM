@@ -2,21 +2,14 @@
 #ifndef IMUINITIALIZATION_H
 #define IMUINITIALIZATION_H
 
-// #include <list>
 #include <mutex>
 #include <string>
 #include <ctime>
 #include <opencv2/opencv.hpp>
-// #include <Eigen/Core>
-// #include <Eigen/Geometry>
-
+#include <unistd.h>
 #include "OdomPreIntegrator.h"
-// #include "KeyFrame.h"
-// #include "Map.h"
 #include "LocalMapping.h"
 #include "common/macro_creator.h"
-
-#include <unistd.h>
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
