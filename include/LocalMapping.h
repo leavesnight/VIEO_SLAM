@@ -50,7 +50,7 @@ class LocalMapping {
                         // mode/CorrectLoop() in LoopClosing thread
   void RequestReset();  // blocking(3ms refreshing) mode
   bool Stop();          // try to stop when requested && allowed to be stopped
-  void Release();       // used in mbDeactivateLocalizationMode/CorrectLoop() in LoopClosing
+  void Release();       // used in bdeactivate_localization_mode_/CorrectLoop() in LoopClosing
   bool isStopped();     // mbStopped
   bool stopRequested();
   bool AcceptKeyFrames();              // if accept KFs, mbAcceptKeyFrames

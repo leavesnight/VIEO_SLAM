@@ -58,8 +58,8 @@ class Tracking {
   /* KeyFrame *plastKF: timestamp_/imu preintegration start KF, can be NULL when type=0
    * KeyFrame *pcurKF: &imu preintegration end/storing KF
    * type: 0 for initialize, 1 for inter-Frame PreInt., 2 for inter-KF PreInt.
-   * 2 also culls the data in lists whose tm is (mLastKeyFrame.mTimeStamp,mCurrentKeyFrame.mTimeStamp],
-   * culling strategy: tm<mtmSyncOdom is discarded & tm>mCurrentFrame.mTimeStamp is reserved in lists & the left is
+   * 2 also culls the data in lists whose tm is (mLastKeyFrame.ftimestamp_,mCurrentKeyFrame.ftimestamp_],
+   * culling strategy: tm<mtmSyncOdom is discarded & tm>mCurrentFrame.ftimestamp_ is reserved in lists & the left is
    * needed for deltax~ij calculation, for the case Measurement_j-1 uses (M(tj)+M(tj-1))/2,
    * we also reserved last left one in 2 lists(especially for Enc);
    * if pLastF & pCurF exit, we use them instead of mLastFrame & mCurrentFrame
@@ -89,7 +89,7 @@ class Tracking {
                          // must use Eigen::aligned_allocator(quaterniond in NavState, or Segementation fault)
 
   // Consts
-  // Error allow between "simultaneous" IMU data(Timu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]
+  // Error allow between "simultaneous" IMU data(Timu) & Image's ftimestamp_(Timg): Timu=[Timg-err,Timg+err]
   double mdErrIMUImg;
   double tm_shift_ = 0.005;
   // Tbc,Tbo
@@ -382,11 +382,11 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
   using Eigen::aligned_list;
   using Tldata = OdomData;
 
-  double cur_time = pcurfb->mTimeStamp;
+  double cur_time = pcurfb->ftimestamp_;
   double derr_imuimg = mdErrIMUImg + tm_shift_;
   bool ret = true;
   switch (type) {  // 0/2 will cull 2 Odom lists,1 will shift the pointer
-    case 0:  // for 0th keyframe/frame: erase all the data whose tm<=mCurrentFrame.mTimeStamp but keep the last one,
+    case 0:  // for 0th keyframe/frame: erase all the data whose tm<=mCurrentFrame.ftimestamp_ but keep the last one,
              // like list.clear()
       if (!lodom_data.empty()) {
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end();
@@ -407,8 +407,8 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       // PreIntegration between 2 frames, use plastfb & pcurfb to be compatible with
       // RecomputeIMUBiasAndCurrentNavstate()
       if (!lodom_data.empty()) {
-        double last_time = plastfb->mTimeStamp;
-        bool biteri_research = plasttm_kf && *plasttm_kf != plastfb->mTimeStamp;
+        double last_time = plastfb->ftimestamp_;
+        bool biteri_research = plasttm_kf && *plasttm_kf != plastfb->ftimestamp_;
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iterj,
                                                       iteri = type == 1 ? iter_lastodom : lodom_data.begin();
         // iterj&iteri both found then calculate delta~xij(phi,p)
@@ -430,7 +430,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
             if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg - tm_shift_)) {
               cur_time2 = iter->mtm;
             }
-            bool breset_intkf = plastkf->mTimeStamp == last_time2;  // even imu tm curl back
+            bool breset_intkf = plastkf->ftimestamp_ == last_time2;  // even imu tm curl back
             if (plasttm_kf) *plasttm_kf = cur_time2;
             if (biteri_research) {
               iteri = lodom_data.begin();
@@ -459,11 +459,11 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       break;
     case 2:
       // PreIntegration between 2 KFs & cull 2 odom lists: erase all the data whose
-      // tm<=mpReferenceKF(curKF)->mTimeStamp but keep the last one
+      // tm<=mpReferenceKF(curKF)->ftimestamp_ but keep the last one
       KeyFrame *pcurkf = dynamic_cast<KeyFrame *>(pcurfb);
       if (!lodom_data.empty()) {
         KeyFrame *plastkf2 = dynamic_cast<KeyFrame *>(plastfb);
-        double last_time = plastkf2->mTimeStamp;
+        double last_time = plastkf2->ftimestamp_;
         // iterj, iteri
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iteri = lodom_data.begin(), iterj;
         // iterj&iteri both found then calculate delta~xij(phi,p)

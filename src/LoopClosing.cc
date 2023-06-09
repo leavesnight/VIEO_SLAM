@@ -166,7 +166,7 @@ bool LoopClosing::DetectLoop() {
       mpKeyFrameDB->add(mpCurrentKF);
       return false;
     }
-    PRINT_DEBUG_INFO_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_DEBUG_INFO_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                            mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetNotErase();
   }
@@ -175,7 +175,7 @@ bool LoopClosing::DetectLoop() {
   // in time from last loop
   if (mpCurrentKF->mnId < mLastLoopKFid + 10) {
     mpKeyFrameDB->add(mpCurrentKF);  // add CurrentKF into KFDataBase
-    PRINT_INFO_FILE("Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_INFO_FILE("Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                     mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();  // allow CurrentKF to be erased
     return false;
@@ -207,7 +207,7 @@ bool LoopClosing::DetectLoop() {
     // validation/roubst loop detection->restart mvConsistentGroups' counter
     mvConsistentGroups.clear();
     PRINT_INFO_FILE(
-        "CandidateKFs Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        "CandidateKFs Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
@@ -289,13 +289,13 @@ bool LoopClosing::DetectLoop() {
 
   if (mvpEnoughConsistentCandidates.empty()) {
     PRINT_INFO_FILE(
-        "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
   } else  // if any candidate group is enough(counter >=3) consistent with any previous group
   {       // first some detection()s won't go here
-    PRINT_INFO_FILE("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_INFO_FILE("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                     mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
   }
@@ -430,7 +430,7 @@ bool LoopClosing::ComputeSim3() {
   if (!bMatch)  // if BA inliers validation is not passed
   {
     PRINT_DEBUG_INFO_MUTEX(
-        "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "debug.txt");
     for (int i = 0; i < nInitialCandidates; i++)
       mvpEnoughConsistentCandidates[i]->SetErase();  // allow loop candidate KFs && mpCurrentKF to be erased for
@@ -477,7 +477,7 @@ bool LoopClosing::ComputeSim3() {
     return true;  // notice mpCurrentKF && mpMatchedKF is still not allowed to be erased, where are they allowed?
   } else          // not pass the final validation like SearchLocalPoints() in Tracking
   {  // allow loop candidate KFs && mpCurrentKF to be erased for KF.mspLoopEdges is only added in CorrectLoop()
-    cout << "nTotalMatches<40, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl;
+    cout << "nTotalMatches<40, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl;
     for (int i = 0; i < nInitialCandidates; i++) mvpEnoughConsistentCandidates[i]->SetErase();
     mpCurrentKF->SetErase();
     return false;

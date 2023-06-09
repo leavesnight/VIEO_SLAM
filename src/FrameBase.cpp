@@ -68,6 +68,16 @@ void FrameBase::PreIntegration<IMUData>(FrameBase *plastfb, const typename align
                                         const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                         int8_t verbose) {
   NavState ns = plastfb->GetNavState();
-  PreIntegration<IMUData, IMUPreintegrator>(plastfb->mTimeStamp, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset,
+  PreIntegration<IMUData, IMUPreintegrator>(plastfb->ftimestamp_, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset,
                                             nullptr, verbose);
+}
+
+bool FrameBase::read(istream &is) {
+  is.read((char *)&timestamp_, sizeof(timestamp_));
+  ftimestamp_ = TS2S(timestamp_);
+  return is.good();
+}
+bool FrameBase::write(ostream &os) const {
+  os.write((char *)&timestamp_, sizeof(timestamp_));
+  return os.good();
 }

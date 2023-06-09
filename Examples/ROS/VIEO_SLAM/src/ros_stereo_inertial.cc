@@ -61,15 +61,24 @@ int main(int argc, char **argv) {
   ros::NodeHandle n("~");
   ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
   bool bEqual = false;
-  if (argc < 3 || argc > 4) {
-    cerr << endl << "Usage: rosrun VIEO_SLAM Stereo_Inertial path_to_vocabulary path_to_settings [do_equalize]" << endl;
+  if (argc < 3 || argc > 5) {
+    cerr << endl
+         << "Usage: rosrun VIEO_SLAM Stereo_Inertial path_to_vocabulary path_to_settings [do_equalize] [map_spase_name]"
+         << endl;
     ros::shutdown();
     return 1;
   }
 
-  if (argc == 4) {
-    std::string sbEqual(argv[3]);
-    if (sbEqual == "true") bEqual = true;
+  string map_sparse_name = "";
+  switch (argc) {
+    case 5:
+      map_sparse_name = argv[4];
+    case 4: {
+      std::string sbEqual(argv[3]);
+      if (sbEqual == "true") bEqual = true;
+    } break;
+    default:
+      break;
   }
 
   // Read rectification parameters
@@ -85,7 +94,7 @@ int main(int argc, char **argv) {
   if (!node_tmp.empty()) {
     mode_camera = (VIEO_SLAM::System::eSensor)(int)node_tmp;
   }
-  VIEO_SLAM::System SLAM(argv[1], argv[2], mode_camera, true);
+  VIEO_SLAM::System SLAM(argv[1], argv[2], mode_camera, true, map_sparse_name);
 
   ImuGrabber imugb;
   ImageGrabber igb(&SLAM, &imugb, bEqual);

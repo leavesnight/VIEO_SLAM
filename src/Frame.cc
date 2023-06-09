@@ -61,7 +61,7 @@ int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, dou
                                              int8_t verbose) {
   CV_Assert(ppreint_imu_kf_);
   NavState ns = plastkf->GetNavState();
-  if (breset) CV_Assert(plastkf->mTimeStamp == tmi);
+  if (breset) CV_Assert(plastkf->ftimestamp_ == tmi);
   return FrameBase::PreIntegration<IMUData>(tmi, tmj_1, ns.mbg, ns.mba, iteri, iterj, breset, ppreint_imu_kf_, verbose);
 }
 // zzh
@@ -74,8 +74,8 @@ Frame::Frame(istream &is, ORBVocabulary *voc) : mpORBvocabulary(voc) {
   mvpMapPoints.resize(N, static_cast<MapPoint *>(NULL));
 }
 bool Frame::read(istream &is, bool bOdomList) {
+  if (!FrameBase::read(is)) return false;
   // we don't save old ID for it's useless in LoadMap()
-  is.read((char *)&this->mTimeStamp, sizeof(this->mTimeStamp));
   is.read((char *)&fx, sizeof(fx));
   is.read((char *)&fy, sizeof(fy));
   is.read((char *)&cx, sizeof(cx));
@@ -148,7 +148,7 @@ bool Frame::read(istream &is, bool bOdomList) {
   ns.mdba << pdData[0], pdData[1], pdData[2];  // dbaxyz
   mNavState = ns;
   UpdatePoseFromNS();
-  // load mGrid[i][j]
+  // load vgrids_[i][j]
   AssignFeaturesToGrid();
   if (bOdomList) {
     double &tmEnc = mOdomPreIntEnc.mdeltatij;
@@ -175,8 +175,8 @@ bool Frame::read(istream &is, bool bOdomList) {
   return is.good();
 }
 bool Frame::write(ostream &os) const {
+  if (!FrameBase::write(os)) return false;
   // we don't save old ID for it's useless in LoadMap()
-  os.write((char *)&mTimeStamp, sizeof(mTimeStamp));
   //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));//we
   //   can get these from mnMaxX...
   os.write((char *)&fx, sizeof(fx));
@@ -222,8 +222,9 @@ bool Frame::write(ostream &os) const {
   os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbgxyz
   pdData = mNavState.mdba.data();
   os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbaxyz
-  //   for(unsigned int i=0; i<FRAME_GRID_COLS;i++) for (unsigned int j=0; j<FRAME_GRID_ROWS;j++){ size_t
-  //   nSize;os.write((char*)&nSize,sizeof(nSize));writeVec(os,mGrid[i][j]);}//we can still get it from mvKeysUn
+  // we can still get it from mvKeysUn
+  //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
+  //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
   // save mOdomPreIntOdom, code starting from here is diffrent from KeyFrame::write()
   double tm = mOdomPreIntEnc.mdeltatij;
   os.write((char *)&tm, sizeof(tm));

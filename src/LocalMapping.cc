@@ -197,7 +197,7 @@ void LocalMapping::ProcessNewKeyFrame() {
 
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
-                           << mpCurrentKeyFrame->mTimeStamp << endl,
+                           << mpCurrentKeyFrame->ftimestamp_ << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
@@ -209,14 +209,14 @@ void LocalMapping::ProcessNewKeyFrame() {
         vector<KeyFrame *> vecEraseKF;
         if (mpIMUInitiator->GetVINSInited()) {
           PRINT_INFO_MUTEX("KF->SetBadFlag() in ProcessNewKeyFrame()!" << endl);
-          double tmNewest = pLastKF->mTimeStamp;
+          double tmNewest = pLastKF->ftimestamp_;
           bool bLastCamKF = false;
           char state;
           do {
             pLastKF = pLastKF->GetPrevKeyFrame();
             state = pLastKF->getState();
-            if (tmNewest - pLastKF->GetPrevKeyFrame()->mTimeStamp > 0.5) {
-              tmNewest = pLastKF->mTimeStamp;
+            if (tmNewest - pLastKF->GetPrevKeyFrame()->ftimestamp_ > 0.5) {
+              tmNewest = pLastKF->ftimestamp_;
               if (!bLastCamKF && state == (char)Tracking::OK) {
                 mpLastCamKF = pLastKF;
                 bLastCamKF = true;  // pLastKF->getState() is OK
@@ -799,7 +799,7 @@ void LocalMapping::KeyFrameCulling() {
     while (--Nlocal > 0 && pLastNthKF != NULL) {  // maybe less than N KFs in pMap
       pLastNthKF = pLastNthKF->GetPrevKeyFrame();
     }
-    if (pLastNthKF != NULL) tmNthKF = pLastNthKF->mTimeStamp;  // N starts from 1 & notice mTimeStamp>=0
+    if (pLastNthKF != NULL) tmNthKF = pLastNthKF->ftimestamp_;  // N starts from 1 & notice ftimestamp_>=0
 
     vbEntered.resize(vpLocalKeyFrames.size(), false);
     if (mpIMUInitiator->GetVINSInited()) {
@@ -833,8 +833,8 @@ void LocalMapping::KeyFrameCulling() {
             vbEntered[vi] = true;
             continue;
           }
-          tmNext = pKF->GetNextKeyFrame()->mTimeStamp;
-          if (tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 0.5)
+          tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
+          if (tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 0.5)
             continue;
           else
             vbEntered[vi] = true;
@@ -846,9 +846,9 @@ void LocalMapping::KeyFrameCulling() {
       } else {  // loose restriction when k==1
         if (vbEntered[vi]) continue;
         assert(pKF != NULL && pKF->GetPrevKeyFrame() != NULL);
-        tmNext = pKF->GetNextKeyFrame()->mTimeStamp;
+        tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
         // this KF is in next time's local window or N+1th
-        if (tmNext > tmNthKF || tmNext - pKF->GetPrevKeyFrame()->mTimeStamp > 3)
+        if (tmNext > tmNthKF || tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 3)
           continue;  // normal restriction to perform full BA
       }
 
@@ -869,7 +869,7 @@ void LocalMapping::KeyFrameCulling() {
           // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
           if (tmNext > tmNthKF && pLastNthKF != NULL) {
             pLastNthKF = pLastNthKF->GetPrevKeyFrame();
-            tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
+            tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
           }  // must done before pKF->SetBadFlag()!
           PRINT_INFO_MUTEX(greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl);
           pKF->SetBadFlag();
@@ -937,7 +937,7 @@ void LocalMapping::KeyFrameCulling() {
         if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its
                                                        // prev-next<=0.5 then we should move tmNthKF forward 1 KF
           pLastNthKF = pLastNthKF->GetPrevKeyFrame();
-          tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->mTimeStamp;
+          tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
         }  // must done before pKF->SetBadFlag()!
 
         // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);

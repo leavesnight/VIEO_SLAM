@@ -100,7 +100,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
     mState = ODOMOK;
     cout << greenSTR << mVelocity.at<float>(0, 3) << " " << mVelocity.at<float>(1, 3) << " "
          << mVelocity.at<float>(2, 3) << whiteSTR << endl;
-    cout << "ODOM KF: " << mCurrentFrame.mTimeStamp << endl;
+    cout << "ODOM KF: " << mCurrentFrame.ftimestamp_ << endl;
   } else {
     if (mCurrentFrame.GetEncPreInt().mdeltatij > 0) {
       // VIEO, for convenience, we don't use mVelocity as it won't be updated as EncPreIntegrator from LastFrame before
@@ -156,7 +156,7 @@ void Tracking::TrackWithOnlyOdom(bool bMapUpdated) {
     mLastFrame.GetRotationInverse().copyTo(LastTwc.rowRange(0, 3).colRange(0, 3));
     mLastFrame.GetCameraCenter().copyTo(LastTwc.rowRange(0, 3).col(3));
     mVelocity = mCurrentFrame.GetTcwRef() * LastTwc;  // Tc2c1/Tcl
-    cout << greenSTR << "I/EODOM KF: " << mCurrentFrame.mTimeStamp << whiteSTR << endl;
+    cout << greenSTR << "I/EODOM KF: " << mCurrentFrame.ftimestamp_ << whiteSTR << endl;
   }
 }
 
@@ -174,7 +174,7 @@ void Tracking::PreIntegration(const int8_t type) {
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
     else {
-      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->mTimeStamp;
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->ftimestamp_;
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame,
                                         &lasttm_preint_kf_[0]);
     }
@@ -188,7 +188,7 @@ void Tracking::PreIntegration(const int8_t type) {
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[1])
       bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, nullptr);
     else {
-      if (blast_kf2kfpreint_) lasttm_preint_kf_[1] = mpLastKeyFrame->mTimeStamp;
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[1] = mpLastKeyFrame->ftimestamp_;
       bpreint = PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, mpLastKeyFrame,
                                         &lasttm_preint_kf_[1]);
     }
@@ -206,8 +206,8 @@ void Tracking::PreIntegration(const int8_t type) {
     PreIntegration<IMUData>(type, mlOdomIMU, miterLastIMU, plastfb, pcurfb, plastkf, &lasttm_preint_kf_[1]);
     if (plastfb) {
       auto deltatij = pcurfb->GetIMUPreInt().mdeltatij;
-      if (deltatij && fabs(pcurfb->mTimeStamp - plastfb->mTimeStamp - deltatij) > 1e-5) {
-        cout << "dt=" << pcurfb->GetIMUPreInt().mdeltatij << ",hope=" << pcurfb->mTimeStamp - plastfb->mTimeStamp
+      if (deltatij && fabs(pcurfb->ftimestamp_ - plastfb->ftimestamp_ - deltatij) > 1e-5) {
+        cout << "dt=" << pcurfb->GetIMUPreInt().mdeltatij << ",hope=" << pcurfb->ftimestamp_ - plastfb->ftimestamp_
              << endl;
         CV_Assert(0 && "preint wrong, check!");
       }
@@ -232,7 +232,7 @@ bool Tracking::GetVelocityByEnc(bool bMapUpdated) {
     if (!blast_kf2kfpreint_ && brecompute_kf2kfpreint_[0])
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, nullptr);
     else {
-      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->mTimeStamp;
+      if (blast_kf2kfpreint_) lasttm_preint_kf_[0] = mpLastKeyFrame->ftimestamp_;
       bpreint = PreIntegration<EncData>(type, mlOdomEnc, miterLastEnc, plastfb, pcurfb, mpLastKeyFrame,
                                         &lasttm_preint_kf_[0]);
     }
@@ -518,7 +518,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
 
   PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path,
                   "tracking_thread_debug.txt");
-  //  if (mCurrentFrame.mTimeStamp > 845.064) CV_Assert(0);
+  //  if (mCurrentFrame.ftimestamp_ > 845.064) CV_Assert(0);
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)
   if (mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames &&
@@ -571,7 +571,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate() {  // see VIORBSLAM paper IV
   if (!mlOdomEnc.empty()) {  // we update miterLastEnc to current Frame for the next Frame's Preintegration(1/3)!
     unique_lock<mutex> lock(mMutexOdom);
     listeig(EncData)::const_iterator iter = mlOdomEnc.end();
-    iterijFind<EncData>(mlOdomEnc, mv20pFramesReloc[N - 2]->mTimeStamp - tm_shift_, iter, mdErrIMUImg + tm_shift_);
+    iterijFind<EncData>(mlOdomEnc, mv20pFramesReloc[N - 2]->ftimestamp_ - tm_shift_, iter, mdErrIMUImg + tm_shift_);
     if (iter != mlOdomEnc.end())
       miterLastEnc = iter;  // update miterLastEnc pointing to the nearest(now,not next time) one of this frame / begin
                             // for next frame
@@ -994,10 +994,10 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     if (mpIMUInitiator->GetSensorEnc()) ++sensorType;
     if (mpIMUInitiator->GetSensorIMU()) sensorType += 2;
     unique_lock<mutex> lock2(mMutexOdom);
-    if (sensorType == 1 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.mTimeStamp) ||
-        sensorType == 2 && (mlOdomIMU.empty() || mlOdomIMU.back().mtm < mCurrentFrame.mTimeStamp) ||
-        sensorType == 3 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.mTimeStamp || mlOdomIMU.empty() ||
-                            mlOdomIMU.back().mtm < mCurrentFrame.mTimeStamp)) {
+    if (sensorType == 1 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.ftimestamp_) ||
+        sensorType == 2 && (mlOdomIMU.empty() || mlOdomIMU.back().mtm < mCurrentFrame.ftimestamp_) ||
+        sensorType == 3 && (mlOdomEnc.empty() || mlOdomEnc.back().mtm < mCurrentFrame.ftimestamp_ || mlOdomIMU.empty() ||
+                            mlOdomIMU.back().mtm < mCurrentFrame.ftimestamp_)) {
       lock2.unlock();  // then delay some ms to ensure some Odom data to come if it runs well
       mtmGrabDelay +=
           chrono::duration_cast<chrono::nanoseconds>(chrono::duration<double>(mDelayCache));  // delay default=20ms
@@ -1014,7 +1014,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     bMapUpdated = true;
   }
 
-  PRINT_INFO_FILE("curf tm=" << fixed << setprecision(9) << mCurrentFrame.mTimeStamp << endl,
+  PRINT_INFO_FILE("curf tm=" << fixed << setprecision(9) << mCurrentFrame.ftimestamp_ << endl,
                   mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   if (mState == NOT_INITIALIZED) {
     if (mSensor == System::STEREO || mSensor == System::RGBD)
@@ -1058,13 +1058,13 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
             if (mVelocity.empty()) {
               if (bOK = TrackReferenceKeyFrame())
                 mCurrentFrame.UpdateNavStatePVRFromTcw();  // match with rKF, use lF as initial & m-o BA
-              cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.mTimeStamp
+              cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.ftimestamp_
                    << " " << mCurrentFrame.mnId << " " << (int)bOK << endl;
             } else {
               bOK = TrackWithMotionModel();  // match with lF, use v*lF(velocityMM) as initial & m-o BA
               if (!bOK) {
                 bOK = TrackReferenceKeyFrame();
-                cout << redSTR "TrackRefKF()2" whiteSTR << " " << mCurrentFrame.mTimeStamp << " " << mCurrentFrame.mnId
+                cout << redSTR "TrackRefKF()2" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " " << mCurrentFrame.mnId
                      << " " << (int)bOK << endl;
               }
               if (bOK) mCurrentFrame.UpdateNavStatePVRFromTcw();
@@ -1080,20 +1080,20 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
           cout << "check vel=" << mVelocity.col(3).rowRange(0, 3).t() << ","
                << Sophus::SO3exd(Converter::toMatrix3d(mVelocity.rowRange(0, 3).colRange(0, 3))).log().transpose()
                << endl;
-          auto dt = mCurrentFrame.mTimeStamp - mLastFrame.mTimeStamp;
+          auto dt = mCurrentFrame.ftimestamp_ - mLastFrame.ftimestamp_;
           CV_Assert(dt < 0.045);
 #endif
           // if last frame relocalized, there's no motion could be calculated, so I think 2nd condition is useless
           if (mVelocity.empty()) {  // || mCurrentFrame.mnId<mnLastRelocFrameId+2){
             // if (!mVelocity.empty()) cerr<<redSTR"Error in Velocity.empty()!!!"<<endl;
             bOK = TrackReferenceKeyFrame();  // match with rKF, use lF as initial & m-o BA
-            cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.mTimeStamp << " "
+            cout << fixed << setprecision(6) << redSTR "TrackRefKF()" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " "
                  << mCurrentFrame.mnId << " " << (int)bOK << endl;
           } else {
             bOK = TrackWithMotionModel();  // match with lF, use v*lF(velocityMM) as initial & m-o BA
             if (!bOK) {
               bOK = TrackReferenceKeyFrame();
-              cout << redSTR "TrackRefKF()2" whiteSTR << " " << mCurrentFrame.mTimeStamp << " " << mCurrentFrame.mnId
+              cout << redSTR "TrackRefKF()2" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " " << mCurrentFrame.mnId
                    << " " << (int)bOK << endl;
             }
             // cout<<mCurrentFrame.mnId<<endl;
@@ -1103,7 +1103,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
       {
         if (mState == MAP_REUSE) PreIntegration();  // clear cached Odom List
         bOK = Relocalization();
-        cout << greenSTR "Relocalization()" whiteSTR << " " << mCurrentFrame.mTimeStamp << " " << mCurrentFrame.mnId
+        cout << greenSTR "Relocalization()" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " " << mCurrentFrame.mnId
              << " " << (int)bOK << endl;
       }
     } else {
@@ -1111,7 +1111,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
       if (mState == MAP_REUSE) {
         PreIntegration();
         bOK = Relocalization();
-        cout << greenSTR "Relocalization()" whiteSTR << " " << mCurrentFrame.mTimeStamp << " " << mCurrentFrame.mnId
+        cout << greenSTR "Relocalization()" whiteSTR << " " << mCurrentFrame.ftimestamp_ << " " << mCurrentFrame.mnId
              << " " << (int)bOK << endl;
       } else if (mState == LOST) {
         bOK = Relocalization();
@@ -1215,7 +1215,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
           auto Twc = mCurrentFrame.GetTwc();
           twi = Twc.translation();
           qwi = Twc.so3().unit_quaternion().coeffs();
-          fout << mCurrentFrame.mTimeStamp << " " << twi[0] << " " << twi[1] << " " << twi[2] << " " << qwi.x() << " "
+          fout << mCurrentFrame.ftimestamp_ << " " << twi[0] << " " << twi[1] << " " << twi[2] << " " << qwi.x() << " "
                << qwi.y() << " " << qwi.z() << " " << qwi.w() << endl;
         }
 #endif
@@ -1254,14 +1254,14 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
       // if MAP_REUSE, we keep mState until it's relocalized
       if (mState == MAP_REUSE) return;
 
-      if (OK == mState) timestamp_lost_ = mCurrentFrame.mTimeStamp;
+      if (OK == mState) timestamp_lost_ = mCurrentFrame.ftimestamp_;
 
       // use Odom data to get mCurrentFrame.mTcw
       // though it may introduce error, it ensure the completeness of the Map
       if (OK == mState || ODOMOK == mState) {
         if (mCurrentFrame.GetEncPreInt().mdeltatij > 0 ||
             mCurrentFrame.GetIMUPreInt().mdeltatij > 0 &&
-                mCurrentFrame.mTimeStamp - timestamp_lost_ <= time_recently_lost) {
+                mCurrentFrame.ftimestamp_ - timestamp_lost_ <= time_recently_lost) {
           TrackWithOnlyOdom(bMapUpdated);
         } else {
           // for when enc ok, always OK/ODOMOK, no mbRelocBiasPrepare entered for no relocalization is called or
@@ -1411,7 +1411,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     const NavStated& ns = mCurrentFrame.GetNavStateRef();
     relative_frame_bvwbs_.push_back(ns.mRwb.inverse() * ns.mvwb);
     mlpReferences.push_back(mpReferenceKF);
-    mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
+    mlFrameTimes.push_back(mCurrentFrame.ftimestamp_);
     // false if it isn't lost, when it has Tcw, it stll can be LOST for not enough inlier MapPoints
     mlbLost.push_back(mState == LOST);
   } else {
@@ -1430,7 +1430,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
   if (mCurrentFrame.N > 500) {
     // Set Frame pose to the origin
     mCurrentFrame.SetPose(cv::Mat::eye(4, 4, CV_32F));
-    cout << "check init tm=" << mCurrentFrame.mTimeStamp << endl;
+    cout << "check init tm=" << mCurrentFrame.ftimestamp_ << endl;
 
     // Create KeyFrame
     KeyFrame* pKFini = new KeyFrame(mCurrentFrame, mpMap, mpKeyFrameDB, true);
@@ -2049,7 +2049,7 @@ bool Tracking::NeedNewKeyFrame() {
   //#define ORB3_STRATEGY
   //#ifdef ORB3_STRATEGY
   //  if (mpIMUInitiator->GetSensorIMU() && !mpIMUInitiator->GetVINSInited()) {
-  //    if (mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp >= 0.25)
+  //    if (mCurrentFrame.ftimestamp_ - mpLastKeyFrame->ftimestamp_ >= 0.25)
   //      return true;
   //    else
   //      return false;
@@ -2129,11 +2129,11 @@ bool Tracking::NeedNewKeyFrame() {
     //#ifdef ORB3_STRATEGY
     //    if (!mpIMUInitiator->GetSensorEnc()) {
     //      // ref from ORB3
-    //      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap);
+    //      cTimeGap = ((mCurrentFrame.ftimestamp_ - mpLastKeyFrame->ftimestamp_) >= timegap);
     //    } else
     //#endif
     {
-      cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle &&
+      cTimeGap = ((mCurrentFrame.ftimestamp_ - mpLastKeyFrame->ftimestamp_) >= timegap) && bLocalMappingIdle &&
                  mnMatchesInliers > 15;
       // if (bimu_inited){//also we can use GetSensorIMU()
       // we still need this for tum_vi outdoors2 ds
@@ -2142,7 +2142,7 @@ bool Tracking::NeedNewKeyFrame() {
       // bNeedToInsertClose = false;
       // for VIEO+RGB-D(Stereo)/VIO with RECENTLY_LOST, cTimeGap won't affect ODOMOK, so we may need it
       if (mState == ODOMOK) {
-        cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp) >= timegap) && bLocalMappingIdle;
+        cTimeGap = ((mCurrentFrame.ftimestamp_ - mpLastKeyFrame->ftimestamp_) >= timegap) && bLocalMappingIdle;
       }
       // minClose=100;
     }
@@ -2774,8 +2774,8 @@ void Tracking::Reset() {
 void Tracking::InformOnlyTracking(const bool& flag) {
   mbOnlyTracking = flag;
   // added by zzh
-  static bool bSwitch =
-      false;  // a switch for VIEO/VIO suitable tracking mode(VEO/RGBD) and VIEO/VIO 2nd/continuous SLAM mode
+  // a switch for VIEO/VIO suitable tracking mode(VEO/RGBD) and VIEO/VIO 2nd/continuous SLAM mode
+  static bool bSwitch = false;
   if (flag) {
     if (mpIMUInitiator->GetVINSInited()) {
       bSwitch = true;

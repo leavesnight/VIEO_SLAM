@@ -276,7 +276,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
-    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
+    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->ftimestamp_ - pKF0->ftimestamp_;
     // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
 #ifdef ORB3_STRATEGY_IMU_EDGE
     // we found bias also expands will improve the track stability, where mainly ba adjusted more robust
@@ -505,8 +505,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
 
       // if chi2 error too big(5% wrong) then outlier
       if (e->chi2() > th_chi2) {
-        PRINT_INFO_FILE("chi2 " << e->chi2() << ",tm=" << debug_kf0s[i]->mTimeStamp
-                                << ",tmn=" << debug_kf0s[i]->GetNextKeyFrame()->mTimeStamp
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ",tm=" << debug_kf0s[i]->ftimestamp_
+                                << ",tmn=" << debug_kf0s[i]->GetNextKeyFrame()->ftimestamp_
                                 << ",dt=" << debug_kf0s[i]->GetNextKeyFrame()->GetIMUPreInt().mdeltatij << ". ",
                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
@@ -517,7 +517,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
 
       if (e->chi2() > th_chi2) {
-        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->mTimeStamp << ". ",
+        PRINT_INFO_FILE("chi2 " << e->chi2() << ", tm " << debug_kf0s[i]->ftimestamp_ << ". ",
                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
     }
@@ -861,7 +861,7 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     // don't add the bad KFs to optimizer
     if (pKF1->isBad()) continue;  // way0
 
-    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->mTimeStamp - pKF0->mTimeStamp;
+    double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->ftimestamp_ - pKF0->ftimestamp_;
     size_t device = pKF1->id_cam_;
     if (sum_dt_tmp.size() && vadd_prior_bias[device]) {
       sum_dt_tmp[device] += deltatij;

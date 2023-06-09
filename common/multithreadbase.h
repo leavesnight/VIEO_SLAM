@@ -2,8 +2,7 @@
 // Created by leavesnight on 2021/12/20.
 //
 
-#ifndef VIEO_SLAM_MULTITHREADBASE_H
-#define VIEO_SLAM_MULTITHREADBASE_H
+#pragma once
 
 #include <mutex>
 
@@ -14,6 +13,5 @@ class MutexUsed {
   using unique_lock = std::unique_lock<_Mutex>;
   using mutex = std::mutex;
 };
-}
 
-#endif  // VIEO_SLAM_MULTITHREADBASE_H
+}  // namespace VIEO_SLAM

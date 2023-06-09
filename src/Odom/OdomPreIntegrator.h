@@ -53,7 +53,7 @@ class OdomPreIntegratorBase {  // base class
                                              const typename aligned_list<_OdomData>::const_iterator &end) {
     mlOdom.splice(mlOdom.begin(), x, begin, end);
   }
-  const listeig(_OdomData) & getlOdom() { return mlOdom; }  // the list of Odom, for KFCulling()
+  const listeig(_OdomData) & getlOdom() const { return mlOdom; }  // the list of Odom, for KFCulling()
   // the list of Odom, for deep proc(like KFCulling())
   aligned_list<_OdomData> &GetRawDataRef() { return mlOdom; }
   // Odom PreIntegration
@@ -261,7 +261,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
     }
 
     for (typename listeig(IMUDataBase)::const_iterator iterj = iter_start; iterj != iter_stop;) {
-      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj; // iterj-1
+      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj;  // iterj-1
       if (bimu_order_back) {
         if (iterj == iterBegin) {
           iterj = iter_stop;

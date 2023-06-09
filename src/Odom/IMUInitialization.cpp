@@ -221,7 +221,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
   for (int i = 0; i < NvSGKF; ++i) {
     KeyFrame *pKF = vScaleGravityKF[i];
     char id_cam = 0;  // pKF->id_cam_;
-    //     if (pKF->mTimeStamp<pNewestKF->mTimeStamp-15) continue;//15s as the VIORBSLAM paper
+    //     if (pKF->ftimestamp_<pNewestKF->ftimestamp_-15) continue;//15s as the VIORBSLAM paper
     auto pkfi = new IMUKeyFrameInit(*pKF);
     if (id_cam >= vKFsInit.size()) {
       vKFsInit.resize(id_cam + 1);
@@ -596,7 +596,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
   PRINT_INFO_MUTEX("gwbefore=" << gwbefore.transpose() << ", gwafter=" << gwafter.transpose() << endl);
 
   // Debug the frequency & sstar2&sstar
-  PRINT_INFO_MUTEX("Time: " << fixed << setprecision(9) << pNewestKF->mTimeStamp - mdStartTime << ", s_star: " << s_star
+  PRINT_INFO_MUTEX("Time: " << fixed << setprecision(9) << pNewestKF->ftimestamp_ - mdStartTime << ", s_star: " << s_star
                             << ", s: " << s_ << defaultfloat << endl);
   //<<" bgest: "<<bgest.transpose()<<", gw*(gwafter)="<<gwafter.t()<<", |gw*|="<<cv::norm(gwafter)<<",
   // norm(gwbefore,gwstar)"<<cv::norm(gwbefore.t())<<" "<<cv::norm(gwstar.t())<<endl;
@@ -605,22 +605,22 @@ bool IMUInitialization::TryInitVIO_zzh() {
     fRwi << RwI_.unit_quaternion().vec().transpose() << endl;
     fRwi.close();
   }
-  fgw << pNewestKF->mTimeStamp << " " << gwafter.transpose() << " " << gwbefore.transpose() << " " << endl;
-  fscale << pNewestKF->mTimeStamp << " " << s_ << " " << s_star << " " << endl;  // if (mbMonocular)
+  fgw << pNewestKF->ftimestamp_ << " " << gwafter.transpose() << " " << gwbefore.transpose() << " " << endl;
+  fscale << pNewestKF->ftimestamp_ << " " << s_ << " " << s_star << " " << endl;  // if (mbMonocular)
   for (int h = 0; h < num_handlers; ++h) {
-    fbiasg << (int)id_cams2[h] << " " << pNewestKF->mTimeStamp << " " << bgs_est[h].transpose() << " " << endl;
-    fbiasa << (int)id_cams2[h] << " " << pNewestKF->mTimeStamp << " " << bas_star[h].transpose() << " " << endl;
+    fbiasg << (int)id_cams2[h] << " " << pNewestKF->ftimestamp_ << " " << bgs_est[h].transpose() << " " << endl;
+    fbiasa << (int)id_cams2[h] << " " << pNewestKF->ftimestamp_ << " " << bas_star[h].transpose() << " " << endl;
   }
-  fcondnum << pNewestKF->mTimeStamp << " " << w2.transpose() << " " << endl;
+  fcondnum << pNewestKF->ftimestamp_ << " " << w2.transpose() << " " << endl;
 
   // ********************************
   // Todo: Add some logic or strategy to confirm init status, VIORBSLAM paper just uses 15 seconds to confirm
   bool bVIOInited = false;
-  if (mdStartTime < 0) mdStartTime = pNewestKF->mTimeStamp;
+  if (mdStartTime < 0) mdStartTime = pNewestKF->ftimestamp_;
   PRINT_INFO_MUTEX(yellowSTR "condnum=" << cond_num2 << ";max=" << w2(0) << ";min=" << w2(w2.size() - 1) << whiteSTR
                                         << endl);
   int min_cond_num = 500;                                                                 // try 700
-  if (cond_num2 < min_cond_num and pNewestKF->mTimeStamp - mdStartTime >= mdFinalTime) {  // 15s in the paper V-A
+  if (cond_num2 < min_cond_num and pNewestKF->ftimestamp_ - mdStartTime >= mdFinalTime) {  // 15s in the paper V-A
     bVIOInited = true;
   }
 

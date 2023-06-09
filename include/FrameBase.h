@@ -14,9 +14,11 @@
 #include "NavState.h"
 #include <typeinfo>
 #include "OdomPreIntegrator.h"
+#include "common/type_def.h"
 
 namespace VIEO_SLAM {
 class MapPoint;
+using common::TS2S;
 
 class FrameBase {
  public:
@@ -28,7 +30,7 @@ class FrameBase {
   long unsigned int mnId;
 
   FrameBase() {}
-  FrameBase(const double &timestamp) : mTimeStamp(timestamp), timestamp_(mTimeStamp) {}
+  FrameBase(const double &timestamp) : timestamp_(timestamp), ftimestamp_(TS2S(timestamp)) {}
   virtual ~FrameBase() {}
 
   // TODO: if Trc ref is imu, here need to be changed
@@ -75,18 +77,21 @@ class FrameBase {
                       const typename aligned_list<OdomData>::const_iterator &iterj, bool breset = true,
                       int8_t verbose = 0) {
     NavState ns = plastfb->GetNavState();  // unused for EncData, but specialized and used for IMUData
-    PreIntegration<OdomData, EncPreIntegrator>(plastfb->mTimeStamp, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset,
+    PreIntegration<OdomData, EncPreIntegrator>(plastfb->ftimestamp_, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset,
                                                nullptr, verbose);
   }
 
   virtual bool isBad() { return mbBad; }
 
+  virtual bool read(std::istream &is);
+  virtual bool write(std::ostream &os) const;
+
   std::vector<GeometricCamera *> mpCameras;
   std::vector<std::pair<size_t, size_t>> mapn2in_;
 
   // Frame timestamp.
-  double mTimeStamp;
-  double timestamp_;
+  double timestamp_;  // TODO(zzh): change to TimeStampNs
+  double ftimestamp_;
   int8_t id_cam_ = 0;
   int8_t bcam_fixed_ = 1;
 

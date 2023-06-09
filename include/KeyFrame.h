@@ -6,14 +6,12 @@
 #define KEYFRAME_H
 
 #include "FrameBase.h"
-#include "MultiThreadBase.h"
+#include "common/multithreadbase.h"
 #include "MapPoint.h"
 #include "loop/DBoW2/DBoW2/BowVector.h"
 #include "loop/DBoW2/DBoW2/FeatureVector.h"
 #include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 
@@ -25,18 +23,17 @@ class GeometricCamera;
 class KeyFrame : public FrameBase, public MutexUsed {
   char mState;
 
-  std::mutex mMutexNavState;  // the mutex of mNavState(state/vertex), similar to mMutexPose
+  mutable mutex mMutexNavState;  // the mutex of mNavState(state/vertex), similar to mMutexPose
 
-  std::mutex mMutexOdomData;  // the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to
-                              // the unchanged IMU measurement, KFCulling() does change Odom measurement
+  mutable mutex mMutexOdomData;  // the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to
+                                 // the unchanged IMU measurement, KFCulling() does change Odom measurement
 
   // Odom connections for localBA
   KeyFrame *mpPrevKeyFrame, *mpNextKeyFrame;
-  std::mutex mMutexPNConnections;  // the mutex of Prev/Next KF(connections/sparse states related to this KF), similar
-                                   // to mMutexConnections
-  //   bool mbPNChanging;std::mutex mMutexPNChanging;
-  static std::mutex mstMutexPNChanging;  // avoid conescutive 2/3 KFs' SetBadFlag() and SetErase() at the same time!
-                                         // //or check if the former & latter KFs' mbPNChanging are both false
+  mutable mutex mMutexPNConnections;  // the mutex of Prev/Next KF(connections/sparse states related to this KF),
+                                      // similar to mMutexConnections
+  // avoid conescutive 2/3 KFs' SetBadFlag() and SetErase() at the same time!
+  static mutex mstMutexPNChanging;
 
   void UpdatePoseFromNS();
 
@@ -131,7 +128,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   template <class OdomData>
   void PreIntegration(KeyFrame *pLastKF) {
     unique_lock<mutex> lock(mMutexOdomData);
-    // mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    // mOdomPreIntEnc.PreIntegration(pLastKF->ftimestamp_,ftimestamp_);
     FrameBase::PreIntegration<OdomData>(pLastKF, mOdomPreIntEnc.getlOdom().begin(), mOdomPreIntEnc.getlOdom().end());
   }  // 0th frame don't use this function, pLastKF shouldn't be bad
   //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
@@ -143,7 +140,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
                                 int8_t verbose = 0) {
     NavState ns = plastkf->GetNavState();
     unique_lock<mutex> lock(mMutexOdomData);
-    FrameBase::PreIntegration<OdomData, EncPreIntegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+    FrameBase::PreIntegration<OdomData, EncPreIntegrator>(tmi, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset);
   }
 
   // for LoadMap() in System.cc
@@ -196,7 +193,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
     return os.good();
   }
   bool read(istream &is);
-  bool write(ostream &os);
+  bool write(ostream &os) const;
 
   // for quaterniond in NavState
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -384,9 +381,9 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   float mHalfBaseline;  // Only for visualization
 
-  std::mutex mMutexPose;
-  std::mutex mMutexConnections;
-  std::mutex mMutexFeatures;  // the mutex of mvpMapPoints(landmarks' states/vertices)
+  mutable mutex mMutexPose;
+  mutable mutex mMutexConnections;
+  mutable mutex mMutexFeatures;  // the mutex of mvpMapPoints(landmarks' states/vertices)
 
   // Covisibility graph functions
   void AddConnection(KeyFrame *pKF, const int &weight);

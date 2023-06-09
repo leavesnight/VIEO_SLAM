@@ -84,9 +84,9 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
   Eigen::Vector3d bgi_bar = pLastKF->GetNavState().mbg, bai_bar = pLastKF->GetNavState().mba;
   unique_lock<mutex> lock(mMutexOdomData);
 #ifndef TRACK_WITH_IMU
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp);
+  mOdomPreIntIMU.PreIntegration(pLastKF->ftimestamp_, ftimestamp_);
 #else
-  // mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  // mOdomPreIntIMU.PreIntegration(pLastKF->ftimestamp_,ftimestamp_,bgi_bar,bai_bar);
   FrameBase::PreIntegration<IMUData>(pLastKF, mOdomPreIntIMU.getlOdom().begin(), mOdomPreIntIMU.getlOdom().end());
 #endif
 }
@@ -97,7 +97,7 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
                                                  bool breset, int8_t verbose) {
   NavState ns = plastkf->GetNavState();
   unique_lock<mutex> lock(mMutexOdomData);
-  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 // for LoadMap()
@@ -190,39 +190,47 @@ bool KeyFrame::read(istream &is) {
   is.read(&mState, sizeof(mState));
   mHalfBaseline = mb / 2;
   // we've loaded mNavState in Frame
-  // we have calculated mGrid in Frame and load it in constructor
+  // we have calculated vgrids_ in Frame and load it in constructor
   return is.good();
 }
-bool KeyFrame::write(ostream &os) {
-  //   os.write((char*)&mnFrameId,sizeof(mnFrameId));//we don't save Frame ID for it's useless in LoadMap(), we save old
-  //   KF ID/mnId in SaveMap()
-  os.write((char *)&mTimeStamp, sizeof(mTimeStamp));
-  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));//we
-  //   can get these from mnMaxX...
+bool KeyFrame::write(ostream &os) const {
+  if (!FrameBase::write(os)) return false;
+  // we don't save Frame ID for it's useless in LoadMap(), we save old KF ID/mnId in SaveMap()
+  //   os.write((char*)&mnFrameId,sizeof(mnFrameId));
+  // we can get these from mnMaxX...
+  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));
   os.write((char *)&fx, sizeof(fx));
   os.write((char *)&fy, sizeof(fy));
   os.write((char *)&cx, sizeof(cx));
   os.write((char *)&cy, sizeof(cy));
-  //   os.write((char*)&invfx,sizeof(invfx));os.write((char*)&invfy,sizeof(invfy));//also from the former ones
+  // also from the former ones
+  //   os.write((char*)&invfx,sizeof(invfx));
+  //   os.write((char*)&invfy,sizeof(invfy));
   os.write((char *)&mbf, sizeof(mbf));
   os.write((char *)&mThDepth, sizeof(mThDepth));
-  //   os.write((char*)&mb,sizeof(mb));//=mbf/fx
+  // mb=mbf/fx
+  //   os.write((char*)&mb,sizeof(mb));
   os.write((char *)&N, sizeof(N));
   writeVec(os, mvKeys);
   writeVec(os, mvKeysUn);
   writeVec(os, mvuRight);
   writeVec(os, mvDepth);
   writeMat(os, mDescriptors);
-  //   mBowVec.write(os);mFeatVec.write(os);//we can directly ComputeBoW() from mDescriptors
+  // we can directly ComputeBoW() from mDescriptors
+  //   mBowVec.write(os);
+  //   mFeatVec.write(os);
   os.write((char *)&mnScaleLevels, sizeof(mnScaleLevels));
   os.write((char *)&mfScaleFactor, sizeof(mfScaleFactor));
-  //   os.write((char*)&mfLogScaleFactor,sizeof(mfLogScaleFactor));os.write((char*)&mvScaleFactors,sizeof(mvScaleFactors));//we
-  //   can get these from former 2 parameters writeVec(os,mvLevelSigma2);writeVec(os,mvInvLevelSigma2);
-  float fTmp[4] = {mnMinX, mnMinY, mnMaxX, mnMaxY};  // compatible with Frame
+  // we can get these from former 2 parameters mnScaleLevels & mfScaleFactor
+  //   os.write((char*)&mfLogScaleFactor,sizeof(mfLogScaleFactor));
+  //   os.write((char*)&mvScaleFactors,sizeof(mvScaleFactors));
+  float fTmp[4] = {(float)mnMinX, (float)mnMinY, (float)mnMaxX, (float)mnMaxY};  // compatible with Frame
   os.write((char *)fTmp, sizeof(fTmp));
-  //   writeMat(os,mK);from fx~cy
+  // from fx~cy
+  //   writeMat(os,mK);
   // save mvpMapPoints,mpParent,mbNotErase(mspLoopEdges) in LoadMap for convenience
-  //   os.write((char*)&mHalfBaseline,sizeof(mHalfBaseline));//=mb/2;
+  // =mb/2;
+  //   os.write((char*)&mHalfBaseline,sizeof(mHalfBaseline));
   {  // save mNavState
     const double *pdData;
     unique_lock<mutex> lock(mMutexNavState);
@@ -242,8 +250,9 @@ bool KeyFrame::write(ostream &os) {
     pdData = mNavState.mdba.data();
     os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbaxyz
   }
-  //   for(unsigned int i=0; i<FRAME_GRID_COLS;i++) for (unsigned int j=0; j<FRAME_GRID_ROWS;j++){ size_t
-  //   nSize;os.write((char*)&nSize,sizeof(nSize));writeVec(os,mGrid[i][j]);}//we can still get it from mvKeysUn
+  // we can still get it from mvKeysUn
+  //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
+  //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
   // we add extra info for KF at the end for KeyFrame::write & Frame::read+KeyFrame::read
   {  // save odom lists
     unique_lock<mutex> lock(mMutexOdomData);
@@ -910,7 +919,7 @@ void KeyFrame::SetBadFlag(
   // erase this(&KF) in mpMap && mpKeyFrameDB
   mpMap->EraseKeyFrame(this);
   mpKeyFrameDB->erase(this);
-  // cout << "End " << mnId << " " << mTimeStamp << endl;
+  // cout << "End " << mnId << " " << ftimestamp_ << endl;
 }
 
 bool KeyFrame::isBad() {

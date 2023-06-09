@@ -114,14 +114,14 @@ int main(int argc, char **argv) {
   ifstream finOdomdata, finEncdata;
   int totalNum = 2;
   cout << fixed << setprecision(6) << endl;
-  string strMapname = "";
+  string map_sparse_name = "";
 
   switch (argc) {
     case 5:
       break;
     case 10:
       // Map Reuse RGBD
-      strMapname = argv[9];
+      map_sparse_name = argv[9];
     case 9: {
       finEncdata.open(argv[8]);
       string strTmp;
@@ -190,9 +190,8 @@ int main(int argc, char **argv) {
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System::eSensor sensor = VIEO_SLAM::System::RGBD;
   if (bMode != 0) sensor = VIEO_SLAM::System::MONOCULAR;
-  VIEO_SLAM::System SLAM(argv[1], argv[2], sensor, true);
+  VIEO_SLAM::System SLAM(argv[1], argv[2], sensor, true, map_sparse_name);
   bool bLoaded = false;
-  if (strMapname != "") bLoaded = SLAM.LoadMap(strMapname, false);  // for Map Reuse
   g_pSLAM = &SLAM;
   //    cin.get();
 
@@ -275,10 +274,8 @@ int main(int argc, char **argv) {
   // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
   // VIORBSLAM paper! load if Full BA just after IMU Initialize
   cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
-  //     SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory_NO_FULLBA.txt");
-  //     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory2.txt");
-  //     SLAM.SaveMap("MapTmp.bin",false,true,true);
+  //  SLAM.SaveMap("MapTmp.bin",false,true,true);
   if (!fnFBA.empty() && !bLoaded) {
     if ((int)fnFBA) {
       SLAM.FinalGBA(fnFBA);
@@ -286,18 +283,8 @@ int main(int argc, char **argv) {
     }
   } else {
     cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
-  } /*
-   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory1.txt");
-   SLAM.SaveTrajectoryTUM("CameraTrajectory1.txt");
-   SLAM.LoadMap("MapTmp.bin",false,true);
-   if (!fnFBA.empty()){
-     if((int)fnFBA){
-       SLAM.FinalGBA(fnFBA);
-       cout<<azureSTR"Execute FullBA2 at the end!"<<whiteSTR<<endl;
-     }
-   }else{
-     cout<<redSTR"No FullBA2 at the end!"<<whiteSTR<<endl;
-   }*/
+  }
+  //  SLAM.LoadMap("MapTmp.bin",false,true);
 
   // Tracking time statistics
   sort(vTimesTrack.begin(), vTimesTrack.end());
@@ -313,10 +300,10 @@ int main(int argc, char **argv) {
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
-  if (strMapname == "")
+  if (map_sparse_name == "")
     SLAM.SaveMap("Map.pcd");  // for PCL Map
   else
-    SLAM.SaveMap(strMapname, false);  // for Reused Sparse Map
+    SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
 
   // wait for pOdomThread finished
   if (pOdomThread != NULL) pOdomThread->join();

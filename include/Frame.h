@@ -61,7 +61,7 @@ class Frame : public FrameBase {
                                int8_t verbose = 0) {
     CV_Assert(ppreint_enc_kf_);
     NavState ns = plastkf->GetNavState();
-    if (breset) CV_Assert(plastkf->mTimeStamp == tmi);
+    if (breset) CV_Assert(plastkf->ftimestamp_ == tmi);
     return FrameBase::PreIntegration<OdomData>(tmi, tmj_1, ns.mbg, ns.mba, iteri, iterj, breset, ppreint_enc_kf_,
                                                verbose);
   }
@@ -77,7 +77,7 @@ class Frame : public FrameBase {
   Frame();
 
   // Copy constructor. for Tcw is cv::Mat, we need to deep copy it
-  // =default for the mGrid[A][B] copy is OK for it's expanded in this class as static memory allocate
+  // =default for the vgrids_[A][B] copy is OK for it's expanded in this class as static memory allocate
   // though descriptors can be deep copied for safety here, but we'll pay attention, so it's shallow copied now
   explicit Frame(const Frame &frame, bool copy_shallow = false);
 
