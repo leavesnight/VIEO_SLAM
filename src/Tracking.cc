@@ -869,10 +869,11 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
   PRINT_INFO_MUTEX("- Initial Fast Threshold: " << fIniThFAST << endl);
   PRINT_INFO_MUTEX("- Minimum Fast Threshold: " << fMinThFAST << endl);
 
-  if (sensor == System::STEREO || sensor == System::RGBD) {
-    mThDepth = mbf * (float)fSettings["ThDepth"] / mK.at<float>(0, 0);
-    PRINT_INFO_MUTEX(endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl);
+  auto node_tmp = fSettings["ThDepth"];
+  if (!node_tmp.empty()) {
+    mThDepth = mbf * (float)node_tmp / mK.at<float>(0, 0);
   }
+  PRINT_INFO_MUTEX(endl << "Depth Threshold (Close/Far Points): " << mThDepth << endl);
 
   if (sensor == System::RGBD) {
     mDepthMapFactor = fSettings["DepthMapFactor"];
