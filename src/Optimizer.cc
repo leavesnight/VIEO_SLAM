@@ -2312,11 +2312,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
   set<pair<long unsigned int, long unsigned int>> sInsertedEdges;
 
-  const Eigen::Matrix<double, 7, 7> matLambda =
-      Eigen::Matrix<double, 7,
-                    7>::Identity();  //information matrix/Omega/Sigma^(-1) uses default or use Euclidean distance \
-    instead of Mahalonobis in error_block=e'e instead of e'Omega(!=I)e, so we also don't use RobustKernel/chi2/outliers/scale concept here, \
-    so maybe we can use erroneous edges' concept in RGBDSLAM2 here!
+  // information matrix/Omega/Sigma^(-1) uses default or use Euclidean distance
+  // instead of Mahalonobis in error_block=e'e instead of e'Omega(!=I)e, so we also don't use
+  // RobustKernel/chi2/outliers/scale concept here, so maybe we can use erroneous edges' concept in RGBDSLAM2 here!
+  const Eigen::Matrix<double, 7, 7> matLambda = Eigen::Matrix<double, 7, 7>::Identity();
 
   // Set Loop edges, these cannot be pure odom edges
   for (map<KeyFrame*, set<KeyFrame*>>::const_iterator mit = LoopConnections.begin(), mend = LoopConnections.end();
@@ -2340,47 +2339,53 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
       g2o::EdgeSim3* e = new g2o::EdgeSim3();  // vertex 0/1 VertexSE3Expmap
       e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(nIDj)));  // 1 j
       e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(nIDi)));  // 0 i
-      e->setMeasurement(
-          Sji);  // S10/Sji~=Sjw*Siw^(-1), notice in default g2o lib g2o::EdgeSE3&&g2o::VertexSE3 use Tij&&Twi
+      // S10/Sji~=Sjw*Siw^(-1), notice in default g2o lib g2o::EdgeSE3&&g2o::VertexSE3 use Tij&&Twi
+      e->setMeasurement(Sji);
 
       e->information() = matLambda;  // error_block=e'e
 
       optimizer.addEdge(e);
 
-      sInsertedEdges.insert(
-          make_pair(min(nIDi, nIDj), max(nIDi, nIDj)));  // use min&&max to avoid duplications like (i,j)&&(j,i) for
-                                                         // loop edges(in Essential/Pose Graph) are undirected edges
+      // use min&&max to avoid duplications like (i,j)&&(j,i) for loop edges(in Essential/Pose Graph) are undirected
+      // edges
+      sInsertedEdges.insert(make_pair(min(nIDi, nIDj), max(nIDi, nIDj)));
     }
   }
 
   Eigen::Matrix<double, 7, 7> matLambdaEnc = Eigen::Matrix<double, 7, 7>::Identity();  // added by zzh
   // 0 for phi, 1 for p, which is mainly caused by encoder measurement model instead of plane assumption
   // model(+kinematic model error+Tce calibration error)
-  double dEncBase[2] = {1, 1};
+  float fOdomBase[2] = {1, 1};
   for (size_t i = 0, iend = vpKFs.size(); i < iend; i++) {
     KeyFrame* pKF = vpKFs[i];
     KeyFrame* pParentKF = pKF->GetParent();
     if (pParentKF && pKF->GetWeight(pParentKF) < minFeat) {  // pure odom edge
-      if (pKF->getState() != 2 && pKF->GetPrevKeyFrame() == pParentKF ||
-          pParentKF->getState() != 2 &&
-              pParentKF->GetPrevKeyFrame() == pKF) {  // pure Odom Edge, need to decrease information matrix!
+      // pure Odom Edge, need to decrease information matrix!
+      if ((pKF->getState() != (char)Tracking::OK && pKF->GetPrevKeyFrame() == pParentKF) ||
+          (pParentKF->getState() != (char)Tracking::OK && pParentKF->GetPrevKeyFrame() == pKF)) {
         EncPreIntegrator encpreint;
-        if (pKF->getState() != 2) {
+        IMUPreintegrator imupreint;
+        if (pKF->getState() != (char)Tracking::OK) {
           encpreint = pKF->GetEncPreInt();
+          imupreint = pKF->GetIMUPreInt();
         } else {
           encpreint = pParentKF->GetEncPreInt();
+          imupreint = pParentKF->GetIMUPreInt();
         }
         // notice matLambda((2,2)&(3,3)) used in other edges means the camera(+encoder) accuracy of (phi,p) which should
         // be close to encoder(here use 1), and different unit has different base!
-        double dTmp = encpreint.mSigmaEij(2, 2);
-        if (dEncBase[0] > dTmp) {  // phi
-          dEncBase[0] = dTmp;
+        // we omit trans from Eij/Bij to Cij for it's a rough but fast strategy
+        double dTmp =
+            encpreint.mSigmaEij.block<3, 3>(0, 0).norm() * 0.5 + imupreint.SigmaijPRV_.block<3, 3>(3, 3).norm() * 0.5;
+        if (fOdomBase[0] > dTmp) {  // phi
+          fOdomBase[0] = dTmp;
         }
         // intuitively we choose sqrt(sigma2x^2+sigma2y^2) or p, makes (Sigma_p,0) to be (1,0) but (Sigma_p/2,
         // Sigma_p/2) to be near (1, 1)
-        dTmp = encpreint.mSigmaEij.block<2, 2>(3, 3).norm();
-        if (dEncBase[1] > dTmp) {
-          dEncBase[1] = dTmp;
+        dTmp =
+            encpreint.mSigmaEij.block<3, 3>(3, 3).norm() * 0.5 + imupreint.SigmaijPRV_.block<3, 3>(0, 0).norm() * 0.5;
+        if (fOdomBase[1] > dTmp) {
+          fOdomBase[1] = dTmp;
         }
       }
     }
@@ -2400,8 +2405,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     if (iti != NonCorrectedSim3.end())  // if pKF in found in NonCorrectedSim3/mvpCurrentConnectedKFs in LoopClosing
       Swi = (iti->second).inverse();    // noncorrected Swi
     else
-      Swi = vScw[nIDi]
-                .inverse();  // noncorrected Swi, vScw already records the pKF->Tcw of the keyframes not to be corrected
+      // noncorrected Swi, vScw already records the pKF->Tcw of the keyframes not to be corrected
+      Swi = vScw[nIDi].inverse();
 
     KeyFrame* pParentKF = pKF->GetParent();
 
@@ -2428,32 +2433,37 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
       e->information() = matLambda;               // I
       if (pKF->GetWeight(pParentKF) < minFeat) {  // pure odom edge
-        if (pKF->getState() != 2 && pKF->GetPrevKeyFrame() == pParentKF ||
-            pParentKF->getState() != 2 &&
-                pParentKF->GetPrevKeyFrame() == pKF) {  // pure Odom Edge, need to decrease information matrix!
+        // pure Odom Edge, need to decrease information matrix!
+        if ((pKF->getState() != Tracking::OK && pKF->GetPrevKeyFrame() == pParentKF) ||
+            (pParentKF->getState() != Tracking::OK && pParentKF->GetPrevKeyFrame() == pKF)) {
           EncPreIntegrator encpreint;
+          IMUPreintegrator imupreint;
           if (pKF->GetPrevKeyFrame() == pParentKF) {
             encpreint = pKF->GetEncPreInt();
+            imupreint = pKF->GetIMUPreInt();
           } else {
             encpreint = pParentKF->GetEncPreInt();
+            imupreint = pParentKF->GetIMUPreInt();
           }
-          for (int i = 0; i < 3; ++i) {
-            if (dEncBase[0] == 0 && encpreint.mSigmaEij(i, i) == 0)
-              matLambdaEnc(i, i) = 1;  // though this should never happen
+          {
+            float EPS_MAX_INFO = 1e6f;
+            float fSigmaOdom = encpreint.mSigmaEij.block<3, 3>(0, 0).norm() * 0.5 +
+                               imupreint.mSigmaijPRV.block<3, 3>(3, 3).norm() * 0.5;
+            float elemInfo = fOdomBase[0] / fSigmaOdom;
+            if (!elemInfo || elemInfo > EPS_MAX_INFO)
+              // though this should never happen
+              matLambdaEnc.block<3, 3>(0, 0) = Matrix3d::Identity();
             else
-              matLambdaEnc(i, i) =
-                  dEncBase[0] /
-                  encpreint.mSigmaEij(i,
-                                      i);  // this Information Matrix can help solve the dropping problem of our dataset
-          }
-          for (int i = 3; i < 6; ++i) {
-            if (dEncBase[1] == 0 && encpreint.mSigmaEij(i, i) == 0)
-              matLambdaEnc(i, i) = 1;  // though this should never happen
+              // this Information Matrix can help solve the dropping problem of our dataset
+              matLambdaEnc.block<3, 3>(0, 0) = Matrix3d::Identity() * elemInfo;
+            fSigmaOdom = encpreint.mSigmaEij.block<3, 3>(3, 3).norm() * 0.5 +
+                         imupreint.mSigmaijPRV.block<3, 3>(0, 0).norm() * 0.5;
+            elemInfo = fOdomBase[1] / fSigmaOdom;
+            if (!elemInfo || elemInfo > EPS_MAX_INFO)
+              matLambdaEnc.block<3, 3>(3, 3) = Matrix3d::Identity();
             else
-              matLambdaEnc(i, i) =
-                  dEncBase[1] /
-                  encpreint.mSigmaEij(i,
-                                      i);  // this Information Matrix can help solve the dropping problem of our dataset
+              // this Information Matrix can help solve the dropping problem of our dataset
+              matLambdaEnc.block<3, 3>(3, 3) = Matrix3d::Identity() * elemInfo;
           }
           e->information() = matLambdaEnc;
           PRINT_INFO_MUTEX(matLambdaEnc << endl);
@@ -2465,10 +2475,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     }
 
     // Loop edges, previous ones added by the order of el->vertex(0)->id() < el->vertex(1)->id()
-    const set<KeyFrame*> sLoopEdges =
-        pKF->GetLoopEdges();  //loop edges before this CorrectLoop()/previous mspLoopEdges of pKF, \
-        notice only one(pCurKF-pLoopKF) of new loop edges will be mspLoopEdges, the reason why PoseGraphOpt. need lots of new loop edges for a better believe on this loop close and \
-        optimize all KFs' Poses basing on this loop close
+    // loop edges before this CorrectLoop()/previous mspLoopEdges of pKF,
+    // notice only one(pCurKF-pLoopKF) of new loop edges will be mspLoopEdges, the reason why PoseGraphOpt. need lots of
+    // new loop edges for a better believe on this loop close and optimize all KFs' Poses basing on this loop close
+    const set<KeyFrame*> sLoopEdges = pKF->GetLoopEdges();
     for (set<KeyFrame*>::const_iterator sit = sLoopEdges.begin(), send = sLoopEdges.end(); sit != send; sit++) {
       KeyFrame* pLKF = *sit;
       if (pLKF->mnId < pKF->mnId)  // avoid repetitively adding the same loop edge/ add loop edges in an ordered way
@@ -2497,11 +2507,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     const vector<KeyFrame*> vpConnectedKFs = pKF->GetCovisiblesByWeight(minFeat);
     for (vector<KeyFrame*>::const_iterator vit = vpConnectedKFs.begin(); vit != vpConnectedKFs.end(); vit++) {
       KeyFrame* pKFn = *vit;
-      if (pKFn && pKFn != pParentKF && !pKF->hasChild(pKFn) &&
-          !sLoopEdges.count(
-              pKFn))  //don't need to judge !pKFn->mspLoopEdges.count(pKF) for previous loop edges are symmetric, \
-            avoid duplications in optimizer._edges...;pKFn cannot be the parent/child of pKF(spanning tree edge) && previous loop edge of pKF
-      {
+      // don't need to judge !pKFn->mspLoopEdges.count(pKF) for previous loop edges are symmetric,
+      // avoid duplications in optimizer._edges...;pKFn cannot be the parent/child of pKF(spanning tree edge) &&
+      // previous loop edge of pKF
+      if (pKFn && pKFn != pParentKF && !pKF->hasChild(pKFn) && !sLoopEdges.count(pKFn)) {
         if (!pKFn->isBad() && pKFn->mnId < pKF->mnId)  // good && avoid duplications by the order 1id<0id
         {
           if (sInsertedEdges.count(
@@ -2509,8 +2518,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
                             max(pKF->mnId, pKFn->mnId))))  // check if inserted as new loop edges before!
             continue;
 
-          g2o::Sim3 Snw;  // Snormal_world, normal means a smaller part of Covisibility graph but not the loop/spanning
-                          // tree edges
+          // Snormal_world, normal means a smaller part of Covisibility graph but not the loop/spanning tree edges
+          g2o::Sim3 Snw;
 
           LoopClosing::KeyFrameAndPose::const_iterator itn = NonCorrectedSim3.find(pKFn);
 
@@ -2536,8 +2545,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
   // Optimize!
   optimizer.initializeOptimization();  // optimize all KFs' Pose Siw by new loop edges and normal edges
-  optimizer.optimize(20);  // 2*10 steps, 10 is the pure inliers' iterations in localBA/motion-only BA/Sim3Motion-only
-                           // BA
+  // 2*10 steps, 10 is the pure inliers' iterations in localBA/motion-only BA/Sim3Motion-only BA
+  optimizer.optimize(20);
 
   unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
@@ -2575,9 +2584,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     int nIDr;
     if (pMP->mnCorrectedByKF == pCurKF->mnId)  // if this MP has already been correted by pCurKF/mpCurrentKF
     {
-      nIDr = pMP->mnCorrectedReference;  // vScw[nIDr(here)] is corrected Scw for mvpCurrentConnectedKFs, corresponding
-                                         // pMP's Pos is also corrected in CorrectLoop()
-    } else                               // if this MP's Pos is noncorrected
+      // vScw[nIDr(here)] is corrected Scw for mvpCurrentConnectedKFs, corresponding pMP's Pos is also corrected in
+      // CorrectLoop()
+      nIDr = pMP->mnCorrectedReference;
+    } else  // if this MP's Pos is noncorrected
     {
       KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
       nIDr = pRefKF->mnId;  // vScw[nIDr] should be noncorrected one!
@@ -2588,8 +2598,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     cv::Mat P3Dw = pMP->GetWorldPos();
     Eigen::Matrix<double, 3, 1> eigP3Dw = Converter::toVector3d(P3Dw);
-    Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw = correctedSwr.map(Srw.map(
-        eigP3Dw));  // optimized Pw=optimized Swr*Pr(noncorrected Srw*noncorrected Pw/corrected Srw*corrected Pw)
+    // optimized Pw=optimized Swr*Pr(noncorrected Srw*noncorrected Pw/corrected Srw*corrected Pw)
+    Eigen::Matrix<double, 3, 1> eigCorrectedP3Dw = correctedSwr.map(Srw.map(eigP3Dw));
 
     cv::Mat cvCorrectedP3Dw = Converter::toCvMat(eigCorrectedP3Dw);
     pMP->SetWorldPos(cvCorrectedP3Dw);  // update MP's Pos to correted one through BA optimized Siw
