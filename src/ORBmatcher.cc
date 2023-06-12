@@ -92,7 +92,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
       }
 
       // Point must be inside the image
-      if (!pKF->IsInImage(u, v)) continue;
+      if (!pKF->IsInImage(cami, u, v)) continue;
 
       cv::Mat PO = p3Dw - twc;
       const float dist3D = cv::norm(PO);
@@ -108,7 +108,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
       const int nPredictedLevel = pMP->PredictScale(dist3D, pKF);
 
       // Search in a radius
-      const float radius = th_radius * pKF->mvScaleFactors[nPredictedLevel];
+      const float radius = th_radius * pKF->scalepyrinfo_.vscalefactor_[nPredictedLevel];
 
       const vector<size_t> vIndices = pKF->GetFeaturesInArea(cami, u, v, radius);
 
@@ -144,7 +144,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
             const float e2 = ex * ex + ey * ey + er * er;
 
             // chi2(0.05,3), suppose e^2 has sigma^2 then e2/simga2 has 1^2, then it has the chi2 standard distribution
-            if (e2 * pKF->mvInvLevelSigma2[kpLevel] > 7.8) continue;
+            if (e2 * pKF->scalepyrinfo_.vinvlevelsigma2_[kpLevel] > 7.8) continue;
           } else {
             // monocular feature points(tend to have no depth data)
             const float &kpx = kp.pt.x;
@@ -154,7 +154,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
             const float e2 = ex * ex + ey * ey;
 
             // chi2(0.05,2)
-            if (e2 * pKF->mvInvLevelSigma2[kpLevel] > 5.99) continue;
+            if (e2 * pKF->scalepyrinfo_.vinvlevelsigma2_[kpLevel] > 5.99) continue;
           }
         }
 
@@ -264,9 +264,10 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoin
 
       if (bFactor) r *= th;
 
-      const vector<size_t> vIndices = F.GetFeaturesInArea(
-          cami, *iter_proj[0], *iter_proj[1], r * F.mvScaleFactors[nPredictedLevel], nPredictedLevel - 1,
-          nPredictedLevel);  //-1 is for mnTrackScaleLevel uses ceil(), ceil() can also give a larger r'
+      //-1 is for mnTrackScaleLevel uses ceil(), ceil() can also give a larger r'
+      const vector<size_t> vIndices =
+          F.GetFeaturesInArea(cami, *iter_proj[0], *iter_proj[1], r * F.scalepyrinfo_.vscalefactor_[nPredictedLevel],
+                              nPredictedLevel - 1, nPredictedLevel);
 
       if (vIndices.empty()) continue;
 
@@ -290,8 +291,8 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoin
 
         if (F.stereoinfo_.vuright_[idx] > 0) {
           const float er = fabs(*iter_proj[2] - F.stereoinfo_.vuright_[idx]);
-          if (er > r * F.mvScaleFactors[nPredictedLevel])  // if right virtual image's error is too large(>r')
-            continue;
+          // if right virtual image's error is too large(>r')
+          if (er > r * F.scalepyrinfo_.vscalefactor_[nPredictedLevel]) continue;
         }
 
         // const cv::Mat &d = !F.mapn2ijn_.size() ? F.mDescriptors.row(idx) :
@@ -562,7 +563,7 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
       }
 
       // Point must be inside the image
-      if (!pKF->IsInImage(u, v)) continue;
+      if (!pKF->IsInImage(cami, u, v)) continue;
 
       cv::Mat PO = p3Dw - twc;
       const float dist = cv::norm(PO);
@@ -575,10 +576,9 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
       int nPredictedLevel = pMP->PredictScale(dist, pKF);
 
       // Search in a radius
-      const float radius =
-          th * pKF->mvScaleFactors[nPredictedLevel];  // here use th=10 in ComputeSim3() in LoopClosing, same as the
-                                                      // first/coarse trial threshold adding inliers by SBP in
-                                                      // Relocalization() in Tracking
+      // here use th=10 in ComputeSim3() in LoopClosing, same as the first/coarse trial threshold adding inliers by SBP
+      // in Relocalization() in Tracking
+      const float radius = th * pKF->scalepyrinfo_.vscalefactor_[nPredictedLevel];
 
       const vector<size_t> vIndices = pKF->GetFeaturesInArea(cami, u, v, radius);
 
@@ -597,10 +597,9 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
 
         const int &kpLevel = pKF->mvKeys[idx].octave;  // Un
 
-        if (kpLevel < nPredictedLevel - 1 ||
-            kpLevel > nPredictedLevel)  // check nPredictedLevel error here not in pKF->GetFeaturesInArea(), same as
-                                        // SearchBySim3(), like SBP(Frame,vec<MP*>)
-          continue;
+        // check nPredictedLevel error here not in pKF->GetFeaturesInArea(), same as SearchBySim3(), like
+        // SBP(Frame,vec<MP*>)
+        if (kpLevel < nPredictedLevel - 1 || kpLevel > nPredictedLevel) continue;
 
         // const cv::Mat &dKF = !pKF->mapn2ijn_.size() ? pKF->mDescriptors.row(idx) :
         // pKF->vdescriptors_[cami].row(get<2>(pKF->mapn2ijn_[idx]));
@@ -1028,7 +1027,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
           {
             const float distex = ex - kp2.pt.x;
             const float distey = ey - kp2.pt.y;
-            if (distex * distex + distey * distey < 100 * pKF2->mvScaleFactors[kp2.octave]) continue;
+            if (distex * distex + distey * distey < 100 * pKF2->scalepyrinfo_.vscalefactor_[kp2.octave]) continue;
           }
 
           GeometricCamera *pcam1, *pcam2;
@@ -1045,8 +1044,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
           cv::Mat R12 = Converter::toCvMat(T12.rotationMatrix());
           // Tc1c2 = Tc1r2 * Tr2c2, tc1c2 = Rc1r2 * tr2c2 - Rc1r2 * (Rr2r1 * tr1c1 + tr2r1)
           cv::Mat t12 = Converter::toCvMat(T12.translation());
-          if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->mvLevelSigma2[kp1.octave],
-                                       pKF2->mvLevelSigma2[kp2.octave], usedistort[0])) {
+          if (pcam1->epipolarConstrain(pcam2, kp1, kp2, R12, t12, pKF1->scalepyrinfo_.vlevelsigma2_[kp1.octave],
+                                       pKF2->scalepyrinfo_.vlevelsigma2_[kp2.octave], usedistort[0])) {
             vbestIdx2[img_id] = idx2;
             vbestDist[img_id] = dist;
           }
@@ -1366,31 +1365,28 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         v = uv[1];
       }
 
-      if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX)  // out of img range,cannot be photoed
-        continue;
-      if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
+      // out of img range,cannot be projected
+      if (!CurrentFrame.IsInImage(camj, u, v)) continue;
 
       int nLastOctave = LastFrame.mvKeys[i].octave;
 
       // Search in a window. Size depends on scale
-      float radius = th * CurrentFrame.mvScaleFactors[nLastOctave];  // input th should be considered as the same
-                                                                     // level with MapPoint[i].octave, but rectangle
-                                                                     // window searching vIndices is in level==0
+      // input th should be considered as the same level with MapPoint[i].octave, but rectangle window searching
+      // vIndices is in level==0
+      float radius = th * CurrentFrame.scalepyrinfo_.vscalefactor_[nLastOctave];
 
       vector<size_t> vIndices2;
 
       // use Image Pyramid(&& find minDist) to get the scale consistency
+      // if camera is going forward, the old features(with PatchSize,level) should be found in
+      // (PatchSize,level+)(its area seems larger in level==0)
       if (bForward)
-        vIndices2 = CurrentFrame.GetFeaturesInArea(
-            camj, u, v, radius,
-            nLastOctave);  // if camera is going forward, the old features(with PatchSize,level) should be found in
-                           // (PatchSize,level+)(its area seems larger in level==0)
+        vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave);
       else if (bBackward)
         vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, 0, nLastOctave);
       else
-        vIndices2 =
-            CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave - 1,
-                                           nLastOctave + 1);  // if cannot be sure of camera's motion, adjust level+/- 1
+        // if cannot be sure of camera's motion, adjust level+/- 1
+        vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave - 1, nLastOctave + 1);
 
       if (vIndices2.empty()) continue;
 
@@ -1529,8 +1525,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
         v = pt[1];
       }
 
-      if (u < CurrentFrame.mnMinX || u > CurrentFrame.mnMaxX) continue;
-      if (v < CurrentFrame.mnMinY || v > CurrentFrame.mnMaxY) continue;
+      if (!CurrentFrame.IsInImage(cami, u, v)) continue;
 
       // Compute predicted scale level
       Eigen::Vector3d PO = x3Dw - twc;
@@ -1543,11 +1538,11 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
       int nPredictedLevel = pMP->PredictScale(dist3D, &CurrentFrame);
 
       // Search in a window
-      const float radius = th * CurrentFrame.mvScaleFactors[nPredictedLevel];
+      const float radius = th * CurrentFrame.scalepyrinfo_.vscalefactor_[nPredictedLevel];
 
-      const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(
-          cami, u, v, radius, nPredictedLevel - 1,
-          nPredictedLevel + 1);  // use maxLevel=nPredictedLevel+1, looser than SBP(Frame&,vector<MapPoint*>&)
+      // use maxLevel=nPredictedLevel+1, looser than SBP(Frame&,vector<MapPoint*>&)
+      const vector<size_t> vIndices2 =
+          CurrentFrame.GetFeaturesInArea(cami, u, v, radius, nPredictedLevel - 1, nPredictedLevel + 1);
 
       if (vIndices2.empty()) continue;
 

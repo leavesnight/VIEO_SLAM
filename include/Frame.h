@@ -9,17 +9,11 @@
 
 #include "FrameBase.h"
 #include "MapPoint.h"
-#include "loop/DBoW2/DBoW2/BowVector.h"
-#include "loop/DBoW2/DBoW2/FeatureVector.h"
-#include "ORBVocabulary.h"
 #include "ORBextractor.h"
 
 #include <opencv2/opencv.hpp>
 
 namespace VIEO_SLAM {
-#define FRAME_GRID_ROWS 48
-#define FRAME_GRID_COLS 64
-
 class KeyFrame;
 class MapPoint;
 class GeometricCamera;
@@ -72,6 +66,9 @@ class Frame : public FrameBase {
   bool write(ostream &os) const;                   // though we don't save Frame
 
  public:
+  template <typename _Key, typename _Tp>
+  using map = std::map<_Key, _Tp>;
+
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // for quaterniond in NavState && Matrix4d
   // created by zzh over.
   Frame();
@@ -87,17 +84,10 @@ class Frame : public FrameBase {
         IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr, bool usedistort = true,
         const float th_far_pts = 0);
 
-  bool IsInImage(const float &x, const float &y) const {
-    return (x >= mnMinX && x < mnMaxX && y >= mnMinY && y < mnMaxY);
-  }
-
   std::vector<MapPoint *> &GetMapPointsRef() { return mvpMapPoints; }
 
   // Extract ORB on the image. 0 for left image and 1 for right image.
   void ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea = nullptr);
-
-  // Compute Bag of Words representation.
-  void ComputeBoW();  // compute mBowVec && mFeatVec
 
   // Set the camera pose.
   void SetPose(cv::Mat Tcw);
@@ -115,9 +105,6 @@ class Frame : public FrameBase {
   // and fill variables of the MapPoint to be used by the tracking
   bool isInFrustum(MapPoint *pMP, float viewingCosLimit);
 
-  vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r, const int minLevel = -1,
-                                   const int maxLevel = -1) const;
-
   // Search a match for each keypoint in the left image to a keypoint in the right image.
   // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
   void ComputeStereoMatches();
@@ -131,18 +118,11 @@ class Frame : public FrameBase {
   cv::Mat UnprojectStereo(const int &i);
 
  public:
-
   // Flag to identify outlier associations.
   std::vector<bool> mvbOutlier;
 
   // Current and Next Frame id.
   static long unsigned int nNextId;
-
-  // Vocabulary used for relocalization.
-  ORBVocabulary *mpORBvocabulary;
-  // Bag of Words Vector structures.
-  DBoW2::BowVector mBowVec;
-  DBoW2::FeatureVector mFeatVec;
 
   // Feature extractor. The right is used only in the stereo case.
   vector<ORBextractor *> mpORBextractors;
@@ -158,39 +138,17 @@ class Frame : public FrameBase {
   // computed during ComputeStereoFishEyeMatches
   aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
   vector<vector<size_t>> mvidxsMatches;
-  vector<bool> goodmatches_;                          // keep same size with mvidxsMatches
+  vector<bool> goodmatches_;  // keep same size with mvidxsMatches
   map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
   size_t GetMapn2idxs(size_t i);
   vector<size_t> mapidxs2n_;
   std::vector<std::vector<size_t>> mapin2n_;  // mapcamidx2n_ for addobs func.
 
-  // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
-  static float mfGridElementWidthInv;
-  static float mfGridElementHeightInv;
-  std::vector<std::vector<std::vector<std::vector<std::size_t>>>> vgrids_;
-
   // Reference Keyframe.
   KeyFrame *mpReferenceKF = nullptr;
 
-  // Scale pyramid info.
-  vector<float> mvScaleFactors;
-  int mnScaleLevels;
-  float mfScaleFactor;
-  float mfLogScaleFactor;
-  vector<float> mvLevelSigma2;
-  vector<float> mvInvLevelSigma2;
-
-  vector<float> mvInvScaleFactors;  // for ComputeStereoMatches
-
-  // Undistorted Image Bounds (computed once).
-  static float mnMinX;
-  static float mnMaxX;
-  static float mnMinY;
-  static float mnMaxY;
-
-  static bool mbInitialComputations;
-
-  static bool usedistort_;
+  // Scale pyramid info. to speed up for ComputeStereoMatches
+  vector<float> mvInvScaleFactors;
 
   cv::Mat &GetTcwRef() { return Tcw_; }
   inline const Sophus::SE3d GetTcwCst() const { return FrameBase::GetTcwCst(); }
@@ -201,14 +159,6 @@ class Frame : public FrameBase {
   // Only for the RGB-D case. Stereo must be already rectified!
   // (called in the constructor).
   void UndistortKeyPoints();
-
-  // Computes image bounds for the undistorted image (called in the constructor).
-  void ComputeImageBounds(const cv::Mat &imLeft);
-
-  // Assign keypoints to the grid for speed up feature matching (called in the constructor).
-  void AssignFeaturesToGrid();
-  // Compute the cell of a keypoint (return false if outside the grid)
-  bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
   // Rotation, translation and camera center
   cv::Mat mRcw;

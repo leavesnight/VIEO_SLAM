@@ -105,10 +105,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
     : FrameBase(F),  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is
                      // updated in read()
       mnFrameId(F.mnId),
-      mnGridCols(FRAME_GRID_COLS),
-      mnGridRows(FRAME_GRID_ROWS),
-      mfGridElementWidthInv(F.mfGridElementWidthInv),
-      mfGridElementHeightInv(F.mfGridElementHeightInv),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -118,20 +114,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      mBowVec(F.mBowVec),
-      mFeatVec(F.mFeatVec),
-      mnScaleLevels(F.mnScaleLevels),
-      mfScaleFactor(F.mfScaleFactor),
-      mfLogScaleFactor(F.mfLogScaleFactor),
-      mvScaleFactors(F.mvScaleFactors),
-      mvLevelSigma2(F.mvLevelSigma2),
-      mvInvLevelSigma2(F.mvInvLevelSigma2),
-      mnMinX(F.mnMinX),
-      mnMinY(F.mnMinY),
-      mnMaxX(F.mnMaxX),
-      mnMaxY(F.mnMaxY),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
-      mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(false),
       mpParent(NULL),
       mbNotErase(false),  // important false when LoadMap()!
@@ -146,14 +129,14 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
   mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
 
   mnId = nNextId++;
-  vgrids_ = F.vgrids_;
   Tcw_.release();
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
 }
 bool KeyFrame::read(istream &is) {
-  // we've done ComputeBoW() in Frame!
+  // we've done a lot in Frame Constructor with is!
+
   {  // load odom lists
     listeig(EncData) lenc;
     size_t NOdom;
@@ -174,27 +157,13 @@ bool KeyFrame::read(istream &is) {
   }
   is.read(&mState, sizeof(mState));
   // we've loaded mNavState in Frame
-  // we have calculated vgrids_ in Frame and load it in constructor
   return is.good();
 }
 bool KeyFrame::write(ostream &os) const {
   if (!FrameBase::write(os)) return false;
-  // we can get these from mnMaxX...
-  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));
-  //   os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));
-  // we can directly ComputeBoW() from mDescriptors
-  //   mBowVec.write(os);
-  //   mFeatVec.write(os);
-  os.write((char *)&mnScaleLevels, sizeof(mnScaleLevels));
-  os.write((char *)&mfScaleFactor, sizeof(mfScaleFactor));
-  // we can get these from former 2 parameters mnScaleLevels & mfScaleFactor
-  //   os.write((char*)&mfLogScaleFactor,sizeof(mfLogScaleFactor));
-  //   os.write((char*)&mvScaleFactors,sizeof(mvScaleFactors));
-  float fTmp[4] = {(float)mnMinX, (float)mnMinY, (float)mnMaxX, (float)mnMaxY};  // compatible with Frame
-  os.write((char *)fTmp, sizeof(fTmp));
-  // from fx~cy
-  //   writeMat(os,mK);
+
   // save mvpMapPoints,mpParent,mbNotErase(mspLoopEdges) in LoadMap for convenience
+
   {  // save mNavState
     const double *pdData;
     unique_lock<mutex> lock(mMutexNavState);
@@ -214,9 +183,6 @@ bool KeyFrame::write(ostream &os) const {
     pdData = mNavState.mdba.data();
     os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbaxyz
   }
-  // we can still get it from mvKeysUn
-  //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
-  //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
 
   // we add extra info for KF at the end for KeyFrame::write & Frame::read+KeyFrame::read
   {  // save odom lists
@@ -242,10 +208,6 @@ long unsigned int KeyFrame::nNextId = 0;
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow, KeyFrame *pPrevKF, const char state)
     : FrameBase(F),
       mnFrameId(F.mnId),
-      mnGridCols(FRAME_GRID_COLS),
-      mnGridRows(FRAME_GRID_ROWS),
-      mfGridElementWidthInv(F.mfGridElementWidthInv),
-      mfGridElementHeightInv(F.mfGridElementHeightInv),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -255,20 +217,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      mBowVec(F.mBowVec),
-      mFeatVec(F.mFeatVec),
-      mnScaleLevels(F.mnScaleLevels),
-      mfScaleFactor(F.mfScaleFactor),
-      mfLogScaleFactor(F.mfLogScaleFactor),
-      mvScaleFactors(F.mvScaleFactors),
-      mvLevelSigma2(F.mvLevelSigma2),
-      mvInvLevelSigma2(F.mvInvLevelSigma2),
-      mnMinX(F.mnMinX),
-      mnMinY(F.mnMinY),
-      mnMaxX(F.mnMaxX),
-      mnMaxY(F.mnMaxY),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
-      mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(true),
       mpParent(NULL),
       mbNotErase(false),
@@ -295,7 +244,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
   // created by zzh over
 
   mnId = nNextId++;
-  vgrids_ = F.vgrids_;
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
@@ -304,15 +252,6 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
   for (auto iter : mvpMapPoints) {
     if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
     ++i;
-  }
-}
-
-void KeyFrame::ComputeBoW() {
-  if (mBowVec.empty() || mFeatVec.empty()) {
-    vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
-    // Feature vector associate features with nodes in the 4th level (from leaves up)
-    // We assume the vocabulary tree has 6 levels, change the 4 otherwise
-    mpORBvocabulary->transform(vCurrentDesc, mBowVec, mFeatVec, 4);
   }
 }
 
@@ -888,43 +827,6 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
   }
 
   if (bUpdate) UpdateBestCovisibles();
-}
-
-vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
-  vector<size_t> vIndices;
-  if (vgrids_.empty()) return vIndices;
-  vIndices.reserve(N);
-
-  const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
-  if (nMinCellX >= mnGridCols) return vIndices;
-
-  const int nMaxCellX = min((int)mnGridCols - 1, (int)ceil((x - mnMinX + r) * mfGridElementWidthInv));
-  if (nMaxCellX < 0) return vIndices;
-
-  const int nMinCellY = max(0, (int)floor((y - mnMinY - r) * mfGridElementHeightInv));
-  if (nMinCellY >= mnGridRows) return vIndices;
-
-  const int nMaxCellY = min((int)mnGridRows - 1, (int)ceil((y - mnMinY + r) * mfGridElementHeightInv));
-  if (nMaxCellY < 0) return vIndices;
-
-  for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
-    for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
-      const vector<size_t> vCell = vgrids_[cami][ix][iy];
-      for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
-        const cv::KeyPoint &kpUn = (!mpCameras.size() || !Frame::usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
-        const float distx = kpUn.pt.x - x;
-        const float disty = kpUn.pt.y - y;
-
-        if (fabs(distx) < r && fabs(disty) < r) vIndices.push_back(vCell[j]);
-      }
-    }
-  }
-
-  return vIndices;
-}
-
-bool KeyFrame::IsInImage(const float &x, const float &y) const {
-  return (x >= mnMinX && x < mnMaxX && y >= mnMinY && y < mnMaxY);
 }
 
 cv::Mat KeyFrame::UnprojectStereo(int i) {

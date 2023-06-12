@@ -200,7 +200,7 @@ void FrameDrawer::Update(Tracking *pTracker) {
         if (cv::norm(pt.pt - mvCurrentKeys[i].pt) > 10)
           cout << "check pt norm=" << cv::norm(pt.pt - mvCurrentKeys[i].pt) << ";" << pt.pt << "/"
                << mvCurrentKeys[i].pt << endl;
-        if (pTracker->mCurrentFrame.IsInImage(pt.pt.x, pt.pt.y)) pt.valid = true;
+        if (pTracker->mCurrentFrame.IsInImage(cami, pt.pt.x, pt.pt.y)) pt.valid = true;
 
         auto dist = cv::norm(pt.pt - mvCurrentKeys[i].pt);
         dist_rmse[0] += dist * dist;

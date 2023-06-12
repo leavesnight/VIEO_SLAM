@@ -13,7 +13,6 @@
 namespace VIEO_SLAM {
 // For stereo fisheye matching
 cv::BFMatcher Frame::BFmatcher = cv::BFMatcher(cv::NORM_HAMMING);
-bool Frame::usedistort_ = false;
 
 const cv::Mat &Frame::GetcvTcwCst() const { return Tcw_; }
 
@@ -67,7 +66,8 @@ int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, dou
 // zzh
 
 // please don't forget voc!! Or ComputeBoW() will have a segement fault problem
-Frame::Frame(istream &is, ORBVocabulary *voc) : mpORBvocabulary(voc) {
+Frame::Frame(istream &is, ORBVocabulary *voc) {
+  mpORBvocabulary = voc;
   mnId = nNextId++;  // new Frame ID
   read(is);
   vvkeys_.resize(1);
@@ -77,29 +77,9 @@ Frame::Frame(istream &is, ORBVocabulary *voc) : mpORBvocabulary(voc) {
 }
 bool Frame::read(istream &is, bool bOdomList) {
   if (!FrameBase::read(is)) return false;
-  // TODO(zzh): for nonRGBD MAPREUSE
+
+  // TODO(zzh): for nonRGBD MAPREUSE for normal frame
   //  vdescriptors_.resize(1);
-  mDescriptors = cv::Mat::zeros(N, 32, CV_8UC1);  // 256bit binary descriptors
-  readMat(is, mDescriptors);
-  ComputeBoW();  // calculate mBowVec & mFeatVec, or we can do it by pKF
-  is.read((char *)&mnScaleLevels, sizeof(mnScaleLevels));
-  is.read((char *)&mfScaleFactor, sizeof(mfScaleFactor));
-  mfLogScaleFactor = log(mfScaleFactor);
-  mvScaleFactors.resize(mnScaleLevels);
-  mvLevelSigma2.resize(mnScaleLevels);
-  mvInvLevelSigma2.resize(mnScaleLevels);
-  mvScaleFactors[0] = mvLevelSigma2[0] = 1.0f;
-  for (int i = 1; i < mnScaleLevels; i++) {
-    mvScaleFactors[i] = mvScaleFactors[i - 1] * mfScaleFactor;
-    mvLevelSigma2[i] = mvScaleFactors[i] * mvScaleFactors[i];  // at 0 level sigma=1 pixel
-  }
-  for (int i = 0; i < mnScaleLevels; i++) mvInvLevelSigma2[i] = 1.0f / mvLevelSigma2[i];
-  is.read((char *)&mnMinX, sizeof(mnMinX));
-  is.read((char *)&mnMinY, sizeof(mnMinY));
-  is.read((char *)&mnMaxX, sizeof(mnMaxX));
-  is.read((char *)&mnMaxY, sizeof(mnMaxY));
-  mfGridElementWidthInv = static_cast<float>(FRAME_GRID_COLS) / (mnMaxX - mnMinX);
-  mfGridElementHeightInv = static_cast<float>(FRAME_GRID_ROWS) / (mnMaxY - mnMinY);
   // load mNavState
   // For VIO, we should compare the Pose of B/IMU Frame!!! not the Twc but the Twb! with EuRoC's Twb_truth(using
   // Tb_prism/Tbs from vicon0/data.csv) (notice vicon0 means the prism's Pose), and I found state_groundtruth_estimate0
@@ -123,8 +103,7 @@ bool Frame::read(istream &is, bool bOdomList) {
   ns.mdba << pdData[0], pdData[1], pdData[2];  // dbaxyz
   mNavState = ns;
   UpdatePoseFromNS();
-  // load vgrids_[i][j]
-  AssignFeaturesToGrid();
+
   if (bOdomList) {
     double &tmEnc = mOdomPreIntEnc.mdeltatij;
     is.read((char *)&tmEnc, sizeof(tmEnc));
@@ -151,22 +130,9 @@ bool Frame::read(istream &is, bool bOdomList) {
 }
 bool Frame::write(ostream &os) const {
   if (!FrameBase::write(os)) return false;
-  // we can get these from mnMaxX...
-  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));
-  //   os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));
-  // we can directly ComputeBoW() from mDescriptors
-  //   mBowVec.write(os);
-  //   mFeatVec.write(os);
-  os.write((char *)&mnScaleLevels, sizeof(mnScaleLevels));
-  os.write((char *)&mfScaleFactor, sizeof(mfScaleFactor));
-  // we can get these from former 2 parameters mnScaleLevels & mfScaleFactor
-  //   os.write((char*)&mfLogScaleFactor,sizeof(mfLogScaleFactor));
-  //   os.write((char*)&mvScaleFactors,sizeof(mvScaleFactors));
-  float fTmp[4] = {(float)mnMinX, (float)mnMinY, (float)mnMaxX, (float)mnMaxY};  // compatible with Frame
-  os.write((char *)fTmp, sizeof(fTmp));
-  // from fx~cy
-  //   writeMat(os,mK);
+
   // save mvpMapPoints,{mpParent,mbNotErase(mspLoopEdges)} in LoadMap for convenience
+
   {  // save mNavState
     const double *pdData;
     Eigen::Quaterniond q = mNavState.mRwb.unit_quaternion();  // qwb from Rwb
@@ -185,9 +151,6 @@ bool Frame::write(ostream &os) const {
     pdData = mNavState.mdba.data();
     os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbaxyz
   }
-  // we can still get it from mvKeysUn
-  //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
-  //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
 
   // save mOdomPreIntOdom, code starting from here is diffrent from KeyFrame::write()
   double tm = mOdomPreIntEnc.mdeltatij;
@@ -216,9 +179,6 @@ bool Frame::write(ostream &os) const {
 // created by zzh over.
 
 long unsigned int Frame::nNextId = 0;
-bool Frame::mbInitialComputations = true;
-float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
-float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 
 Frame::Frame() {}
 
@@ -227,7 +187,6 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
     : FrameBase(frame),  // mOdomPreIntIMU/Enc list uncopied
       ppreint_enc_kf_(frame.ppreint_enc_kf_),
       ppreint_imu_kf_(frame.ppreint_imu_kf_),
-      mpORBvocabulary(frame.mpORBvocabulary),
       mpORBextractors(frame.mpORBextractors),
       num_mono(frame.num_mono),
       mvidxsMatches(frame.mvidxsMatches),
@@ -237,17 +196,10 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
       mv3Dpoints(frame.mv3Dpoints),
       vvkeys_(frame.vvkeys_),
       mapin2n_(frame.mapin2n_),
-      mBowVec(frame.mBowVec),
-      mFeatVec(frame.mFeatVec),
       mvbOutlier(frame.mvbOutlier),
       mpReferenceKF(frame.mpReferenceKF),
-      mnScaleLevels(frame.mnScaleLevels),
-      mfScaleFactor(frame.mfScaleFactor),
-      mfLogScaleFactor(frame.mfLogScaleFactor),
-      mvScaleFactors(frame.mvScaleFactors),
-      mvInvScaleFactors(frame.mvInvScaleFactors),
-      mvLevelSigma2(frame.mvLevelSigma2),
-      mvInvLevelSigma2(frame.mvInvLevelSigma2) {
+      mvInvScaleFactors(frame.mvInvScaleFactors) {
+  mpORBvocabulary = frame.mpORBvocabulary;
   if (copy_shallow) {
     mDescriptors = frame.mDescriptors;
     vdescriptors_ = frame.vdescriptors_;
@@ -273,9 +225,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
     : FrameBase(timeStamp),
       ppreint_enc_kf_(ppreint_enc_kf),
       ppreint_imu_kf_(ppreint_imu_kf),
-      mpORBvocabulary(voc),
       mbPrior(false)  // zzh
 {
+  mpORBvocabulary = voc;
   mpCameras = CamInsts;
   stereoinfo_.baseline_bf_[0] = bf / CamInsts[0]->toK()(0, 0);  // trans unit from pixel to metre
   stereoinfo_.baseline_bf_[1] = bf;
@@ -285,19 +237,22 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
   mnId = nNextId++;
   usedistort_ = usedistort;
 
-  mpORBextractors = extractors;
-  // Scale Level Info
-  mnScaleLevels = mpORBextractors[0]->GetLevels();
-  mfScaleFactor = mpORBextractors[0]->GetScaleFactor();
-  mfLogScaleFactor = log(mfScaleFactor);
-  mvScaleFactors = mpORBextractors[0]->GetScaleFactors();
-  mvInvScaleFactors = mpORBextractors[0]->GetInverseScaleFactors();
-  mvLevelSigma2 = mpORBextractors[0]->GetScaleSigmaSquares();
-  mvInvLevelSigma2 = mpORBextractors[0]->GetInverseScaleSigmaSquares();
+  {
+    mpORBextractors = extractors;
+    // Scale Level Info
+    auto &pextractor = mpORBextractors[0];
+    scalepyrinfo_.fscalefactor_ = pextractor->GetScaleFactor();
+    scalepyrinfo_.flogscalefactor_ = log(scalepyrinfo_.fscalefactor_);
+    scalepyrinfo_.vscalefactor_ = pextractor->GetScaleFactors();
+    scalepyrinfo_.vlevelsigma2_ = pextractor->GetScaleSigmaSquares();
+    scalepyrinfo_.vinvlevelsigma2_ = pextractor->GetInverseScaleSigmaSquares();
+
+    mvInvScaleFactors = pextractor->GetInverseScaleFactors();
+  }
 
   // ORB extraction
-  size_t sz_extract = extractors.size();
-  size_t sz_ims = ims.size();
+  auto sz_extract = extractors.size();
+  auto sz_ims = ims.size();
   assert(sz_ims >= sz_extract);  // > means RGB-D
   vector<thread> threads(sz_extract);
   vdescriptors_.resize(sz_extract);
@@ -306,10 +261,11 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
 #ifdef TIMER_FLOW
   mlog::Timer timer_tmp;
 #endif
-  assert(sz_extract == CamInsts.size() || (sz_extract > CamInsts.size() && !usedistort && !CamInsts.empty()));
+  auto sz_cams = CamInsts.size();
+  assert(sz_extract == sz_cams || (sz_extract > sz_cams && !usedistort && !CamInsts.empty()));
   for (int i = 0; i < sz_extract; ++i) {
     vector<int> *plapping_area = nullptr;
-    int icam = CamInsts.size() > i ? i : 0;
+    int icam = sz_cams > i ? i : 0;
     if (CamInsts[icam]->CAM_FISHEYE == CamInsts[icam]->GetType()) {
       plapping_area = &static_cast<KannalaBrandt8 *>(CamInsts[icam])->mvLappingArea;
     }
@@ -352,37 +308,9 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
   mvbOutlier = vector<bool>(N, false);
 
   // This is done only for the first Frame (or after a change in the calibration)
-  if (mbInitialComputations) {
-    ComputeImageBounds(ims[0]);
-    // divide the img into ORB2SLAM like 64*48(rows) grids for features matching!
-    mfGridElementWidthInv = static_cast<float>(FRAME_GRID_COLS) / (mnMaxX - mnMinX);
-    mfGridElementHeightInv = static_cast<float>(FRAME_GRID_ROWS) / (mnMaxY - mnMinY);
-
-    mbInitialComputations = false;
-  }
+  ComputeImageBounds(vector<int>({ims[0].cols, ims[0].rows}));
 
   AssignFeaturesToGrid();
-}
-
-void Frame::AssignFeaturesToGrid() {
-  assert(!mpCameras.empty());
-  size_t n_cams = vvkeys_.size();
-  vgrids_.resize(n_cams, vector<vector<vector<size_t>>>(FRAME_GRID_COLS, vector<vector<size_t>>(FRAME_GRID_ROWS)));
-  int nReserve = 0.5f * N / (FRAME_GRID_COLS * FRAME_GRID_ROWS * n_cams);
-  for (size_t cami = 0; cami < n_cams; ++cami) {
-    for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
-      for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) vgrids_[cami][i][j].reserve(nReserve);
-
-    for (int i = 0; i < vvkeys_[cami].size(); i++) {
-      const cv::KeyPoint &kp = !usedistort_ ? mvKeysUn[i] : vvkeys_[cami][i];
-
-      int nGridPosX, nGridPosY;
-      size_t mapi = !mapin2n_.size() ? i : mapin2n_[cami][i];
-      if (PosInGrid(kp, nGridPosX, nGridPosY)) {
-        vgrids_[cami][nGridPosX][nGridPosY].push_back(mapi);
-      }
-    }
-  }
 }
 
 void Frame::ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea) {
@@ -450,8 +378,8 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
       v = pt[1];
     }
 
-    if (u < mnMinX || u > mnMaxX) continue;
-    if (v < mnMinY || v > mnMaxY) continue;
+    if (u < gridinfo_.minmax_xy_[cami][0] || u > gridinfo_.minmax_xy_[cami][1]) continue;
+    if (v < gridinfo_.minmax_xy_[cami][2] || v > gridinfo_.minmax_xy_[cami][3]) continue;
 
     // Check viewing angle
     const cv::Mat PO = wP - twc;
@@ -483,70 +411,6 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
   return bret;
 }
 
-vector<size_t> Frame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r, const int minLevel,
-                                        const int maxLevel) const {
-  vector<size_t> vIndices;
-  if (vgrids_.empty()) return vIndices;
-  vIndices.reserve(N);
-
-  const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
-  if (nMinCellX >= FRAME_GRID_COLS) return vIndices;
-
-  const int nMaxCellX = min((int)FRAME_GRID_COLS - 1, (int)ceil((x - mnMinX + r) * mfGridElementWidthInv));
-  if (nMaxCellX < 0) return vIndices;
-
-  const int nMinCellY = max(0, (int)floor((y - mnMinY - r) * mfGridElementHeightInv));
-  if (nMinCellY >= FRAME_GRID_ROWS) return vIndices;
-
-  const int nMaxCellY = min((int)FRAME_GRID_ROWS - 1, (int)ceil((y - mnMinY + r) * mfGridElementHeightInv));
-  if (nMaxCellY < 0) return vIndices;
-
-  const bool bCheckLevels = (minLevel > 0) || (maxLevel >= 0);  // minLevel==0&&maxLevel<0 don't need to judge
-
-  for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
-    for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
-      const vector<size_t> vCell = vgrids_[cami][ix][iy];
-      for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
-        const cv::KeyPoint &kpUn = (!mpCameras.size() || !usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
-        if (bCheckLevels)  // if the octave is out of level range
-        {
-          if (kpUn.octave < minLevel)  //-1 is also ok,0 cannot be true
-            continue;
-          if (maxLevel >= 0)  // avoid for -1
-            if (kpUn.octave > maxLevel) continue;
-        }
-
-        const float distx = kpUn.pt.x - x;
-        const float disty = kpUn.pt.y - y;
-
-        if (fabs(distx) < r && fabs(disty) < r)  // find the features in a rectangle window whose centre is (x,y)
-          vIndices.push_back(vCell[j]);
-      }
-    }
-  }
-
-  return vIndices;
-}
-
-bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY) {
-  posX = round((kp.pt.x - mnMinX) * mfGridElementWidthInv);
-  posY = round((kp.pt.y - mnMinY) * mfGridElementHeightInv);
-
-  // Keypoint's coordinates are undistorted, which could cause to go out of the image
-  if (posX < 0 || posX >= FRAME_GRID_COLS || posY < 0 || posY >= FRAME_GRID_ROWS) return false;
-
-  return true;
-}
-
-void Frame::ComputeBoW() {
-  if (mBowVec.empty()) {
-    vector<cv::Mat> vCurrentDesc =
-        Converter::toDescriptorVector(mDescriptors);  // transform Mat(N*32*8U) to vec<Mat>(N*1*32*8U)
-    mpORBvocabulary->transform(vCurrentDesc, mBowVec, mFeatVec,
-                               4);  // compute mBowVec && mFeatVec(at level (d-levelsup)6-4) of this Frame
-  }
-}
-
 void Frame::UndistortKeyPoints() {
   assert(!mpCameras.empty());
   if (mpCameras[0]->GetType() == mpCameras[0]->CAM_PINHOLE) {
@@ -573,42 +437,6 @@ void Frame::UndistortKeyPoints() {
   }
 }
 
-void Frame::ComputeImageBounds(const cv::Mat &imLeft) {
-  assert(!mpCameras.empty());
-  // if not usedistort_ we should calc undistorted 4 corner pts(when it's pinhole, they're the same)
-  if (mpCameras[0]->GetType() != mpCameras[0]->CAM_PINHOLE && !usedistort_) {
-    cv::Mat mat(4, 2, CV_32F);
-    mat.at<float>(0, 0) = 0.0;
-    mat.at<float>(0, 1) = 0.0;
-    mat.at<float>(1, 0) = imLeft.cols;
-    mat.at<float>(1, 1) = 0.0;
-    mat.at<float>(2, 0) = 0.0;
-    mat.at<float>(2, 1) = imLeft.rows;
-    mat.at<float>(3, 0) = imLeft.cols;
-    mat.at<float>(3, 1) = imLeft.rows;
-
-    // Undistort corners
-    // TODO: limit different cam model's border
-    size_t cami = 0;
-    for (int i = 0; i < 4; ++i) {
-      cv::Mat mattmp = mpCameras[cami]->toKcv() *
-                       mpCameras[cami]->unprojectMat(cv::Point2f(mat.at<float>(i, 0), mat.at<float>(i, 1)));
-      mat.at<float>(i, 0) = mattmp.at<float>(0);
-      mat.at<float>(i, 1) = mattmp.at<float>(1);
-    }
-
-    mnMinX = min(mat.at<float>(0, 0), mat.at<float>(2, 0));
-    mnMaxX = max(mat.at<float>(1, 0), mat.at<float>(3, 0));
-    mnMinY = min(mat.at<float>(0, 1), mat.at<float>(1, 1));
-    mnMaxY = max(mat.at<float>(2, 1), mat.at<float>(3, 1));
-  } else {
-    mnMinX = 0.0f;
-    mnMaxX = imLeft.cols;
-    mnMinY = 0.0f;
-    mnMaxY = imLeft.rows;
-  }
-}
-
 void Frame::ComputeStereoMatches() {
   stereoinfo_.vuright_ = vector<float>(N, -1.0f);
   stereoinfo_.vdepth_ = vector<float>(N, -1.0f);
@@ -627,7 +455,7 @@ void Frame::ComputeStereoMatches() {
   for (int iR = 0; iR < Nr; iR++) {
     const cv::KeyPoint &kp = vvkeys_[1][iR];
     const float &kpY = kp.pt.y;
-    const float r = 2.0f * mvScaleFactors[vvkeys_[1][iR].octave];
+    const float r = 2.0f * scalepyrinfo_.vscalefactor_[vvkeys_[1][iR].octave];
     const int maxr = ceil(kpY + r);
     const int minr = floor(kpY - r);
 
@@ -741,7 +569,7 @@ void Frame::ComputeStereoMatches() {
       if (deltaR < -1 || deltaR > 1) continue;
 
       // Re-scaled coordinate
-      float bestuR = mvScaleFactors[kpL.octave] * ((float)scaleduR0 + (float)bestincR + deltaR);
+      float bestuR = scalepyrinfo_.vscalefactor_[kpL.octave] * ((float)scaleduR0 + (float)bestincR + deltaR);
 
       float disparity = (uL - bestuR);
 
@@ -822,9 +650,9 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
           if ((*it).size() >= 2 && ((*it)[0].distance < (*it)[1].distance * 0.7 ||
                                     ((*it)[0].distance < thOrbDist && (*it)[0].distance < (*it)[1].distance * 0.9))) {
             size_t idxi = (*it)[0].queryIdx + num_mono[i], idxj = (*it)[0].trainIdx + num_mono[j];
-            vector<float> sigmas = {mvLevelSigma2[vvkeys_[i][idxi].octave], mvLevelSigma2[vvkeys_[j][idxj].octave]};
-            aligned_vector<Eigen::Vector2d> kpts = {Eigen::Vector2d(vvkeys_[i][idxi].pt.x, vvkeys_[i][idxi].pt.y),
-                                                    Eigen::Vector2d(vvkeys_[j][idxj].pt.x, vvkeys_[j][idxj].pt.y)};
+            const auto &keyi = vvkeys_[i][idxi], &keyj = vvkeys_[j][idxj];
+            vector<float> sigmas = {scalepyrinfo_.vlevelsigma2_[keyi.octave], scalepyrinfo_.vlevelsigma2_[keyj.octave]};
+            aligned_vector<Eigen::Vector2d> kpts = {Vector2d(keyi.pt.x, keyi.pt.y), Vector2d(keyj.pt.x, keyj.pt.y)};
             if (mpCameras[i]->FillMatchesFromPair(vector<GeometricCamera *>(1, mpCameras[j]), n_cams,
                                                   vector<pair<size_t, size_t>>{make_pair(i, idxi), make_pair(j, idxj)},
                                                   (*it)[0].distance, mvidxsMatches, goodmatches_, mapcamidx2idxs_,
@@ -871,7 +699,7 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
       for (int k = 0; k < idx.size(); ++k) {
         if (-1 != idx[k]) {
           vidx_used.push_back(idx[k]);
-          sigmas.push_back(mvLevelSigma2[vvkeys_[k][idx[k]].octave]);
+          sigmas.push_back(scalepyrinfo_.vlevelsigma2_[vvkeys_[k][idx[k]].octave]);
           pcams_in.push_back(mpCameras[k]);
           kpts.emplace_back(vvkeys_[k][idx[k]].pt.x, vvkeys_[k][idx[k]].pt.y);
         }

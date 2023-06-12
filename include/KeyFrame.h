@@ -8,9 +8,6 @@
 #include "FrameBase.h"
 #include "common/multithreadbase.h"
 #include "MapPoint.h"
-#include "loop/DBoW2/DBoW2/BowVector.h"
-#include "loop/DBoW2/DBoW2/FeatureVector.h"
-#include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
 
 namespace VIEO_SLAM {
@@ -156,9 +153,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false, KeyFrame *pPrevKF = NULL,
                     const char state = 2);  // 2 is OK
 
-  // Image
-  bool IsInImage(const float &x, const float &y) const;
-
   // Pose functions
   void SetPose(const cv::Mat &Tcw);
   cv::Mat GetPose();  // Tcw
@@ -169,13 +163,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat GetStereoCenter();
   cv::Mat GetRotation();
   cv::Mat GetTranslation();
-
-  // Bag of Words Representation
-  void ComputeBoW();
-
-  // KeyPoint functions
-  // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
-  std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const;
 
   cv::Mat UnprojectStereo(int i);
 
@@ -236,12 +223,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
 
   const long unsigned int mnFrameId;
 
-  // Grid (to speed up feature matching)
-  const int mnGridCols;
-  const int mnGridRows;
-  const float mfGridElementWidthInv;
-  const float mfGridElementHeightInv;
-
   // Variables to avoid duplicate inserting
   long unsigned int mnTrackReferenceForFrame;  // for local Map in tracking
   long unsigned int mnFuseTargetForKF;         // for LocalMapping
@@ -264,27 +245,8 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat mTcwBefGBA;
   long unsigned int mnBAGlobalForKF;  // mpCurrentKF used to correct loop and call GBA
 
-  // BoW
-  DBoW2::BowVector mBowVec;
-  DBoW2::FeatureVector mFeatVec;
-
   // Pose relative to parent (this is computed when bad flag is activated)
   cv::Mat mTcp;  // used in SaveTrajectoryTUM() in System.cc
-
-  // Scale
-  const std::vector<float> mvScaleFactors;
-  const int mnScaleLevels;
-  const float mfScaleFactor;
-  const float mfLogScaleFactor;
-  const std::vector<float> mvLevelSigma2;
-  const std::vector<float> mvInvLevelSigma2;
-
-  // Image bounds and calibration
-  const int mnMinX;
-  const int mnMinY;
-  const int mnMaxX;
-  const int mnMaxY;
-  const cv::Mat mK;
 
   // The following variables need to be accessed trough a mutex to be thread safe.
  protected:
@@ -298,11 +260,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat Twc;
   cv::Mat Ow;
   cv::Mat Cw;  // Stereo middel point. Only for visualization
-
-  ORBVocabulary *mpORBvocabulary;
-
-  // Grid over the image to speed up feature matching
-  std::vector<std::vector<std::vector<std::vector<size_t>>>> vgrids_;
 
   // covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints
   std::map<KeyFrame *, int> mConnectedKeyFrameWeights;

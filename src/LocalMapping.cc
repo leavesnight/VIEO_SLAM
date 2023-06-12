@@ -352,7 +352,7 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
       const auto &kp = (!usedistort) ? pKF1->mvKeysUn[idx] : pKF1->mvKeys[idx];
       kps.push_back(kp);
       kps2d.push_back(Eigen::Vector2d(kp.pt.x, kp.pt.y));
-      sigma_lvs.push_back(pKF1->mvLevelSigma2[kp.octave]);
+      sigma_lvs.push_back(pKF1->scalepyrinfo_.vlevelsigma2_[kp.octave]);
       urbfs.push_back(vector<float>({pKF1->stereoinfo_.vuright_[idx], pKF1->stereoinfo_.baseline_bf_[1]}));
       // TODO: record cosdisparity in Frame.cc for StereoDistort one
       if (!bStereos) {
@@ -440,7 +440,7 @@ void LocalMapping::CreateNewMapPoints() {
   tcw1.copyTo(Tcw1.col(3));
   cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
 
-  const float ratioFactor = 1.5f * mpCurrentKeyFrame->mfScaleFactor;  // 1.5*1.2=1.8
+  const float ratioFactor = 1.5f * mpCurrentKeyFrame->scalepyrinfo_.fscalefactor_;  // 1.5*1.2=1.8
 
   int nnew = 0;  // unused here
 
@@ -555,7 +555,7 @@ void LocalMapping::CreateNewMapPoints() {
       for (auto kp1 : kps[0]) {
         for (auto kp2 : kps[1]) {
           // here FIX ORBSLAM2/3 bug! if dist2 larger, scale2 and ratioOctave should also be larger
-          float rat_tmp = pKF2->mvScaleFactors[kp2.octave] / pKF1->mvScaleFactors[kp1.octave];
+          float rat_tmp = pKF2->scalepyrinfo_.vscalefactor_[kp2.octave] / pKF1->scalepyrinfo_.vscalefactor_[kp1.octave];
           if (rat_tmp < ratioOctave[0]) ratioOctave[0] = rat_tmp;
           if (rat_tmp > ratioOctave[1]) ratioOctave[1] = rat_tmp;
         }

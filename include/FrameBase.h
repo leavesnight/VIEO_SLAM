@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <vector>
+#include <array>
 #include <set>
 #include "GeometricCamera.h"
 #include "Converter.h"
@@ -14,15 +15,31 @@
 #include <typeinfo>
 #include "OdomPreIntegrator.h"
 #include "common/type_def.h"
+#include "loop/DBoW2/DBoW2/BowVector.h"
+#include "loop/DBoW2/DBoW2/FeatureVector.h"
+#include "loop/DBoW2/DBoW2/FORB.h"
+
+namespace DBoW2 {
+template <class TDescriptor, class F>
+/// Generic Vocabulary
+class TemplatedVocabulary;
+}
 
 namespace VIEO_SLAM {
 class MapPoint;
+typedef DBoW2::TemplatedVocabulary<DBoW2::FORB::TDescriptor, DBoW2::FORB> ORBVocabulary;
 using common::TS2S;
 
 class FrameBase {
  public:
   template <typename _Tp>
   using vector = std::vector<_Tp>;
+  template <typename _Tp, std::size_t _Nm>
+  using array = std::array<_Tp, _Nm>;
+  template <typename _Key>
+  using set = std::set<_Key>;
+  template <typename _T1, typename _T2>
+  using pair = std::pair<_T1, _T2>;
   using ostream = std::ostream;
   using istream = std::istream;
 
@@ -44,9 +61,9 @@ class FrameBase {
 
   virtual void AddMapPoint(MapPoint *pMP, const size_t &idx);
   virtual void EraseMapPointMatch(const size_t &idx) { mvpMapPoints[idx] = nullptr; }
-  virtual std::vector<MapPoint *> GetMapPointMatches() { return mvpMapPoints; }
+  virtual vector<MapPoint *> GetMapPointMatches() { return mvpMapPoints; }
   virtual void ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) { mvpMapPoints[idx] = pMP; }
-  virtual std::set<std::pair<MapPoint *, size_t>> GetMapPointsCami();
+  virtual set<pair<MapPoint *, size_t>> GetMapPointsCami();
 
   // virtual makes it could be implemented as thread-safe one and used by PreIntegration()
   virtual NavState GetNavState(void) {  // cannot use const &(make mutex useless)
@@ -87,11 +104,33 @@ class FrameBase {
 
   virtual bool isBad() { return mbBad; }
 
-  virtual bool read(std::istream &is);
-  virtual bool write(std::ostream &os) const;
+  // Compute Bag of Words representation.
+  void ComputeBoW();  // compute mBowVec && mFeatVec
+  // BoW: Bag of Words Vector structures.
+  DBoW2::BowVector mBowVec;
+  DBoW2::FeatureVector mFeatVec;
+  // Vocabulary used for relocalization.
+  ORBVocabulary *mpORBvocabulary;
 
-  std::vector<GeometricCamera *> mpCameras;
-  std::vector<std::pair<size_t, size_t>> mapn2in_;
+  // KeyPoint functions
+  // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, min/maxlevel check is for Frame
+  vector<size_t> GetFeaturesInArea(uint8_t cami, const float &x, const float &y, const float &r,
+                                   const int minlevel = -1, const int maxlevel = -1) const;
+  // Assign keypoints to the grid for speed up feature matching (called in the constructor).
+  void AssignFeaturesToGrid();
+  // Compute the cell of a keypoint (return false if outside the grid)
+  bool PosInGrid(uint8_t cami, const cv::KeyPoint &kp, int &posX, int &posY);
+  // TODO: move these to cam model
+  bool IsInImage(uint8_t cami, const float &x, const float &y) const;
+  // Computes image bounds for the (un)distorted image (called in the constructor).
+  void ComputeImageBounds(const vector<int> &wid_hei);
+  static bool usedistort_;
+
+  virtual bool read(istream &is);
+  virtual bool write(ostream &os) const;
+
+  vector<GeometricCamera *> mpCameras;
+  vector<pair<size_t, size_t>> mapn2in_;
 
   // Frame timestamp.
   double timestamp_;  // TODO(zzh): change to TimeStampNs
@@ -107,8 +146,8 @@ class FrameBase {
   // Number of KeyPoints. The left members are all associated by the index
   int N;
   // Vector of original keypoints and undistorted kpts
-  std::vector<cv::KeyPoint> mvKeys;
-  std::vector<cv::KeyPoint> mvKeysUn;
+  vector<cv::KeyPoint> mvKeys;
+  vector<cv::KeyPoint> mvKeysUn;
   // ORB descriptor, each row associated to a keypoint.
   cv::Mat mDescriptors;
   // for keyframe judge and culling, filled in frame (half)constructor, unchanged after
@@ -122,6 +161,19 @@ class FrameBase {
   // mean if this key pt or mp is triangulated by precalibrated Tcicj
   StereoInfo stereoinfo_;
 
+  // some unchanged members after constructor func.
+  // members inited in derived Frame constructor
+  typedef struct _ScalePyramidInfo {
+    vector<float> vscalefactor_;     // for fast match radius expansion and CreateNewMP outlier judge
+    float fscalefactor_;             // for CreateNewMP outlier judge used threshold
+    float flogscalefactor_;          // for fast match radius expansion used predict scale level
+    vector<float> vlevelsigma2_;     // for chi2 threshold
+    vector<float> vinvlevelsigma2_;  // for BA used Info
+  } ScalePyramidInfo;
+  // not static for different frame config(like init mono frame or the other)
+  // not vec fscalefactors for speeding up and use less space for the same orb extractor params for all cams
+  ScalePyramidInfo scalepyrinfo_;
+
  protected:
   inline const Sophus::SE3d GetTcwCst() const {
     auto Tcw = Sophus::SE3d(Sophus::SO3exd(Converter::toMatrix3d(Tcw_.rowRange(0, 3).colRange(0, 3))),
@@ -130,7 +182,7 @@ class FrameBase {
   }
 
   // MapPoints associated to keypoints(same order), NULL pointer if no association.
-  std::vector<MapPoint *> mvpMapPoints;
+  vector<MapPoint *> mvpMapPoints;
 
   // Camera pose.
   cv::Mat Tcw_;
@@ -145,12 +197,28 @@ class FrameBase {
   // Bad flags
   bool mbBad = false;
 
+  // for GetFeaturesInArea: Grid over the image to speed up feature matching
+  // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
+  vector<vector<vector<size_t>>> vgrids_;  //[cami][x*ROWS+y][id_kp]
+  // static for speeding up and use less space for the same camera models for all fbs
+  typedef struct _GridInfo {
+    vector<float> fgrids_widthinv_;
+    vector<float> fgrids_heightinv_;
+    const int FRAME_GRID_ROWS = 48;
+    const int FRAME_GRID_COLS = 64;
+    // (Un)distorted Image Bounds (computed once).
+    vector<array<float, 4>> minmax_xy_;  // minx,maxx,miny,maxy
+    using Tsize = int;
+    Tsize sz_dims_[2];  // 0 width,1 height
+  } GridInfo;
+  static GridInfo gridinfo_;
+
  public:  // for serialize
   // can also be used for set/list
   template <class T>
   static inline bool writeVec(ostream &os, const T &vec);
   template <class T>
-  static inline bool writeVecwrite(std::ostream &os, const T &lis);
+  static inline bool writeVecwrite(ostream &os, const T &lis);
   static inline bool writeMat(ostream &os, const cv::Mat &mat);
   // for Eigen::Matrix<_Scalar,_Rows,_Cols>
   template <class T>
@@ -158,7 +226,7 @@ class FrameBase {
   template <class T>
   static inline bool readVec(istream &is, T &vec);
   template <class T>
-  static inline bool readVecread(std::istream &is, T &lis);
+  static inline bool readVecread(istream &is, T &lis);
   static inline bool readMat(istream &is, cv::Mat &mat);
   template <class T>
   static inline bool readEigMat(istream &is, T &mat);
@@ -186,7 +254,7 @@ bool FrameBase::writeVec(ostream &os, const T &vec) {
   return os.good();
 }
 template <class T>
-bool FrameBase::writeVecwrite(std::ostream &os, const T &lis) {
+bool FrameBase::writeVecwrite(ostream &os, const T &lis) {
   for (typename T::const_iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->write(os);
   return os.good();
 }
@@ -211,7 +279,7 @@ bool FrameBase::readVec(istream &is, T &vec) {
   return is.good();
 }
 template <class T>
-bool FrameBase::readVecread(std::istream &is, T &lis) {
+bool FrameBase::readVecread(istream &is, T &lis) {
   for (typename T::iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->read(is);
   return is.good();
 }

@@ -436,7 +436,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           const cv::KeyPoint &kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           obs << kpUn.pt.x, kpUn.pt.y;
           e->setMeasurement(obs);
-          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          const float invSigma2 = pFrame->scalepyrinfo_.vinvlevelsigma2_[kpUn.octave];
           // diagonal matrix means independece between x and y pixel noise 2*2 matrix
           e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
@@ -472,7 +472,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           const float &kp_ur = pFrame->stereoinfo_.vuright_[i];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
           e->setMeasurement(obs);  // edge parameter/measurement formula output z
-          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          const float invSigma2 = pFrame->scalepyrinfo_.vinvlevelsigma2_[kpUn.octave];
           e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
 
           // optimization target=KernelHuber(block)=H(e)={1/2*e sqrt(e)<=delta;delta(sqrt(e)-1/2*delta) others}

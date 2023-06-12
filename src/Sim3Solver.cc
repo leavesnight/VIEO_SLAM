@@ -87,8 +87,8 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
         const cv::KeyPoint &kp1 = !usedistort_[0] ? pKF1->mvKeysUn[indexKF1] : pKF1->mvKeys[indexKF1];
         const cv::KeyPoint &kp2 = !usedistort_[1] ? pKF2->mvKeysUn[indexKF2] : pKF2->mvKeys[indexKF2];
 
-        const float sigmaSquare1 = pKF1->mvLevelSigma2[kp1.octave];
-        const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
+        const float sigmaSquare1 = pKF1->scalepyrinfo_.vlevelsigma2_[kp1.octave];
+        const float sigmaSquare2 = pKF2->scalepyrinfo_.vlevelsigma2_[kp2.octave];
 
         mvnMaxError1.push_back(9.210 * sigmaSquare1);  // to use chi2 distribution for e^2 with sigma^2, we need expand
                                                        // its standard table like chi2(0.01,2)*sigma2
