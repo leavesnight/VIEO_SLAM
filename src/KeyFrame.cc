@@ -116,7 +116,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mnBAGlobalForKF(0),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
       mbFirstConnection(false),
-      mpParent(NULL),
+      mpParent(nullptr),
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
       mpMap(pMap),
@@ -126,13 +126,14 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
 
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
-  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mpNextKeyFrame = nullptr;  // zzh, constructor doesn't need to lock mutex
 
-  mnId = nNextId++;
   Tcw_.release();
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
+
+  mnId = nNextId++;
 }
 bool KeyFrame::read(istream &is) {
   // we've done a lot in Frame Constructor with is!
@@ -161,8 +162,6 @@ bool KeyFrame::read(istream &is) {
 }
 bool KeyFrame::write(ostream &os) const {
   if (!FrameBase::write(os)) return false;
-
-  // save mvpMapPoints,mpParent,mbNotErase(mspLoopEdges) in LoadMap for convenience
 
   {  // save mNavState
     const double *pdData;
@@ -219,7 +218,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mnBAGlobalForKF(0),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
       mbFirstConnection(true),
-      mpParent(NULL),
+      mpParent(nullptr),
       mbNotErase(false),
       mbToBeErased(false),
       mpMap(pMap),
@@ -230,20 +229,13 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
 
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
-  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mpNextKeyFrame = nullptr;  // zzh, constructor doesn't need to lock mutex
   // Set bias as bias+delta_bias, and reset the delta_bias term
   mNavState.mbg += mNavState.mdbg;
   mNavState.mba += mNavState.mdba;
   // update bi (bi=bi+dbi) for a better PreIntegration of nextKF(localBA) & fixedlastKF
   // motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
   mNavState.mdbg = mNavState.mdba = Eigen::Vector3d::Zero();
-
-  // move preint_odom_
-  F.DeepMovePreintOdomFromLastKF(mOdomPreIntEnc);
-  F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
-  // created by zzh over
-
-  mnId = nNextId++;
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
@@ -253,6 +245,13 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
     if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
     ++i;
   }
+
+  // move preint_odom_
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntEnc);
+  F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
+  // created by zzh over
+
+  mnId = nNextId++;
 }
 
 void KeyFrame::SetPose(const cv::Mat &Tcw) {

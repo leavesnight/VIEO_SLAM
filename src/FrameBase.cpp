@@ -18,6 +18,7 @@ cv::Mat FrameBase::mTbc, FrameBase::mTce;
 Eigen::Matrix3d FrameBase::meigRcb;
 Eigen::Vector3d FrameBase::meigtcb;
 bool FrameBase::usedistort_ = false;
+bool FrameBase::busedist_set_ = false;
 FrameBase::GridInfo FrameBase::gridinfo_;
 
 const Sophus::SE3d FrameBase::GetTwc() { return GetTcw().inverse(); }
@@ -218,10 +219,17 @@ void FrameBase::ComputeImageBounds(const vector<int> &wid_hei) {
 }
 
 bool FrameBase::read(istream &is) {
-  // we don't save old ID for it's useless in LoadMap()
   is.read((char *)&timestamp_, sizeof(timestamp_));
   ftimestamp_ = TS2S(timestamp_);
 
+  auto usedistort = usedistort_;
+  is.read((char *)&usedistort, sizeof(usedistort));
+  if (busedist_set_)
+    assert(usedistort == usedistort_);
+  else {
+    usedistort_ = usedistort;
+    busedist_set_ = true;
+  }
   uint8_t sz_cams;
   is.read((char *)&sz_cams, sizeof(sz_cams));
   mpCameras.resize(sz_cams);
@@ -249,22 +257,27 @@ bool FrameBase::read(istream &is) {
     mpCameras[i]->setParameters(params_tmp);
   }
 
-  is.read((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));
-  // trans unit from meter to pixel
-  stereoinfo_.baseline_bf_[1] = stereoinfo_.baseline_bf_[0] * mpCameras[0]->toK()(0, 0);
-  is.read((char *)&mThDepth, sizeof(mThDepth));
   is.read((char *)&N, sizeof(N));
   mvKeys.resize(N);
   mvKeysUn.resize(N);
   readVec(is, mvKeys);
   readVec(is, mvKeysUn);
+  int N_mapn2in;
+  is.read((char *)&N_mapn2in, sizeof(N_mapn2in));
+  mapn2in_.resize(N_mapn2in);
+  readVec(is, mapn2in_);
+  // we don't save old ID for it's useless in LoadMap()
+  is.read((char *)&mThDepth, sizeof(mThDepth));
+  mDescriptors = cv::Mat::zeros(N, 32, CV_8UC1);  // 256bit binary descriptors
+  readMat(is, mDescriptors);
+  ComputeBoW();  // calculate mBowVec & mFeatVec, or we can do it by pKF
   stereoinfo_.vdepth_.resize(N);
   stereoinfo_.vuright_.resize(N);
   readVec(is, stereoinfo_.vdepth_);
   readVec(is, stereoinfo_.vuright_);
-  mDescriptors = cv::Mat::zeros(N, 32, CV_8UC1);  // 256bit binary descriptors
-  readMat(is, mDescriptors);
-  ComputeBoW();  // calculate mBowVec & mFeatVec, or we can do it by pKF
+  is.read((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));
+  // trans unit from meter to pixel
+  stereoinfo_.baseline_bf_[1] = stereoinfo_.baseline_bf_[0] * mpCameras[0]->toK()(0, 0);
 
   int nscale_levels;
   is.read((char *)&nscale_levels, sizeof(nscale_levels));
@@ -290,12 +303,13 @@ bool FrameBase::read(istream &is) {
   // load vgrids_[i][j]
   AssignFeaturesToGrid();
 
+  // load mvpMapPoints,{mpParent,mbNotErase(mspLoopEdges)} in LoadMap for convenience
   return is.good();
 }
 bool FrameBase::write(ostream &os) const {
-  // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/mnId in SaveMap()
   os.write((char *)&timestamp_, sizeof(timestamp_));
 
+  os.write((char *)&usedistort_, sizeof(usedistort_));
   uint8_t sz_cams = (uint8_t)mpCameras.size();
   os.write((char *)&sz_cams, sizeof(sz_cams));
   for (auto i = 0; i < sz_cams; ++i) {
@@ -307,17 +321,21 @@ bool FrameBase::write(ostream &os) const {
     writeVec(os, params_tmp);
   }
 
-  os.write((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));  // we can get bf from b & f
-  os.write((char *)&mThDepth, sizeof(mThDepth));
   os.write((char *)&N, sizeof(N));
   writeVec(os, mvKeys);
   writeVec(os, mvKeysUn);
-  writeVec(os, stereoinfo_.vdepth_);
-  writeVec(os, stereoinfo_.vuright_);
+  int N_mapn2in = mapn2in_.size();
+  os.write((char *)&N_mapn2in, sizeof(N_mapn2in));
+  writeVec(os, mapn2in_);
+  // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/mnId in SaveMap()
+  os.write((char *)&mThDepth, sizeof(mThDepth));
   writeMat(os, mDescriptors);
   // we can directly ComputeBoW() from mDescriptors
   //   mBowVec.write(os);
   //   mFeatVec.write(os);
+  writeVec(os, stereoinfo_.vdepth_);
+  writeVec(os, stereoinfo_.vuright_);
+  os.write((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));  // we can get bf from b & f
 
   int nscale_levels = scalepyrinfo_.vscalefactor_.size();
   os.write((char *)&nscale_levels, sizeof(nscale_levels));
@@ -327,9 +345,10 @@ bool FrameBase::write(ostream &os) const {
   // Now grid_info_ is the same as all Frames
   os.write((char *)&gridinfo_.sz_dims_, sizeof(gridinfo_.sz_dims_));
 
-  // we can still get it from mvKeysUn
+  // we can still get it from mvKeys(Un)
   //  for (unsigned int i = 0; i < FRAME_GRID_COLS; i++)
   //    for (unsigned int j = 0; j < FRAME_GRID_ROWS; j++) writeVec(os, vgrids_[i][j]);
 
+  // save mvpMapPoints,{mpParent,mbNotErase(mspLoopEdges)} in LoadMap for convenience
   return os.good();
 }

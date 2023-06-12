@@ -131,8 +131,6 @@ bool Frame::read(istream &is, bool bOdomList) {
 bool Frame::write(ostream &os) const {
   if (!FrameBase::write(os)) return false;
 
-  // save mvpMapPoints,{mpParent,mbNotErase(mspLoopEdges)} in LoadMap for convenience
-
   {  // save mNavState
     const double *pdData;
     Eigen::Quaterniond q = mNavState.mRwb.unit_quaternion();  // qwb from Rwb
@@ -235,7 +233,12 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
 
   // Frame ID
   mnId = nNextId++;
-  usedistort_ = usedistort;
+  if (busedist_set_)
+    assert(usedistort == usedistort_);
+  else {
+    usedistort_ = usedistort;
+    busedist_set_ = true;
+  }
 
   {
     mpORBextractors = extractors;

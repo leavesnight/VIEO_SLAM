@@ -31,7 +31,7 @@ typedef DBoW2::TemplatedVocabulary<DBoW2::FORB::TDescriptor, DBoW2::FORB> ORBVoc
 using common::TS2S;
 
 class FrameBase {
- public:
+ public:  // OdomFrameBase related
   template <typename _Tp>
   using vector = std::vector<_Tp>;
   template <typename _Tp, std::size_t _Nm>
@@ -42,13 +42,6 @@ class FrameBase {
   using pair = std::pair<_T1, _T2>;
   using ostream = std::ostream;
   using istream = std::istream;
-
-  // const Tbc,Tce, so it can be used in multi threads
-  static cv::Mat mTbc, mTce;
-  static Eigen::Matrix3d meigRcb;
-  static Eigen::Vector3d meigtcb;
-
-  long unsigned int mnId;
 
   FrameBase() {}
   FrameBase(const double &timestamp) : timestamp_(timestamp), ftimestamp_(TS2S(timestamp)) {}
@@ -102,15 +95,41 @@ class FrameBase {
                                                nullptr, verbose);
   }
 
+  // Frame timestamp.
+  double timestamp_;  // TODO(zzh): change to TimeStampNs
+  double ftimestamp_;
+  int8_t id_cam_ = 0;
+  int8_t bcam_fixed_ = 1;
+
+  // const Tbc,Tce, so it can be used in multi threads
+  static cv::Mat mTbc, mTce;
+  static Eigen::Matrix3d meigRcb;
+  static Eigen::Vector3d meigtcb;
+  static bool usedistort_;
+  static bool busedist_set_;
+  vector<GeometricCamera *> mpCameras;
+
+ public:  // BAFrameBase related
   virtual bool isBad() { return mbBad; }
 
+  // Number of KeyPoints. The left members are all associated by the index
+  int N;
+  // Vector of original keypoints and undistorted kpts
+  vector<cv::KeyPoint> mvKeys;
+  vector<cv::KeyPoint> mvKeysUn;
+  vector<pair<size_t, size_t>> mapn2in_;
+  // the left associated members are from mDescriptors
+
+  long unsigned int mnId;
+
+  // flow related
+  // Threshold close/far points. Close points are inserted from 1 view.
+  // Far points are inserted as in the monocular case from 2 views.
+  float mThDepth;
+
+ public:  // FrameBase related
   // Compute Bag of Words representation.
   void ComputeBoW();  // compute mBowVec && mFeatVec
-  // BoW: Bag of Words Vector structures.
-  DBoW2::BowVector mBowVec;
-  DBoW2::FeatureVector mFeatVec;
-  // Vocabulary used for relocalization.
-  ORBVocabulary *mpORBvocabulary;
 
   // KeyPoint functions
   // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, min/maxlevel check is for Frame
@@ -124,32 +143,17 @@ class FrameBase {
   bool IsInImage(uint8_t cami, const float &x, const float &y) const;
   // Computes image bounds for the (un)distorted image (called in the constructor).
   void ComputeImageBounds(const vector<int> &wid_hei);
-  static bool usedistort_;
 
   virtual bool read(istream &is);
   virtual bool write(ostream &os) const;
 
-  vector<GeometricCamera *> mpCameras;
-  vector<pair<size_t, size_t>> mapn2in_;
-
-  // Frame timestamp.
-  double timestamp_;  // TODO(zzh): change to TimeStampNs
-  double ftimestamp_;
-  int8_t id_cam_ = 0;
-  int8_t bcam_fixed_ = 1;
-
-  // flow related
-  // Threshold close/far points. Close points are inserted from 1 view.
-  // Far points are inserted as in the monocular case from 2 views.
-  float mThDepth;
-
-  // Number of KeyPoints. The left members are all associated by the index
-  int N;
-  // Vector of original keypoints and undistorted kpts
-  vector<cv::KeyPoint> mvKeys;
-  vector<cv::KeyPoint> mvKeysUn;
   // ORB descriptor, each row associated to a keypoint.
   cv::Mat mDescriptors;
+  // Vocabulary used for relocalization.
+  ORBVocabulary *mpORBvocabulary;
+  // BoW: Bag of Words Vector structures.
+  DBoW2::BowVector mBowVec;
+  DBoW2::FeatureVector mFeatVec;
   // for keyframe judge and culling, filled in frame (half)constructor, unchanged after
   typedef struct _StereoInfo {
     // Corresponding stereo depth and right coordinate for each keypoint.
@@ -174,32 +178,32 @@ class FrameBase {
   // not vec fscalefactors for speeding up and use less space for the same orb extractor params for all cams
   ScalePyramidInfo scalepyrinfo_;
 
- protected:
+ protected:  // OdomFrameBase related
   inline const Sophus::SE3d GetTcwCst() const {
     auto Tcw = Sophus::SE3d(Sophus::SO3exd(Converter::toMatrix3d(Tcw_.rowRange(0, 3).colRange(0, 3))),
                             Converter::toVector3d(Tcw_.col(3)));
     return Tcw;
   }
 
-  // MapPoints associated to keypoints(same order), NULL pointer if no association.
-  vector<MapPoint *> mvpMapPoints;
-
   // Camera pose.
   cv::Mat Tcw_;
-
   // state xi={Ri,pi,vi,bi}, this xi doesn't include landmarks' state li/mi but include the camera's state xci(for Tbc
   // is a constant) not designed for multi threads/just used in Tracking thread in Base
   NavState mNavState;
+
   // Odom PreIntegration, j means this fb, i means last fb, if no measurements=>mdeltatij==0
   EncPreIntegrator mOdomPreIntEnc;
   IMUPreintegrator mOdomPreIntIMU;
 
+ protected:  // BAFrameBase related
   // Bad flags
   bool mbBad = false;
 
+  // MapPoints associated to keypoints(same order), nullptr if no association.
+  vector<MapPoint *> mvpMapPoints;
+
+ protected:  // FrameBase related
   // for GetFeaturesInArea: Grid over the image to speed up feature matching
-  // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
-  vector<vector<vector<size_t>>> vgrids_;  //[cami][x*ROWS+y][id_kp]
   // static for speeding up and use less space for the same camera models for all fbs
   typedef struct _GridInfo {
     vector<float> fgrids_widthinv_;
@@ -212,6 +216,8 @@ class FrameBase {
     Tsize sz_dims_[2];  // 0 width,1 height
   } GridInfo;
   static GridInfo gridinfo_;
+  // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
+  vector<vector<vector<size_t>>> vgrids_;  //[cami][x*ROWS+y][id_kp]
 
  public:  // for serialize
   // can also be used for set/list

@@ -24,9 +24,9 @@ class IMUDataBase {
  public:
   typedef double TTtime;
   static double mdRefG;  // referenced G for IV-C in VIORBSLAM paper
-  static Matrix3d mSigmag, mSigmaa, mSigmabg,
-      mSigmaba;  // b means bias/Brownian motion(Random walk), g means gyroscope, a means accelerator, d means discrete
-                 // but here may continuous one, Sigma means Covariance Matrix
+  // b means bias/Brownian motion(Random walk), g means gyroscope, a means accelerator, d means discrete
+  // but here may continuous one, Sigma means Covariance Matrix
+  static Matrix3d mSigmag, mSigmaa, mSigmabg, mSigmaba;
   static double mInvSigmabg2,
       mInvSigmaba2;  // when mSigmabi is always diagonal matrix, use this to speed up infomation matrix calculation
   double mtm;        // timestamp of IMU data
