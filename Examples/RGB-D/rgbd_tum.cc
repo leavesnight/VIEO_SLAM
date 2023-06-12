@@ -124,10 +124,12 @@ int main(int argc, char **argv) {
       map_sparse_name = argv[9];
     case 9: {
       finEncdata.open(argv[8]);
-      string strTmp;
-      getline(finEncdata, strTmp);
-      getline(finEncdata, strTmp);
-      getline(finEncdata, strTmp);
+      if (finEncdata.is_open()) {
+        string strTmp;
+        getline(finEncdata, strTmp);
+        getline(finEncdata, strTmp);
+        getline(finEncdata, strTmp);
+      }
     }
     case 8:
       bMode = atoi(argv[7]);
@@ -138,7 +140,7 @@ int main(int argc, char **argv) {
       finOdomdata.open(argv[5]);
       if (!finOdomdata.is_open()) {
         cerr << redSTR "Please check the last path_to_odometryData" << endl;
-        return -1;
+        break;
       }
       string strTmp;
       getline(finOdomdata, strTmp);

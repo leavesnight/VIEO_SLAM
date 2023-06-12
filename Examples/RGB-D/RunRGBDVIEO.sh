@@ -65,6 +65,12 @@ if [[ $keywords == ${SLAMTYPE:0-lenkws:lenkws} ]]; then
   elif [[ ${kwSLAM[2]} == ${SLAMTYPE:0:${lenkwSLAM[2]}} ]]; then
     echo "VIEO"
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt 9 0 $OURFILE/EncSensor.txt ./Map.bin
+  elif [[ ${kwSLAM[3]} == ${SLAMTYPE:0:${lenkwSLAM[3]}} ]]; then
+    echo "VIO"
+    ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt 9 0 $OURFILE/EncSensorNULL.txt ./Map.bin
+  elif [[ ${kwSLAM[4]} == ${SLAMTYPE:0:${lenkwSLAM[4]}} ]]; then
+    echo "VO"
+    ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensorNULL.txt 0 0 $OURFILE/EncSensorNULL.txt ./Map.bin
   fi
 else
   if [[ ${kwSLAM[1]} == ${SLAMTYPE:0:${lenkwSLAM[1]}} ]]; then
@@ -78,7 +84,7 @@ else
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt 9 0 $OURFILE/EncSensor.txt
   elif [[ ${kwSLAM[3]} == ${SLAMTYPE:0:${lenkwSLAM[3]}} ]]; then
     echo "VIO"
-    ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt 9 #VIO
+    ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt 9
   elif [[ ${kwSLAM[4]} == ${SLAMTYPE:0:${lenkwSLAM[4]}} ]]; then
     echo "VO"
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt
