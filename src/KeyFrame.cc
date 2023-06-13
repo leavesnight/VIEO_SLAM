@@ -403,6 +403,7 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
   for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
     auto idx = *iter;
     mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
+    // PRINT_INFO_FILE_MUTEX("KFid" << mnId << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {

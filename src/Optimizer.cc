@@ -108,7 +108,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
   PRINT_INFO_FILE(blueSTR "Enter OLBA..." << pKF->mnId << ", size of localKFs=" << lLocalKeyFrames.size()
                                           << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
-                                          << whiteSTR << endl,
+                                          << ",blarge=" << (int)bLarge << whiteSTR << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
@@ -168,6 +168,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     vNSBias->setFixed(bFixed);
     optimizer.addVertex(vNSBias);
     if (idKF + 2 > maxKFid) maxKFid = idKF + 2;  // update maxKFid
+    if (0)
+      PRINT_INFO_FILE("LBA kfid=" << pKFi->mnId << ",fixed=" << (int)bFixed << ",p=" << ns.mpwb.transpose()
+                                  << ",r=" << ns.mRwb.log().transpose() << ",v=" << ns.mvwb.transpose() << ",bg="
+                                  << (ns.mbg + ns.mdbg).transpose() << ",ba=" << (ns.mba + ns.mdba).transpose() << fixed
+                                  << setprecision(9) << ",tm=" << pKFi->timestamp_ << endl,
+                      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   }
   if (!bdimPoses) return;
 
@@ -226,8 +232,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();  // Previous KF
     if (!pKF0) continue;
     IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
-    CV_Assert(!pKF0->isBad());
-    CV_Assert(!pKF1->isBad());
+    assert(!pKF0->isBad());
+    assert(!pKF1->isBad());
 
     int idKF0 = 3 * pKF0->mnId, idKF1 = 3 * pKF1->mnId;
     bool bfixedkf = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0))->fixed();
@@ -266,6 +272,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       eprv->SetParams(GravityVec);
       optimizer.addEdge(eprv);
       vpEdgesNavStatePRV.push_back(eprv);  // for robust processing/ erroneous edges' culling
+    } else {
+      PRINT_INFO_FILE_MUTEX("dtij0_imu:" << pKF0->mnId << "," << pKF1->mnId << endl, mlog::vieo_slam_debug_path,
+                            "localmapping_thread_debug.txt");
     }
     // IMU_RW/Bias edge
     g2o::EdgeNavStateBias* ebias = new g2o::EdgeNavStateBias();
@@ -273,6 +282,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF1 + 2)));  // Bj 1
     ebias->setMeasurement(imupreint);
     double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->ftimestamp_ - pKF0->ftimestamp_;
+    float EPS_MIN_DT = 1e-6f;
+    if (deltatij <= EPS_MIN_DT) {  // to avoid Map ReUse dt < 0 bug
+      assert(deltatij < 0);
+      deltatij = 15;
+    }
     // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
 #ifdef ORB3_STRATEGY_IMU_EDGE
     // we found bias also expands will improve the track stability, where mainly ba adjusted more robust
@@ -759,6 +773,13 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     vNSBias->setFixed(bvbgba_fixed);
     optimizer.addVertex(vNSBias);
     if (idKF + 2 > maxKFid) maxKFid = idKF + 2;  // update maxKFid
+    if (0)
+      PRINT_INFO_FILE("GBA kfid=" << pKFi->mnId << ",fixed=" << (int)bFixed << ",vbiasfixed=" << (int)bvbgba_fixed
+                                  << ",p=" << ns.mpwb.transpose() << ",r=" << ns.mRwb.log().transpose()
+                                  << ",v=" << ns.mvwb.transpose() << ",bg=" << (ns.mbg + ns.mdbg).transpose()
+                                  << ",ba=" << (ns.mba + ns.mdba).transpose() << fixed << setprecision(9)
+                                  << ",tm=" << pKFi->timestamp_ << endl,
+                      mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
   }
   // Set Scale vertex
   if (bScaleOpt) {  // if dInitialScale>0 the Full BA includes scale's optimization
@@ -847,8 +868,8 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     //if no KFi/IMUPreInt's info, this IMUPreInt edge cannot be added for lack of vertices i / edge ij, \
     notice we don't exclude the situation that KFi has no imupreint but KFj has for KFi's NavState is updated in TrackLocalMapWithIMU()
     if (!pKF0) continue;
-    IMUPreintegrator imupreint = pKF1->GetIMUPreInt();
-    while (!pKF1->isBad() && pKF0->isBad()) {  // to ensure imupreint is matched with pKF0
+    IMUPreintegrator imupreint = pKF1->GetIMUPreInt();  // way1
+    while (!pKF1->isBad() && pKF0->isBad()) {           // to ensure imupreint is matched with pKF0
       pKF0 = pKF1->GetPrevKeyFrame();
       imupreint = pKF1->GetIMUPreInt();
     }
@@ -856,6 +877,11 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
     if (pKF1->isBad()) continue;  // way0
 
     double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pKF1->ftimestamp_ - pKF0->ftimestamp_;
+    float EPS_MIN_DT = 1e-6f;
+    if (deltatij <= EPS_MIN_DT) {  // to avoid Map ReUse dt < 0 bug
+      assert(deltatij < 0);
+      deltatij = 15;
+    }
     size_t device = pKF1->id_cam_;
     if (sum_dt_tmp.size() && vadd_prior_bias[device]) {
       sum_dt_tmp[device] += deltatij;
@@ -892,8 +918,10 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
         rk->setDelta(thHuberNavStatePRV);
       }  // here false
       optimizer.addEdge(eprv);
+    } else {
+      PRINT_INFO_FILE_MUTEX("dtij0_imu:" << pKF0->mnId << "," << pKF1->mnId << endl, mlog::vieo_slam_debug_path,
+                            "gba_thread_debug.txt");
     }
-    // else way1
     // IMU_RW/Bias edge
     g2o::EdgeNavStateBias* ebias = new g2o::EdgeNavStateBias();
     ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(idKF0 + 2)));  // Bi 0

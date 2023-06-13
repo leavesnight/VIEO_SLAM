@@ -88,9 +88,8 @@ void LocalMapping::Run() {
 
       mbAbortBA = false;
 
-      if ((!CheckNewKeyFrames()) &&
-          !stopRequested())  // if the newKFs list is idle and not requested stop by LoopClosing/localization mode
-      {
+      // if the newKFs list is idle and not requested stop by LoopClosing/localization mode
+      if ((!CheckNewKeyFrames()) && !stopRequested()) {
         // Local BA
         // at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left
         // &&mpCurrentKeyFrame->mnId>mnLastOdomKFId+1
@@ -186,7 +185,7 @@ void LocalMapping::ProcessNewKeyFrame() {
 
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
-                           << mpCurrentKeyFrame->ftimestamp_ << endl,
+                           << mpCurrentKeyFrame->ftimestamp_ << ",id=" << mpCurrentKeyFrame->mnId << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK

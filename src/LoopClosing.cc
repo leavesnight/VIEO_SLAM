@@ -747,7 +747,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
     }
     bUseGBAPRV = true;
   } else {
-    cerr << redSTR "pure-vision GBA!" << whiteSTR << endl;
+    PRINT_INFO_FILE(redSTR "pure-vision GBA!" << whiteSTR << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
     // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
     Optimizer::GlobalBundleAdjustment(mpMap, mnIterations, &mbStopGBA, nLoopKF, false, mpIMUInitiator->GetSensorEnc());
   }

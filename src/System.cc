@@ -268,6 +268,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
     mpLocalMapper->SetInitLastCamKF(vpKFs[iFirstBad - 1]);
     if (sensorType >= 2) {
       mpIMUInitiator->SetFinishRequest(true);  // we don't need to init when loading a VIEO/VIO map
+      mpIMUInitiator->SetInitGBAOver(true);    // gravity & scale should already be inited
       mpIMUInitiator->SetVINSInited(true);
     }
   }

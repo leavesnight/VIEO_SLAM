@@ -489,6 +489,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
 #endif
 
   mnMatchesInliers = 0;
+  int nmatches_map_good = 0;
 
   // Update MapPoints Statistics
   const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -497,9 +498,18 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
       if (!mCurrentFrame.mvbOutlier[i]) {
         curfmps[i]->IncreaseFound();
         if (!mbOnlyTracking) {
-          if (curfmps[i]->Observations() > 0) mnMatchesInliers++;
-        } else
+          if (curfmps[i]->Observations() > 0) {
+            mnMatchesInliers++;
+            if (!curfmps[i]->isBad()) ++nmatches_map_good;
+          }
+        } else {
           mnMatchesInliers++;
+          auto obs_tmp = curfmps[i]->Observations();
+          if (!curfmps[i]->isBad()) {
+            assert(obs_tmp > 0);
+            ++nmatches_map_good;
+          }
+        }
       } else {
         // why not include System::RGBD?maybe or RGBD lba thread can do faster.
 #ifdef ORB3_STRATEGY_KF_MORE
@@ -511,8 +521,10 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated) {
     }
   }
 
-  PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers << endl, mlog::vieo_slam_debug_path,
-                  "tracking_thread_debug.txt");
+  PRINT_INFO_FILE("inliers_map imu=" << mnMatchesInliers, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  if (nmatches_map_good != mnMatchesInliers)
+    PRINT_INFO_FILE(",map_good=" << nmatches_map_good, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  PRINT_INFO_FILE(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   //  if (mCurrentFrame.ftimestamp_ > 845.064) CV_Assert(0);
   // Decide if the tracking was succesful
   // More restrictive if there was a relocalization recently (recent 1s)

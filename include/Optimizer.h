@@ -308,6 +308,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
   // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
   double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->ftimestamp_ - pLastKF->ftimestamp_;
+  assert(deltatij > 0);
 #ifdef USE_ZZH_IMU_EDGE_FEBA
   if (bFixedLast) {
     eNSBias->setInformation(InvCovBgaRW / deltatij * 1e-2);
