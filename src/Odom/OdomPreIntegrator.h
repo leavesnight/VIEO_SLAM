@@ -285,8 +285,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       // for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj],
       // when we concate them in KeyFrameCulling(), dt may be 0
       if (dt == 0) continue;
-      // for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
-      // (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
+      // Also for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
       if (abs(dt) > 1.5) {
         this->mdeltatij = 0;
         std::cout << "CheckIMU!!!" << std::endl;

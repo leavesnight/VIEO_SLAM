@@ -26,19 +26,6 @@
 namespace VIEO_SLAM {
 bool System::usedistort_ = false;
 
-bool System::GetLoopDetected() { return mpLoopCloser->mbLoopDetected; }
-bool System::SetLoopDetected(bool loopDeteced) {
-  mpLoopCloser->mbLoopDetected = loopDeteced;
-  return true;
-}
-std::vector<KeyFrame *> System::GetAllKeyFrames() { return mpMap->GetAllKeyFrames(); }
-bool System::GetKeyFrameCreated() { return mpTracker->mbKeyFrameCreated; }
-bool System::SetKeyFrameCreated(bool bTmp) {
-  mpTracker->mbKeyFrameCreated = bTmp;
-  return true;
-}
-cv::Mat System::GetKeyFramePose() { return mpTracker->GetKeyFramePose(); }
-// for ros_mono_pub.cc
 cv::Mat System::TrackOdom(const double &timestamp, const double *odomdata, const char mode) {
   cv::Mat Tcw = mpTracker->CacheOdom(timestamp, odomdata, mode);
 
@@ -160,7 +147,8 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
     long unsigned int prevId;
     f.read((char *)&prevId, sizeof(prevId));                       // old prevKF's Id
     if (prevId != ULONG_MAX) assert(mapIdpKF.count(prevId) == 1);  // 0<i<NKFsInit
-    KeyFrame *pPrevKF = NULL;                                      // NULL correponds to prevId==ULONG_MAX
+    // NULL correponds to prevId==ULONG_MAX
+    KeyFrame *pPrevKF = nullptr;
     if (prevId != ULONG_MAX) pPrevKF = mapIdpKF[prevId];
     Frame tmpF(f, mpVocabulary);
     // we use Frame::read()+KeyFrame::read() corresponding to KeyFrame::write()
@@ -273,8 +261,11 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
 
   if (iFirstBad > 0) {
     mpTracker->mState = Tracking::MAP_REUSE;
-    mpTracker->SetLastKeyFrame(vpKFs[iFirstBad - 1]);
-    mpTracker->SetReferenceKF(vpKFs[iFirstBad - 1]);
+    mpTracker->SetInitLastKeyFrame(vpKFs[iFirstBad - 1]);
+    // for NeedNewKeyFrame() judge
+    mpTracker->SetInitReferenceKF(vpKFs[iFirstBad - 1]);
+    // to avoid first frame after LoadMap() to be keyframe, causing UpdateConnections() assert bug
+    mpLocalMapper->SetInitLastCamKF(vpKFs[iFirstBad - 1]);
     if (sensorType >= 2) {
       mpIMUInitiator->SetFinishRequest(true);  // we don't need to init when loading a VIEO/VIO map
       mpIMUInitiator->SetVINSInited(true);
@@ -677,10 +668,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mpTracker->SetLocalMapper(mpLocalMapper);
   mpTracker->SetLoopClosing(mpLoopCloser);
 
-  mpLocalMapper->SetTracker(mpTracker);
   mpLocalMapper->SetLoopCloser(mpLoopCloser);
 
-  mpLoopCloser->SetTracker(mpTracker);
   mpLoopCloser->SetLocalMapper(mpLocalMapper);
 
   // created by zzh

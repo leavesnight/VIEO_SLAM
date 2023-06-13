@@ -5,14 +5,12 @@
 #ifndef TRACKING_H
 #define TRACKING_H
 
-#include "OdomData.h"
 #include <chrono>  //for delay control
-
-// created by zzh over.
-
+#include <mutex>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 
+#include "OdomData.h"
 #include "Viewer.h"
 #include "FrameDrawer.h"
 #include "Map.h"
@@ -26,9 +24,6 @@
 #include "MapDrawer.h"
 #include "System.h"
 #include "common/config.h"
-#include "common/macro_creator.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 class IMUInitialization;  // zzh, for they includes each other
@@ -119,15 +114,7 @@ class Tracking {
   // Add Odom(Enc/IMU) data to cache queue
   cv::Mat CacheOdom(const double &timestamp, const double *odomdata, const char mode);
 
-  void SetLastKeyFrame(KeyFrame *pKF) { mpLastKeyFrame = pKF; }
-  void SetReferenceKF(KeyFrame *pKF) { mpReferenceKF = pKF; }
-
-  // for ros_mono_pub.cc
-  bool mbKeyFrameCreated;
-  cv::Mat GetKeyFramePose() { return mpReferenceKF->GetPose(); }
-
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  // created by zzh over.
 
  public:
   Tracking(System *pSys, ORBVocabulary *pVoc, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer, Map *pMap,
@@ -136,6 +123,13 @@ class Tracking {
     for (auto &pcam : mpCameras) {
       delete pcam;
     }
+  }
+
+  void SetInitLastKeyFrame(KeyFrame *pKF) {
+    if (!plast_kf_ || !pKF) plast_kf_ = pKF;
+  }
+  void SetInitReferenceKF(KeyFrame *pKF) {
+    if (!mpReferenceKF || !pKF) mpReferenceKF = pKF;
   }
 
   // Preprocess the input and call Track(). Extract features and performs stereo matching for stereo cameras.
@@ -161,9 +155,8 @@ class Tracking {
     NOT_INITIALIZED = 1,
     OK = 2,
     LOST = 3,
-    ODOMOK = 4,          // added by zzh, like RECENTLY_LOST in ORB3
-    MAP_REUSE = 5,       // added by zzh
-    MAP_REUSE_RELOC = 6  // added by zzh
+    ODOMOK = 4,     // added by zzh, like RECENTLY_LOST in ORB3
+    MAP_REUSE = 5,  // added by zzh
   };
 
   eTrackingState mState;
@@ -199,7 +192,7 @@ class Tracking {
   list<bool> mlbLost;  // true for lost!
 
   // True if local mapping is deactivated and we are performing only localization
-  bool mbOnlyTracking;
+  bool mbOnlyTracking = false;
 
   void Reset();
 
@@ -302,10 +295,9 @@ class Tracking {
 
   // Current matches in frame
   int mnMatchesInliers;  // rectified in TrackLocalMap()
-  CREATOR_VAR_MULTITHREADS(num_track_inliers, int, , protected, 0)
 
   // Last Frame, KeyFrame and Relocalisation Info
-  KeyFrame *mpLastKeyFrame;
+  KeyFrame *plast_kf_ = nullptr;  // set null for safety
   Frame mLastFrame;
   unsigned int mnLastKeyFrameId;
   unsigned int mnLastRelocFrameId;
@@ -483,7 +475,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
 
         if (!ret) break;
 
-        // mpLastKeyFrame cannot be bad here for mpReferenceKF hasn't been inserted
+        // plast_kf_ cannot be bad here for mpReferenceKF hasn't been inserted
         // (SetBadFlag only for before KFs)
         if (plastkf) {
           assert(plasttm_kf);

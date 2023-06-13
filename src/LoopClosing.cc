@@ -43,10 +43,7 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
       mpThreadGBA(NULL),
       mbFixScale(bFixScale),
       mnFullBAIdx(0),
-      mpIMUInitiator(NULL),
-      mnLastOdomKFId(0),
-      mbLoopDetected(false)  // zzh
-{
+      mnLastOdomKFId(0) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   cv::FileNode fnIter[] = {fSettings["GBA.iterations"],       fSettings["GBA.initIterations"],
                            fSettings["GBA.threshMatches"],    fSettings["GBA.threshMatches2"],
@@ -88,8 +85,6 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
 
   th_covisibility_consistency_[2] = th_covisibility_consistency_[0];
 }
-
-void LoopClosing::SetTracker(Tracking* pTracker) { mpTracker = pTracker; }
 
 void LoopClosing::SetLocalMapper(LocalMapping* pLocalMapper) { mpLocalMapper = pLocalMapper; }
 
@@ -734,11 +729,11 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 
   bool bUseGBAPRV = false;
   int idx = mnFullBAIdx;
-  unique_lock<mutex> lockScale(
-      mpMap->mMutexScaleUpdateGBA);  // notice we cannot update scale during LoopClosing or LocalBA!
+  // notice we cannot update scale during LoopClosing or LocalBA!
+  unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);
   if (mpIMUInitiator->GetVINSInited()) {
-    if (!mpIMUInitiator
-             ->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
+    if (!mpIMUInitiator->GetInitGBAOver()) {
+      // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
       PRINT_INFO_FILE(redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl, mlog::vieo_slam_debug_path,
                       "gba_thread_debug.txt");
       // 15 written in V-B of VIORBSLAM paper
@@ -753,10 +748,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
     bUseGBAPRV = true;
   } else {
     cerr << redSTR "pure-vision GBA!" << whiteSTR << endl;
-    Optimizer::GlobalBundleAdjustment(
-        mpMap, mnIterations, &mbStopGBA, nLoopKF, false,
-        mpIMUInitiator->GetSensorEnc());  // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA,
-                                          // may be stopped by next CorrectLoop()
+    // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
+    Optimizer::GlobalBundleAdjustment(mpMap, mnIterations, &mbStopGBA, nLoopKF, false, mpIMUInitiator->GetSensorEnc());
   }
   // Update all MapPoints and KeyFrames
   // Local Mapping was active during BA, that means that there might be new keyframes
@@ -764,9 +757,9 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
   // We need to propagate the correction through the spanning tree
   {
     unique_lock<mutex> lock(mMutexGBA);
-    if (idx != mnFullBAIdx)  // it's for safe terminating this thread when it's so slow that mbStopGBA becomes false
-                             // again(but mnFullBAIdx++ before), synchrone mechanism
-      return;
+    // it's for safe terminating this thread when it's so slow that mbStopGBA becomes false again(but mnFullBAIdx++
+    // before), synchrone mechanism
+    if (idx != mnFullBAIdx) return;
 
     if (!mbStopGBA)  // I think it's useless for when mbStopGBA==true, idx!=mnFullBAIdx
     {
@@ -776,9 +769,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
 
-      while (!mpLocalMapper->isStopped() &&
-             !mpLocalMapper->isFinished())  // if LocalMapping is killed by System::Shutdown(), don't wait any more
-      {
+      // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      while (!mpLocalMapper->isStopped() && !mpLocalMapper->isFinished()) {
         usleep(1000);
       }
 
@@ -888,9 +880,6 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 
     // mbFinishedGBA = true;
     mbRunningGBA = false;
-
-    // for ros_mono_pub.cc
-    mbLoopDetected = true;
   }
 }
 

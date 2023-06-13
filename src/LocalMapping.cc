@@ -20,14 +20,7 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
       mbFinishRequested(false),
       mbFinished(true),
       mpMap(pMap),
-      mbAbortBA(false),
-      mbStopped(false),
-      mbStopRequested(false),
-      mbNotStop(false),
-      mbAcceptKeyFrames(true),
-      mnLastOdomKFId(0),
-      mpLastCamKF(NULL)  // added by zzh
-{                        // zzh
+      mnLastOdomKFId(0) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   auto node_tmp = fSettings["LocalMapping.LocalWindowSize"];
   if (node_tmp.empty()) {
@@ -45,8 +38,6 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing *pLoopCloser) { mpLoopCloser = pLoopCloser; }
-
-void LocalMapping::SetTracker(Tracking *pTracker) { mpTracker = pTracker; }
 
 void LocalMapping::Run() {
   mbFinished = false;
@@ -118,8 +109,7 @@ void LocalMapping::Run() {
             const bool bno_imu_lba = false;  // true;  //
             if (!bno_imu_lba) {
               // bLarge/bRecInit ref from ORB3
-              const bool bLarge =
-                  mpTracker->Getnum_track_inliers() > mpTracker->mSensor == System::MONOCULAR ? 75 : 100;
+              const bool bLarge = Getnum_track_inliers()[0] > Getnum_track_inliers()[1];
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
@@ -978,7 +968,7 @@ void LocalMapping::ResetIfRequested() {
     mbResetRequested = false;
 
     mnLastOdomKFId = 0;
-    mpLastCamKF = NULL;  // added by zzh
+    SetInitLastCamKF(nullptr);
   }
 }
 

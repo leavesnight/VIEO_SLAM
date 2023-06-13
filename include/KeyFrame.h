@@ -150,8 +150,9 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // created by zzh over.
 
  public:
-  explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false, KeyFrame *pPrevKF = NULL,
-                    const char state = 2);  // 2 is OK
+  // 2 is OK
+  explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false,
+                    KeyFrame *pPrevKF = nullptr, const char state = 2);
 
   // Pose functions
   void SetPose(const cv::Mat &Tcw);

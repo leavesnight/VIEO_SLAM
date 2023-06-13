@@ -2,41 +2,35 @@
  * This file is part of VIEO_SLAM
  */
 
-#ifndef LOCALMAPPING_H
-#define LOCALMAPPING_H
+#pragma once
 
-#include "IMUInitialization.h"  //zzh
-
+#include <mutex>
 #include "Map.h"
 #include "LoopClosing.h"
 #include "Tracking.h"
-
-#include <mutex>
+#include "common/macro_creator.h"
 
 namespace VIEO_SLAM {
 
-class IMUInitialization;  // zzh, for they includes each other
-
+class IMUInitialization;  // for they includes each other
 class Tracking;
 class LoopClosing;
 class Map;
 class KeyFrame;
 
 class LocalMapping {
-  unsigned long mnLastOdomKFId;
-  KeyFrame* mpLastCamKF;
-
-  // Local Window size
-  int mnLocalWindowSize;  // default 10, JW uses 20
-
-  // created by zzh over.
+ public:
+  template <typename _Tp, std::size_t _Nm>
+  using array = std::array<_Tp, _Nm>;
 
  public:
   LocalMapping(Map* pMap, const bool bMonocular, const string& strSettingPath);  // should use bool here
 
   void SetLoopCloser(LoopClosing* pLoopCloser);
-  void SetTracker(Tracking* pTracker);
-  void SetIMUInitiator(IMUInitialization* pIMUInitiator) { mpIMUInitiator = pIMUInitiator; }  // zzh
+  void SetIMUInitiator(IMUInitialization* pIMUInitiator) { mpIMUInitiator = pIMUInitiator; }
+  void SetInitLastCamKF(KeyFrame* pKF) {
+    if (!mpLastCamKF || !pKF) mpLastCamKF = pKF;
+  }
 
   // Main function
   void Run();
@@ -103,32 +97,40 @@ class LocalMapping {
   bool mbFinished;
   std::mutex mMutexFinish;
 
+ private:  // local map (single thread) related params
+  // const
   Map* mpMap;
-
-  LoopClosing* mpLoopCloser;
-  IMUInitialization* mpIMUInitiator;  // zzh
-  Tracking* mpTracker;                // unused
-
-  std::list<KeyFrame*> mlNewKeyFrames;
-  // std::list<Tracking::eTrackingState> mlNewKFStates;
+  int mnLocalWindowSize;  // default 10, JW uses 20
 
   KeyFrame* mpCurrentKeyFrame;
 
+  // for mappoint culling
   std::list<MapPoint*> mlpRecentAddedMapPoints;
 
+  unsigned long mnLastOdomKFId;
+  KeyFrame* mpLastCamKF = nullptr;
+
+ private:
+  // other multi threads related params
+  IMUInitialization* mpIMUInitiator = nullptr;
+  LoopClosing* mpLoopCloser;
+
+ protected:  // multi threads related communication params
+  bool mbAbortBA = false;
+
+  std::list<KeyFrame*> mlNewKeyFrames;
   std::mutex mMutexNewKFs;
 
-  bool mbAbortBA;
+  bool mbAcceptKeyFrames = true;
+  std::mutex mMutexAccept;
 
-  bool mbStopped;
-  bool mbStopRequested;
-  bool mbNotStop;
+  bool mbStopped = false;
+  bool mbStopRequested = false;
+  bool mbNotStop = false;
   std::mutex mMutexStop;
 
-  bool mbAcceptKeyFrames;
-  std::mutex mMutexAccept;
+  using ArrayInt2 = array<int, 2>;
+  CREATOR_VAR_MULTITHREADS(num_track_inliers, ArrayInt2, , protected, ArrayInt2({0, 100}));
 };
 
 }  // namespace VIEO_SLAM
-
-#endif  // LOCALMAPPING_H

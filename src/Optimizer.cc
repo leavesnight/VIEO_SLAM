@@ -2352,7 +2352,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     }
   }
 
-  Eigen::Matrix<double, 7, 7> matLambdaEnc = Eigen::Matrix<double, 7, 7>::Identity();  // added by zzh
+  Eigen::Matrix<double, 7, 7> matLambdaOdom = Eigen::Matrix<double, 7, 7>::Identity();  // added by zzh
   // 0 for phi, 1 for p, which is mainly caused by encoder measurement model instead of plane assumption
   // model(+kinematic model error+Tce calibration error)
   float fOdomBase[2] = {1, 1};
@@ -2452,21 +2452,21 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
             float elemInfo = fOdomBase[0] / fSigmaOdom;
             if (!elemInfo || elemInfo > EPS_MAX_INFO)
               // though this should never happen
-              matLambdaEnc.block<3, 3>(0, 0) = Matrix3d::Identity();
+              matLambdaOdom.block<3, 3>(0, 0) = Matrix3d::Identity();
             else
               // this Information Matrix can help solve the dropping problem of our dataset
-              matLambdaEnc.block<3, 3>(0, 0) = Matrix3d::Identity() * elemInfo;
+              matLambdaOdom.block<3, 3>(0, 0) = Matrix3d::Identity() * elemInfo;
             fSigmaOdom = encpreint.mSigmaEij.block<3, 3>(3, 3).norm() * 0.5 +
                          imupreint.mSigmaijPRV.block<3, 3>(0, 0).norm() * 0.5;
             elemInfo = fOdomBase[1] / fSigmaOdom;
             if (!elemInfo || elemInfo > EPS_MAX_INFO)
-              matLambdaEnc.block<3, 3>(3, 3) = Matrix3d::Identity();
+              matLambdaOdom.block<3, 3>(3, 3) = Matrix3d::Identity();
             else
               // this Information Matrix can help solve the dropping problem of our dataset
-              matLambdaEnc.block<3, 3>(3, 3) = Matrix3d::Identity() * elemInfo;
+              matLambdaOdom.block<3, 3>(3, 3) = Matrix3d::Identity() * elemInfo;
           }
-          e->information() = matLambdaEnc;
-          PRINT_INFO_MUTEX(matLambdaEnc << endl);
+          e->information() = matLambdaOdom;
+          PRINT_INFO_MUTEX(matLambdaOdom << endl);
         }
         PRINT_INFO_MUTEX("Weight0/Odom link: " << pParentKF->mnId << " " << pKF->mnId << " "
                                                << pKF->GetWeight(pParentKF) << endl);

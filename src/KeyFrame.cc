@@ -101,9 +101,9 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
 }
 
 // for LoadMap()
+// we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is)
-    : FrameBase(F),  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is
-                     // updated in read()
+    : FrameBase(F),
       mnFrameId(F.mnId),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
@@ -120,8 +120,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
       mpMap(pMap),
-      mbPrior(false)  //,mbPNChanging(false)//zzh
-{
+      mbPrior(false) {
   mDescriptors = F.mDescriptors.clone();
 
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
@@ -223,8 +222,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mbToBeErased(false),
       mpMap(pMap),
       mState(state),
-      mbPrior(false)  //,mbPNChanging(false)//zzh
-{
+      mbPrior(false) {
   if (!copy_shallow) mDescriptors = F.mDescriptors.clone();
 
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
@@ -506,12 +504,12 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
 
   // This should not happen
   if (KFcounter.empty()) {  // ODOMOK;||mState!=2&&pLastKF!=NULL
-    cout << "Failed to update spanning tree! " << mnId << " " << mnFrameId << endl;
-    if (pLastKF == NULL) {
-      if (mpParent == NULL)
-        CV_Assert(mnId == 0);  //"Error in parameter in UpdateConnections()"
-      else
-        cout << "but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl;
+    PRINT_INFO_MUTEX("Failed to update spanning tree! " << mnId << " " << mnFrameId << endl);
+    if (!pLastKF) {
+      if (!mpParent) {
+        assert(mnId == 0);
+      } else
+        PRINT_INFO_MUTEX("but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl);
     } else {
       // 	  pLastKF->AddConnection(this,0);//add the link from pLastKF to this
       // add the link from this to pLastKF
@@ -649,10 +647,9 @@ void KeyFrame::SetErase() {
   }
 }
 
-void KeyFrame::SetBadFlag(
-    bool bKeepTree)  // this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for
-                     // bad KFs may be used by some Frames' trajectory retrieve
-{
+// this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for
+// bad KFs may be used by some Frames' trajectory retrieve
+void KeyFrame::SetBadFlag(bool bKeepTree) {
   assert(!mbBad);  // check
   {
     unique_lock<mutex> lock(mMutexConnections);
