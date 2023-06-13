@@ -1112,6 +1112,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
           } else {
             bOK = TrackReferenceKeyFrame();
           }
+          if (!bOK && mState == ODOMOK) mbVO = true;
         } else {
           // In last frame we tracked mainly "visual odometry" points.
 
@@ -1206,7 +1207,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
       // the camera we will use the local map again.
       if (bOK && !mbVO) bOK = TrackLocalMap();
     }
-    mpLocalMapper->Setnum_track_inliers(array<int, 2>({mnMatchesInliers, mSensor == System::MONOCULAR ? 75 : 100}));
+    mpLocalMapper->Setnum_track_inliers(mnMatchesInliers);
 
     if (bOK) {
       mState = OK;
@@ -1515,7 +1516,7 @@ void Tracking::MonocularInitialization() {
     // Try to initialize
     if ((int)mCurrentFrame.mvKeys.size() <= 100) {
       delete mpInitializer;
-      mpInitializer = static_cast<Initializer*>(NULL);
+      mpInitializer = static_cast<Initializer*>(nullptr);
       fill(mvIniMatches.begin(), mvIniMatches.end(), -1);
       return;
     }
@@ -1528,6 +1529,7 @@ void Tracking::MonocularInitialization() {
     if (nmatches < 100) {
       delete mpInitializer;
       mpInitializer = static_cast<Initializer*>(NULL);
+      fill(mvIniMatches.begin(), mvIniMatches.end(), -1);
       return;
     }
 
@@ -2102,7 +2104,9 @@ bool Tracking::NeedNewKeyFrame() {
   if (!bimu_inited) timegap = 0.25;
   bool cTimeGap = false;
   int minClose = 70;
-  if (mpIMUInitiator->GetSensorIMU()) {
+  bool bctimegap_judge =
+      mpIMUInitiator->GetSensorIMU() || (mState == ODOMOK && System::MONOCULAR == mSensor);
+  if (bctimegap_judge) {
     //#ifdef ORB3_STRATEGY
     //    if (!mpIMUInitiator->GetSensorEnc()) {
     //      // ref from ORB3
@@ -2179,9 +2183,9 @@ bool Tracking::NeedNewKeyFrame() {
 }
 
 void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
-  if (!mpLocalMapper->SetNotStop(true))  // if localMapper is stopped by loop closing thread/GUI, cannot add KFs; during
-                                         // adding process, it cannot be stopped by others
-    return;
+  // if localMapper is stopped by loop closing thread/GUI, cannot add KFs; during adding process, it cannot be stopped
+  // by others
+  if (!mpLocalMapper->SetNotStop(true)) return;
 
   // ensure Tcw is always right for mCurrentFrame even there's no odom data, NavState/Tbw can be wrong when there's no
   // odom data
@@ -2744,7 +2748,7 @@ void Tracking::Reset() {
   // for monocular!
   if (mpInitializer) {
     delete mpInitializer;
-    mpInitializer = static_cast<Initializer*>(NULL);
+    mpInitializer = static_cast<Initializer*>(nullptr);
   }
 
   mlRelativeFramePoses.clear();

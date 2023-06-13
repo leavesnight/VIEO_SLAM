@@ -214,6 +214,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   std::set<KeyFrame *> GetLoopEdges();  // mspLoopEdges
 
   // Compute Scene Depth (q=2 median). Used in monocular.
+  float hist_med_depth_ = 5.f;
   float ComputeSceneMedianDepth(const int q);
 
   static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->mnId < pKF2->mnId; }

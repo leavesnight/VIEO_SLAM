@@ -867,9 +867,15 @@ float KeyFrame::ComputeSceneMedianDepth(const int q) {
     }
   }
 
+  auto sz_depth = vDepths.size();
+  if (!sz_depth) {
+    return hist_med_depth_;  // like baseline_bf_[0] for mono to be 0.1m
+  }
   sort(vDepths.begin(), vDepths.end());
-
-  return vDepths[(vDepths.size() - 1) / q];
+  float med_d = vDepths[(vDepths.size() - 1) / q];
+  const float alpha = 0.8;
+  hist_med_depth_ = hist_med_depth_ * (1 - alpha) + med_d * alpha;
+  return med_d;
 }
 
 }  // namespace VIEO_SLAM

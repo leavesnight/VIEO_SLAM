@@ -108,7 +108,7 @@ void LocalMapping::Run() {
             const bool bno_imu_lba = false;  // true;  //
             if (!bno_imu_lba) {
               // bLarge/bRecInit ref from ORB3
-              const bool bLarge = Getnum_track_inliers()[0] > Getnum_track_inliers()[1];
+              const bool bLarge = Getnum_track_inliers() > (mbMonocular ? 75 : 100);
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
                                                           mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
@@ -231,15 +231,16 @@ void LocalMapping::ProcessNewKeyFrame() {
           } while (pLastKF->getState() != (char)Tracking::OK);
           mpLastCamKF = pLastKF;
         }
-        PRINT_INFO_MUTEX(vecEraseKF.size() << " ");
-        // the last one is the before ODOMOK(delete the former consecutive OdomOK KF as soon as possible, it seems to
-        // have a better effect)
-        for (int i = 0; i < vecEraseKF.size(); ++i) {
-          PRINT_INFO_MUTEX(i << " ");
-          vecEraseKF[i]->SetBadFlag();  // it may be SetNotErase() by LoopClosing thread
+        if (!mbMonocular) {
+          PRINT_INFO_MUTEX(vecEraseKF.size() << " ");
+          // the last one is the before ODOMOK(delete the former consecutive OdomOK KF as soon as possible, it seems to
+          // have a better effect)
+          for (int i = 0; i < vecEraseKF.size(); ++i) {
+            PRINT_INFO_MUTEX(i << " ");
+            vecEraseKF[i]->SetBadFlag();  // it may be SetNotErase() by LoopClosing thread
+          }
+          PRINT_INFO_MUTEX("Over" << endl);
         }
-        PRINT_INFO_MUTEX("Over" << endl);
-        // 	  if (pLastKF!=NULL&&pLastKF->getState()==Tracking::ODOMOK){//&&pLastKF->GetParent()!=NULL
         assert(mpLastCamKF != NULL && mpLastCamKF->getState() == (char)Tracking::OK);
         mpIMUInitiator->SetCopyInitKFs(false);
       }
@@ -409,7 +410,7 @@ void LocalMapping::CreateNewMapPoints() {
 
   // ref from ORB3
   // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
-  if (mpIMUInitiator->GetVINSInited()) {
+  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
     KeyFrame *pKF = mpCurrentKeyFrame;
     int count = 0;
     while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
@@ -454,8 +455,8 @@ void LocalMapping::CreateNewMapPoints() {
       const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
       const float ratioBaselineDepth = baseline / medianDepthKF2;
 
-      if (ratioBaselineDepth < 0.01)  // at least baseline>=0.08m/8m(medianDepth)
-        continue;
+      // at least baseline>=0.08m/8m(medianDepth)
+      if (ratioBaselineDepth < 0.01) continue;
     }
 
     // Search matches that fullfil epipolar constraint(with 2 sigma rule)
@@ -620,7 +621,7 @@ void LocalMapping::SearchInNeighbors() {
   // ref from ORB3
   // Extend to temporal neighbors
   // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
-  if (mpIMUInitiator->GetVINSInited()) {
+  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
     KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
     while (vpTargetKFs.size() < 20 && pKFi) {
       if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {

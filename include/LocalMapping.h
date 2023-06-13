@@ -20,8 +20,8 @@ class KeyFrame;
 
 class LocalMapping {
  public:
-  template <typename _Tp, std::size_t _Nm>
-  using array = std::array<_Tp, _Nm>;
+  //  template <typename _Tp, std::size_t _Nm>
+  //  using array = std::array<_Tp, _Nm>;
 
  public:
   LocalMapping(Map* pMap, const bool bMonocular, const string& strSettingPath);  // should use bool here
@@ -129,8 +129,7 @@ class LocalMapping {
   bool mbNotStop = false;
   std::mutex mMutexStop;
 
-  using ArrayInt2 = array<int, 2>;
-  CREATOR_VAR_MULTITHREADS(num_track_inliers, ArrayInt2, , protected, ArrayInt2({0, 100}));
+  CREATOR_VAR_MULTITHREADS(num_track_inliers, int, , protected, 0);
 };
 
 }  // namespace VIEO_SLAM
