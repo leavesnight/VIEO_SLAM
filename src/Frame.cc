@@ -3,6 +3,7 @@
  */
 
 #include "Frame.h"
+#include "common/serialize/serialize.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
 #include <thread>
@@ -70,8 +71,6 @@ Frame::Frame(istream &is, ORBVocabulary *voc) {
   mpORBvocabulary = voc;
   mnId = nNextId++;  // new Frame ID
   read(is);
-  vvkeys_.resize(1);
-  vvkeys_[0] = mvKeys;
   // N is got in read(), very important allocation! for LoadMap()
   mvpMapPoints.resize(N, static_cast<MapPoint *>(NULL));
 }
@@ -79,7 +78,8 @@ bool Frame::read(istream &is, bool bOdomList) {
   if (!FrameBase::read(is)) return false;
 
   // TODO(zzh): for nonRGBD MAPREUSE for normal frame
-  //  vdescriptors_.resize(1);
+  // vvkeys_.resize(1);
+  // vdescriptors_.resize(1);
   // load mNavState
   // For VIO, we should compare the Pose of B/IMU Frame!!! not the Twc but the Twb! with EuRoC's Twb_truth(using
   // Tb_prism/Tbs from vicon0/data.csv) (notice vicon0 means the prism's Pose), and I found state_groundtruth_estimate0
@@ -108,22 +108,22 @@ bool Frame::read(istream &is, bool bOdomList) {
     double &tmEnc = mOdomPreIntEnc.mdeltatij;
     is.read((char *)&tmEnc, sizeof(tmEnc));
     if (tmEnc > 0) {
-      readEigMat(is, mOdomPreIntEnc.mdelxEij);
-      readEigMat(is, mOdomPreIntEnc.mSigmaEij);
+      Serialize::readEigMat(is, mOdomPreIntEnc.mdelxEij);
+      Serialize::readEigMat(is, mOdomPreIntEnc.mSigmaEij);
     }
     double &tmIMU = mOdomPreIntIMU.mdeltatij;
     is.read((char *)&tmIMU, sizeof(tmIMU));
     if (tmIMU > 0) {  // for IMUPreIntegratorBase<IMUDataBase>
-      readEigMat(is, mOdomPreIntIMU.mpij);
-      readEigMat(is, mOdomPreIntIMU.mRij);
-      readEigMat(is, mOdomPreIntIMU.mvij);  // PRV
-      readEigMat(is, mOdomPreIntIMU.mSigmaijPRV);
-      readEigMat(is, mOdomPreIntIMU.mSigmaij);
-      readEigMat(is, mOdomPreIntIMU.mJgpij);
-      readEigMat(is, mOdomPreIntIMU.mJapij);
-      readEigMat(is, mOdomPreIntIMU.mJgvij);
-      readEigMat(is, mOdomPreIntIMU.mJavij);
-      readEigMat(is, mOdomPreIntIMU.mJgRij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mpij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mRij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mvij);  // PRV
+      Serialize::readEigMat(is, mOdomPreIntIMU.mSigmaijPRV);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mSigmaij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mJgpij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mJapij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mJgvij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mJavij);
+      Serialize::readEigMat(is, mOdomPreIntIMU.mJgRij);
     }
   }
   return is.good();
@@ -154,22 +154,22 @@ bool Frame::write(ostream &os) const {
   double tm = mOdomPreIntEnc.mdeltatij;
   os.write((char *)&tm, sizeof(tm));
   if (tm > 0) {
-    writeEigMat(os, mOdomPreIntEnc.mdelxEij);
-    writeEigMat(os, mOdomPreIntEnc.mSigmaEij);
+    Serialize::writeEigMat(os, mOdomPreIntEnc.mdelxEij);
+    Serialize::writeEigMat(os, mOdomPreIntEnc.mSigmaEij);
   }
   tm = mOdomPreIntIMU.mdeltatij;
   os.write((char *)&tm, sizeof(tm));
   if (tm > 0) {  // for IMUPreIntegratorBase<IMUDataBase>
-    writeEigMat(os, mOdomPreIntIMU.mpij);
-    writeEigMat(os, mOdomPreIntIMU.mRij);
-    writeEigMat(os, mOdomPreIntIMU.mvij);  // PRV
-    writeEigMat(os, mOdomPreIntIMU.mSigmaijPRV);
-    writeEigMat(os, mOdomPreIntIMU.mSigmaij);
-    writeEigMat(os, mOdomPreIntIMU.mJgpij);
-    writeEigMat(os, mOdomPreIntIMU.mJapij);
-    writeEigMat(os, mOdomPreIntIMU.mJgvij);
-    writeEigMat(os, mOdomPreIntIMU.mJavij);
-    writeEigMat(os, mOdomPreIntIMU.mJgRij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mpij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mRij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mvij);  // PRV
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mSigmaijPRV);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mSigmaij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mJgpij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mJapij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mJgvij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mJavij);
+    Serialize::writeEigMat(os, mOdomPreIntIMU.mJgRij);
   }
   return os.good();
 }
@@ -188,10 +188,7 @@ Frame::Frame(const Frame &frame, bool copy_shallow)
       mpORBextractors(frame.mpORBextractors),
       num_mono(frame.num_mono),
       mvidxsMatches(frame.mvidxsMatches),
-      goodmatches_(frame.goodmatches_),
-      mapcamidx2idxs_(frame.mapcamidx2idxs_),
       mapidxs2n_(frame.mapidxs2n_),
-      mv3Dpoints(frame.mv3Dpoints),
       vvkeys_(frame.vvkeys_),
       mapin2n_(frame.mapin2n_),
       mvbOutlier(frame.mvbOutlier),
@@ -287,7 +284,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
     N = mvKeys.size();
     if (!N) return;
 
-    if (!usedistort_) UndistortKeyPoints();
+    UndistortKeyPoints();
 
     if (1 < sz_extract)
       ComputeStereoMatches();
@@ -300,7 +297,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
     }
   } else {
     ComputeStereoFishEyeMatches(th_far_pts);
-    if (!usedistort_) UndistortKeyPoints();
+    UndistortKeyPoints();
   }
 #ifdef TIMER_FLOW
   timer_tmp.GetDTfromLast(2, "tracking_thread_debug.txt", "tm stereomatch=");
@@ -415,8 +412,13 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit) {
 }
 
 void Frame::UndistortKeyPoints() {
-  assert(!mpCameras.empty());
-  if (mpCameras[0]->GetType() == mpCameras[0]->CAM_PINHOLE) {
+  if (usedistort_) return;  // mvKeysUn won't be used when use distort image ba
+  size_t n_cams = mpCameras.size();
+  assert(n_cams);
+  bool bdirect_copy = true;
+  for (size_t icam = 0; icam < n_cams; ++icam)
+    if (mpCameras[icam]->GetType() != mpCameras[icam]->CAM_PINHOLE) bdirect_copy = false;
+  if (bdirect_copy) {
     mvKeysUn = mvKeys;
     return;
   }
@@ -633,16 +635,16 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   }
 
   // Check matches using Lowe's ratio
-  assert(!goodmatches_.size() && !mapcamidx2idxs_.size() && !mvidxsMatches.size());
+  assert(!stereoinfo_.goodmatches_.size() && !stereoinfo_.mapcamidx2idxs_.size() && !mvidxsMatches.size());
 #ifdef USE_STRATEGY_MIN_DIST
   vector<vector<double>> lastdists;
 #endif
   int num_thresh_try = thresh_cosdisparity[1] == thresh_cosdisparity[0] ? 1 : 2;
   for (int k = 0; k < num_thresh_try; ++k) {
     mvidxsMatches.clear();
-    goodmatches_.clear();
-    mapcamidx2idxs_.clear();
-    mv3Dpoints.clear();
+    stereoinfo_.goodmatches_.clear();
+    stereoinfo_.mapcamidx2idxs_.clear();
+    stereoinfo_.v3dpoints_.clear();
     lastdists.clear();
     descMatches = 0;
     for (size_t i = 0, idmatches = 0; i < n_cams - 1; ++i) {
@@ -658,8 +660,9 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
             aligned_vector<Eigen::Vector2d> kpts = {Vector2d(keyi.pt.x, keyi.pt.y), Vector2d(keyj.pt.x, keyj.pt.y)};
             if (mpCameras[i]->FillMatchesFromPair(vector<GeometricCamera *>(1, mpCameras[j]), n_cams,
                                                   vector<pair<size_t, size_t>>{make_pair(i, idxi), make_pair(j, idxj)},
-                                                  (*it)[0].distance, mvidxsMatches, goodmatches_, mapcamidx2idxs_,
-                                                  thresh_cosdisparity[0], &mv3Dpoints, &kpts, &sigmas
+                                                  (*it)[0].distance, mvidxsMatches, stereoinfo_.goodmatches_,
+                                                  stereoinfo_.mapcamidx2idxs_, thresh_cosdisparity[0],
+                                                  &stereoinfo_.v3dpoints_, &kpts, &sigmas
 #ifdef USE_STRATEGY_MIN_DIST
                                                   ,
                                                   &lastdists
@@ -685,13 +688,13 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
     for (size_t itmp = 0; itmp < n_cams; ++itmp) {
       if (-1 != mvidxsMatches[i][itmp]) ++count_num;
     }
-    if (count_num < 2) goodmatches_[i] = false;
+    if (count_num < 2) stereoinfo_.goodmatches_[i] = false;
   }
 #endif
   if (n_cams > 2) {
     nMatches = 0;
     for (size_t i = 0; i < mvidxsMatches.size(); ++i) {
-      if (!goodmatches_[i]) continue;
+      if (!stereoinfo_.goodmatches_[i]) continue;
       // For every good match, check parallax and reprojection error to discard spurious matches
       cv::Mat p3D;
       auto &idx = mvidxsMatches[i];
@@ -716,10 +719,11 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
         }
       }
       if (bgoodmatch) {
-        mv3Dpoints[i] = Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
+        stereoinfo_.v3dpoints_[i] =
+            Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
         nMatches++;
       } else
-        goodmatches_[i] = false;
+        stereoinfo_.goodmatches_[i] = false;
     }
   }
   PRINT_DEBUG_FILE("match num=" << nMatches << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
@@ -734,17 +738,18 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
       cv::vconcat(mDescriptors, vdescriptors_[i], mDescriptors);
     for (size_t k = 0; k < vvkeys_[i].size(); ++k) {
       auto camidx = make_pair(i, k);
-      auto iteridxs = mapcamidx2idxs_.find(camidx);
-      if (iteridxs != mapcamidx2idxs_.end()) {
+      auto iteridxs = stereoinfo_.mapcamidx2idxs_.find(camidx);
+      if (iteridxs != stereoinfo_.mapcamidx2idxs_.end()) {
         auto &ididxs = iteridxs->second;
-        if (-1 != ididxs && goodmatches_[ididxs]) {
-          Vector3d x3Dc = ((KannalaBrandt8 *)mpCameras[i])->GetTcr() * mv3Dpoints[ididxs];
+        if (-1 != ididxs && stereoinfo_.goodmatches_[ididxs]) {
+          Vector3d x3Dc = ((KannalaBrandt8 *)mpCameras[i])->GetTcr() * stereoinfo_.v3dpoints_[ididxs];
           stereoinfo_.vdepth_.push_back(x3Dc[2]);
         } else
           stereoinfo_.vdepth_.push_back(-1);
       } else {
         stereoinfo_.vdepth_.push_back(-1);
       }
+      // TODO: if right u used for stereo+distort mode(like fisheye), may change implementation here
       stereoinfo_.vuright_.push_back(-1);
       mvKeys.push_back(vvkeys_[i][k]);
       mapn2in_.push_back(camidx);
@@ -753,15 +758,15 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
   }
 
   if (mapin2n_.size() < n_cams) mapin2n_.resize(n_cams);
-  mapidxs2n_.resize(mv3Dpoints.size(), -1);
+  mapidxs2n_.resize(stereoinfo_.v3dpoints_.size(), -1);
   for (size_t k = 0; k < mvKeys.size(); ++k) {
     size_t cami = get<0>(mapn2in_[k]);
     assert(mapin2n_.size() > cami);
     if (mapin2n_[cami].size() < vvkeys_[cami].size()) mapin2n_[cami].resize(vvkeys_[cami].size());
     assert(mapin2n_[cami].size() > get<1>(mapn2in_[k]));
     mapin2n_[cami][get<1>(mapn2in_[k])] = k;
-    auto iteridxs = mapcamidx2idxs_.find(mapn2in_[k]);
-    if (iteridxs != mapcamidx2idxs_.end()) mapidxs2n_[iteridxs->second] = k;
+    auto iteridxs = stereoinfo_.mapcamidx2idxs_.find(mapn2in_[k]);
+    if (iteridxs != stereoinfo_.mapcamidx2idxs_.end()) mapidxs2n_[iteridxs->second] = k;
   }
   N = num_pt_added;
   assert(N == mvKeys.size());
@@ -771,30 +776,63 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
   stereoinfo_.vuright_ = vector<float>(N, -1);
   stereoinfo_.vdepth_ = vector<float>(N, -1);
 
-  for (int i = 0; i < N; i++) {
-    const cv::KeyPoint &kp = mvKeys[i];
-    const cv::KeyPoint &kpU = mvKeysUn[i];
-
-    const float &v = kp.pt.y;
-    const float &u = kp.pt.x;
-
-    const float d = imDepth.at<float>(v, u);
-
-    if (d > 0) {
-      stereoinfo_.vdepth_[i] = d;
-      // here maybe <0 and >=mnMaxX, suppose [mnMinX,mnMaxX), is there some problem?
-      stereoinfo_.vuright_[i] = kpU.pt.x - stereoinfo_.baseline_bf_[1] / d;
+  size_t n_cams_tot = mpCameras.size();
+  assert(1 == n_cams_tot);
+  if (usedistort_) {
+    for (size_t i = 0; i < n_cams_tot; ++i) {
+      for (size_t k = 0; k < vvkeys_[i].size(); ++k) {
+        auto camidx = make_pair(i, k);
+        mapn2in_.push_back(camidx);  // for BA assert(XXXmapn2in_.size() > i)
+      }
     }
   }
-}
+  for (int i = 0; i < N; i++) {
+    const cv::KeyPoint &kp = mvKeys[i];
+    const float &v = kp.pt.y;
+    const float &u = kp.pt.x;
+    const float d = imDepth.at<float>(v, u);
+    if (d > 0) {
+      stereoinfo_.vdepth_[i] = d;
+      Vector2d kpuse;
+      size_t cami = 0;
+      if (usedistort_) {
+        kpuse = Vector2d(kp.pt.x, kp.pt.y);
 
-size_t Frame::GetMapn2idxs(size_t i) {
-  if (mapn2in_.size() <= i) return -1;  // for no mpCameras mode sz is 0
-  auto iteridx = mapcamidx2idxs_.find(mapn2in_[i]);
-  if (iteridx == mapcamidx2idxs_.end())
-    return -1;
-  else
-    return iteridx->second;
+        // for Frame::UnprojectStereo
+        cami = get<0>(mapn2in_[i]);
+        Vector3d kpun_norm = mpCameras[cami]->unproject(kpuse);
+        vector<size_t> idxs(n_cams_tot, -1);
+        size_t idxi = i;
+        idxs[cami] = idxi;
+        size_t ididxs = mvidxsMatches.size();
+        auto camidxi = make_pair(cami, idxi);
+        stereoinfo_.mapcamidx2idxs_.emplace(camidxi, ididxs);
+        mvidxsMatches.emplace_back(idxs);
+        stereoinfo_.v3dpoints_.resize(mvidxsMatches.size());
+        stereoinfo_.goodmatches_.emplace_back(true);
+        stereoinfo_.v3dpoints_[ididxs] = kpun_norm * d;
+      } else
+        kpuse = Vector2d(mvKeysUn[i].pt.x, mvKeysUn[i].pt.y);
+      // here maybe <0(Mono) and >=mnMaxX, suppose [mnMinX,mnMaxX), so d has dmin(corresponds to mnMinX/0)
+      // even usedistort, this should exist to provide depth info for BA on single image(just trans unit m to pixel)
+      stereoinfo_.vuright_[i] = kpuse[0] - stereoinfo_.baseline_bf_[1] / d;
+    }
+  }
+
+  // for Frame::UnprojectStereo
+  if (usedistort_) {
+    if (mapin2n_.size() < n_cams_tot) mapin2n_.resize(n_cams_tot);
+    mapidxs2n_.resize(stereoinfo_.v3dpoints_.size(), -1);
+    for (size_t k = 0; k < mvKeys.size(); ++k) {
+      size_t cami = get<0>(mapn2in_[k]);
+      assert(mapin2n_.size() > cami);
+      if (mapin2n_[cami].size() < vvkeys_[cami].size()) mapin2n_[cami].resize(vvkeys_[cami].size());
+      assert(mapin2n_[cami].size() > get<1>(mapn2in_[k]));
+      mapin2n_[cami][get<1>(mapn2in_[k])] = k;
+      auto iteridxs = stereoinfo_.mapcamidx2idxs_.find(mapn2in_[k]);
+      if (iteridxs != stereoinfo_.mapcamidx2idxs_.end()) mapidxs2n_[iteridxs->second] = k;
+    }
+  }
 }
 
 cv::Mat Frame::UnprojectStereo(const int &i) {
@@ -802,8 +840,9 @@ cv::Mat Frame::UnprojectStereo(const int &i) {
     const float z = stereoinfo_.vdepth_[i];
     if (z > 0) {
       auto ididxs = GetMapn2idxs(i);
-      CV_Assert(-1 != ididxs && goodmatches_[ididxs]);
-      Vector3d x3Dw = Converter::toMatrix3d(mRwc) * (GetTcr() * mv3Dpoints[ididxs]) + Converter::toVector3d(mOw);
+      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
+      Vector3d x3Dw =
+          Converter::toMatrix3d(mRwc) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) + Converter::toVector3d(mOw);
       return Converter::toCvMat(x3Dw);
     } else {
       return cv::Mat();
@@ -812,6 +851,7 @@ cv::Mat Frame::UnprojectStereo(const int &i) {
 
   const float z = stereoinfo_.vdepth_[i];
   if (z > 0) {
+    assert(!usedistort_);
     const float u = mvKeysUn[i].pt.x;
     const float v = mvKeysUn[i].pt.y;
     Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);

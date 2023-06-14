@@ -27,6 +27,10 @@ fi
 echo "ConfigFile="$ConfigFile
 EuRoCLike_TimeStamps=$EuRoCFolder/${EuRoCFolderRel}_TimeStamps
 echo "EuRoCLike_TimeStamps="$EuRoCLike_TimeStamps
+MapSparseName=""
+if [[ $6 != "" ]]; then
+  MapSparseName=$6
+fi
 
 echo "CAMTYPE="$CAMTYPE
 echo "EUROCFILE="$EUROCFILE
@@ -49,11 +53,11 @@ else
 fi
 
 if [[ $CAMTYPE == "StereoVIO" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU
+  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "MonocularVIO" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU
+  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Stereo" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt
+  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Monocular" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt
+  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
 fi

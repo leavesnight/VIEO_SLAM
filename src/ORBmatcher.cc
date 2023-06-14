@@ -27,7 +27,8 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
                                         KeyFrame *pKF, const float th_radius, const float th_bestdist,
                                         bool bCheckViewingAngle, const float *pbf, int *pnfused, char mode,
                                         vector<vector<bool>> *pvbAlreadyMatched1, vector<set<int>> *pvnMatch1) {
-  bool usedistort = pKF->mpCameras.size() && Frame::usedistort_;
+  assert(!pKF->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   bool only1match = !(SBPMatchMultiCam & mode), fuselater = SBPFuseLater & mode;
   CV_Assert(!fuselater || pvnMatch1);
   PRINT_DEBUG_FILE_MUTEX("SBPB" << (int)fuselater << (int)only1match << endl, mlog::vieo_slam_debug_path, "debug.txt");
@@ -64,16 +65,13 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
 #endif
 
       Vector3d Pc = Converter::toVector3d(Pcr);
-      GeometricCamera *pcam1 = nullptr;
       cv::Mat twc = twcr.clone();  // wO
-      if (pKF->mpCameras.size() > cami) {
-        pcam1 = pKF->mpCameras[cami];
-        Pc = pcam1->GetTcr() * Pc;
-        twc += Rcrw.t() * pcam1->Getcvtrc();
-      }
-      // Depth must be positive
-      if (Pc(2) <= 0.0)  //== rectified by zzh
-        continue;
+      assert(pKF->mpCameras.size() > cami);
+      GeometricCamera *pcam1 = pKF->mpCameras[cami];
+      Pc = pcam1->GetTcr() * Pc;
+      twc += Rcrw.t() * pcam1->Getcvtrc();
+      // Depth must be positive; == rectified by zzh
+      if (Pc(2) <= 0.0) continue;
 
       // Project into Image
       const float invz = 1 / Pc(2);
@@ -536,12 +534,10 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
     for (size_t cami = 0; cami < n_cams; ++cami) {
       Vector3d Pc = Converter::toVector3d(Pcr);
       cv::Mat twc = twcr.clone();
-      GeometricCamera *pcam1 = nullptr;
-      if (pKF->mpCameras.size() > cami) {
-        pcam1 = pKF->mpCameras[cami];
-        Pc = pcam1->GetTcr() * Pc;
-        twc += Rcrw.t() * pcam1->Getcvtrc();
-      }
+      assert(pKF->mpCameras.size() > cami);
+      GeometricCamera *pcam1 = pKF->mpCameras[cami];
+      Pc = pcam1->GetTcr() * Pc;
+      twc += Rcrw.t() * pcam1->Getcvtrc();
       // Depth must be positive
       if (Pc(2) <= 0.0)  //== rectified by zzh
         continue;
@@ -629,12 +625,14 @@ int ORBmatcher::SearchByProjection(KeyFrame *pKF, cv::Mat Scw, const vector<MapP
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched,
                                         vector<int> &vnMatches12, int windowSize) {
   int nmatches = 0;
+  assert(!F1.usedistort_);
   vnMatches12 = vector<int>(F1.mvKeysUn.size(), -1);
 
   vector<int> rotHist[HISTO_LENGTH];
   for (int i = 0; i < HISTO_LENGTH; i++) rotHist[i].reserve(500);
   const float factor = 1.0f / HISTO_LENGTH;
 
+  assert(!F2.usedistort_);
   vector<int> vMatchedDistance(F2.mvKeysUn.size(), INT_MAX);
   vector<int> vnMatches21(F2.mvKeysUn.size(), -1);
 
@@ -897,7 +895,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
   size_t vn_cams[2] = {pKF1->mpCameras.size(), pKF2->mpCameras.size()};
   for (int i = 0; i < 2; ++i)
     if (0 >= vn_cams[i]) vn_cams[i] = 1;
-  bool usedistort[2] = {pKF1->mpCameras.size() && Frame::usedistort_, pKF2->mpCameras.size() && Frame::usedistort_};
+  assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
+  bool usedistort[2] = {pKF1->usedistort_, pKF2->usedistort_};
   const DBoW2::FeatureVector &vFeatVec1 = pKF1->mFeatVec;
   const DBoW2::FeatureVector &vFeatVec2 = pKF2->mFeatVec;
 
@@ -966,8 +965,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
         // If there is already a MapPoint skip
         if (pMP1) continue;
 
-        const bool bStereo1 =
-            pKF1->stereoinfo_.vuright_[idx1] >= 0;  // can be optimized in RGBD by using mvDepth[idx1]>0
+        // may be optimized in RGBD/Stereo by using mvDepth[idx1]>0
+        const bool bStereo1 = pKF1->stereoinfo_.vuright_[idx1] >= 0;
 
         // in CreateNewMapPoints() in LocalMapping it's false, means triangulate even monocular point
         // without stereo matches(may happen in RGBD even with depth>0)
@@ -1021,10 +1020,8 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
             continue;
 
           const cv::KeyPoint &kp2 = !usedistort[1] ? pKF2->mvKeysUn[idx2] : pKF2->mvKeys[idx2];
-
-          if (!bStereo1 &&
-              !bStereo2)  // both monocular points, just allow at least 7~14 square pixels away from c1,but why?
-          {
+          // both monocular points, just allow at least 7~14 square pixels away from c1, for similar view angle demand!
+          if (!bStereo1 && !bStereo2) {
             const float distex = ex - kp2.pt.x;
             const float distey = ey - kp2.pt.y;
             if (distex * distex + distey * distey < 100 * pKF2->scalepyrinfo_.vscalefactor_[kp2.octave]) continue;
@@ -1339,12 +1336,9 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
     size_t n_camsj = !CurrentFrame.mpCameras.size() ? 1 : CurrentFrame.mpCameras.size();
     // assert(LastFrame.mapn2in_.size() > i);
     // size_t camj = get<0>(LastFrame.mapn2in_[i]);
-    // assert(CurrentFrame.mpCameras.size() > camj;)
     for (size_t camj = 0; camj < n_camsj; ++camj) {
-      if (CurrentFrame.mpCameras.size() > camj) {
-        x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
-      } else
-        x3Dc = x3Dr;
+      assert(CurrentFrame.mpCameras.size() > camj);
+      x3Dc = CurrentFrame.mpCameras[camj]->GetTcr() * x3Dr;
 
       const float xc = x3Dc(0);
       const float yc = x3Dc(1);
@@ -1354,7 +1348,7 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         continue;
 
       float u, v;
-      if (CurrentFrame.mpCameras.size() > camj && Frame::usedistort_) {
+      if (CurrentFrame.usedistort_) {
         auto pt = CurrentFrame.mpCameras[camj]->project(x3Dc);
         u = pt[0];
         v = pt[1];
@@ -1406,8 +1400,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
         if (CurrentFrame.stereoinfo_.vuright_[i2] > 0) {
           const float ur = u - CurrentFrame.stereoinfo_.baseline_bf_[1] * invzc;  // leftKP.x-bf/leftKP.depth
           const float er = fabs(ur - CurrentFrame.stereoinfo_.vuright_[i2]);
-          if (er > radius)  // rectangle window should also be suitable in virtual right camera for RGBD,can use >= here
-            continue;
+          // rectangle window should also be suitable in virtual right camera for RGBD,can use >= here
+          if (er > radius) continue;
         }
 
         // const cv::Mat &d = !CurrentFrame.mapn2ijn_.size() ? CurrentFrame.mDescriptors.row(i2) :
@@ -1502,12 +1496,10 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
     for (size_t cami = 0; cami < n_cams; ++cami) {
       Vector3d Pc = x3Dcr;
       Eigen::Vector3d twc = twcr;
-      GeometricCamera *pcam1 = nullptr;
-      if (CurrentFrame.mpCameras.size() > cami) {
-        pcam1 = CurrentFrame.mpCameras[cami];
-        Pc = pcam1->GetTcr() * Pc;
-        twc += Rwcr * pcam1->GetTrc().translation();
-      }
+      assert(CurrentFrame.mpCameras.size() > cami);
+      GeometricCamera *pcam1 = CurrentFrame.mpCameras[cami];
+      Pc = pcam1->GetTcr() * Pc;
+      twc += Rwcr * pcam1->GetTrc().translation();
       const float invzc = 1.0 / Pc(2);
 
       float u, v;

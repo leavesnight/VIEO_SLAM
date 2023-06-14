@@ -100,8 +100,8 @@ void LoopClosing::Run() {
       if (DetectLoop()) {  // else no gw to calculate GBA //(mpIMUInitiator->GetVINSInited())&&
         // Compute similarity transformation [sR|t]
         // In the stereo/RGBD case s=1
-        unique_lock<mutex> lockScale(
-            mpMap->mMutexScaleUpdateLoopClosing);  // notice we cannot update scale during LoopClosing or LocalBA!
+        // notice we cannot update scale during LoopClosing or LocalBA!
+        unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);
         if (ComputeSim3()) {
           // Perform loop fusion and pose graph optimization
           CorrectLoop();
@@ -336,7 +336,8 @@ bool LoopClosing::ComputeSim3() {
       vbDiscarded[i] = true;
       continue;
     } else {
-      Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);  // how?
+      // ICP3D
+      Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);
       // 20 is stricter than Relocalization()s, old 20 new 10
       int minInliers = mnLastOdomKFId == 0 ? thresh_inliers_[0] : thresh_inliers_[1];
       pSolver->SetRansacParameters(0.99, minInliers, 300);
@@ -404,11 +405,10 @@ bool LoopClosing::ComputeSim3() {
         {
           bMatch = true;
           mpMatchedKF = pKF;  // member data, enough matched loop candidate KF
-          g2o::Sim3 gSmw(Converter::toMatrix3d(pKF->GetRotation()), Converter::toVector3d(pKF->GetTranslation()),
-                         1.0);  // g2o::Sim3(Tc2w/T2w) for RGBD
-          mg2oScw =
-              gScm *
-              gSmw;  // g2o: T1w=T12*T2w for RGBD, this means we fix loop candidate KF, correct the mpCurrentKF's Pose
+          // g2o::Sim3(Tc2w/T2w) for RGBD/Stereo
+          g2o::Sim3 gSmw(Converter::toMatrix3d(pKF->GetRotation()), Converter::toVector3d(pKF->GetTranslation()), 1.0);
+          // g2o: T1w=T12*T2w for RGBD/Stereo, this means we fix loop candidate KF, correct the mpCurrentKF's Pose
+          mg2oScw = gScm * gSmw;
           mScw = Converter::toCvMat(mg2oScw);  // Scamera1_world/S1w/ScurrentKF_world/Scw
 
           mvpCurrentMatchedPoints = vpMapPointMatches;  // enough BA inliers' mpCurrentKF->mvpMapPoints' matched MPs
@@ -648,8 +648,9 @@ void LoopClosing::CorrectLoop() {
   }
 
   // Optimize graph, inform change and kfs pose/mp position change must lock MapUpdate!
+  // PoseGraph Opt.
   Optimizer::OptimizeEssentialGraph(mpMap, mpMatchedKF, mpCurrentKF, NonCorrectedSim3, CorrectedSim3, LoopConnections,
-                                    mbFixScale);  // PoseGraph Opt.
+                                    mbFixScale);
 
   // Add loop edge
   mpMatchedKF->AddLoopEdge(mpCurrentKF);
@@ -785,7 +786,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       // propagate the correction through the spanning tree(root is always id0 KF)
       // if the propagation is not over (notice mpMap cannot be reset for LocalMapping is stopped)
       while (!lpKFtoCheck.empty()) {
-        KeyFrame* pKF = lpKFtoCheck.front();  // for RGBD, lpKFtoCheck should only have one KF initially
+        KeyFrame* pKF = lpKFtoCheck.front();  // for RGBD/Stereo, lpKFtoCheck should only have one KF initially
         const set<KeyFrame*> sChilds = pKF->GetChilds();
         cv::Mat Twc = pKF->GetPoseInverse();
         // 		cout<<"Check: "<<pKF->mnId<<endl;

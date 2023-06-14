@@ -74,6 +74,9 @@ GBA.finalIterations: 20
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 
+# default 0 for not fisheye means process on undistorted image, 1 means BA and other process on raw image
+Camera.usedistort: 0
+
 # Camera calibration and distortion parameters (OpenCV) 
 Camera.fx: 517.87
 Camera.fy: 517.53

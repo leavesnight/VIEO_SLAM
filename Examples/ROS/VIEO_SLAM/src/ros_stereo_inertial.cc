@@ -259,7 +259,7 @@ void ImageGrabber::SyncWithImu() {
       std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
 #endif
 #endif
-      mpSLAM->TrackStereo(vector<cv::Mat>({imLeft, imRight}), tImLeft, do_rectify);
+      mpSLAM->TrackStereo(vector<cv::Mat>({imLeft, imRight}), tImLeft);
 #ifdef PRINT_TIME_COST
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
       std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

@@ -1,26 +1,38 @@
 # VIEO_SLAM
-Now this project is improved by zzh
+Now this project is improved by zzh, based on ORBSLAM2 && ORBSLAM3
 
-1.Some annotations and elimination are done
+1. More Annotations and Less Codes(By Template Class Tech.)
+2. Real-Time Code With Some Subtle Changes(default is to be faster):
+   1. Able to run full ba at last(slower but map should be more accurate)
+   2. Loading uses .bin vocabulary
+   3. PoseOptimization uses PVR vertex while localBA/GlobalBA use PR-V
+   4. Some other time cost related changes
+   5. Future work can be:
+      1. inverse depth parameterization
+      2. optical flow method
+   
+3. More Camera+Sensor Modes are supported:
+   1. undistorted Monocular + (IMU/Encoder) mode: Monocular V(I)(E)O is implemented like the VIORBSLAM paper[Visual-Inertial Monocular SLAM with Map Reuse](https://arxiv.org/pdf/1610.05949.pdf), especially thanks to OnManifold Preintegration paper[On-Manifold Preintegration for Real-Time](https://arxiv.org/pdf/1512.02363.pdf) and [JingWang's initial version](https://github.com/jingpang/LearnVIORB) and our VIEOS2 paper
+   2. rectified Stereo(max 2 cams) + (IMU/Encoder) mode: Stereo V(I)(E)O is implemented like our VIEOS2 paper
+   3. undistorted RGBD(max 1 cam) + (IMU/Encoder) mode: RGBD V(I)(E)O is implemented like our VIEOS2 paper[Visual-Inertial RGB-D SLAM with Encoders for a Differential Wheeled Robot](https://github.com/leavesnight/ORB_SLAM2)
+   4. distorted Stereo(max 4 cams) + (IMU/Encoder) mode: dStereo V(I)(E)O is implemented like [ORBSLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) and our VIEOS2 paper
+   5. distorted RGBD(max 1 cam) + (IMU/Encoder) mode: dRGBD V(I)(E)O is implemented like dStereo VIEO
+      
+4. We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor. 
+   We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
 
-2.VIORBSLAM is implemented like the VIORBSLAM paper[Visual-Inertial Monocular SLAM with Map Reuse](https://arxiv.org/pdf/1610.05949.pdf), especially thanks to OnManifold Preintegration paper[On-Manifold Preintegration for Real-Time](https://arxiv.org/pdf/1512.02363.pdf) and [JingWang's initial version](https://github.com/jingpang/LearnVIORB)
-
-3.It's a real-time code with full ba at last, PoseOptimization uses PVR vertex while localBA/GlobalBA use PR-V, No inverse depth parameterization, Loading uses .bin vocabulary, Some other related changes
-
-4.Stereo/RGBD+IMU version is completed, thought it's slow, it doesn't have unstable initialization problem on V103 & may succeed totally on V203 if PC is nice & it usually has better non-GT scaled accuracy. We call it VIORBSLAM2 for it supports three kinds of cameras.
-
-5.An RGBD/Stereo version with Encoder+IMU, Encoder has already come, we call it VIEORBSLAM2, VEORBSLAM2 respectively for it's based on ORBSLAM2 & VIORBSLAM.
-Though the code now cannot be applied for Monocular+Encoder due to the lack of pure encoder edges insertion strategy and scale initialization,
-it's not too difficult to implement and we have considered that the Initialization of Monocular SLAM is not suitable for a Differential Wheeled Robot based on our experience.
-
-6.We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor currently.
-We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
+PS:
+   1. IMU now only support max 1 IMU
+   2. If more cams on distorted Stereo, easily fix the seg bug by yourself
+   3. For Monocular V(I)EO: pure encoder edges insertion strategy now is simple like +IMU insertion strategy,
+      but scale initialization for mono is still lacked, so this mode is not fully completed;
+      And we still consider Initialization of Monocular SLAM is not suitable for a Differential Wheeled Robot based on our experience
 
 ## Test
 
 ### EuRoC Dataset
 
-*WithFull BA VIORBSLAM:*
+*WithFull BA Monocular/(d)Stereo VIO:*
 
 **ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
 ```
@@ -50,7 +62,7 @@ tm cost(ms): 41 ->20 --30
 
 ### TUM Dataset
 
-*Without Full BA VIORBSLAM:*
+*Without Full BA dStereo VIO:*
 
 **ATE Random tests (1|2|...) StereoVIO Res(m);feat num 1000(default)->375:**
 
@@ -152,7 +164,8 @@ ORB-SLAM2 is released under a [GPLv3 license](https://github.com/raulmur/ORB_SLA
 VIEO_SLAM is under review and when the paper is published, we may also apply for GPLv3 release or just use the one from ORB-SLAM2
 
 For a closed-source version of ORB-SLAM2 for commercial purposes, please contact the authors: orbslam (at) unizar (dot) es.
-For a closed-source version of VIEO_SLAM for commercial purposes, please contact the authors: zhuzhanghao9331@yahoo.co.jp; orbslam (at) unizar (dot) es.
+
+For a closed-source version of VIEO_SLAM for commercial purposes, please contact the authors: zhuzhanghao9331@yahoo.co.jp
 
 If you use ORB-SLAM2 (Monocular) in an academic work, please cite:
 

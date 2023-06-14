@@ -76,21 +76,25 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
 // zzh over
 
 int main(int argc, char **argv) {
-  thread *pOdomThread = NULL;
+  thread *pOdomThread = nullptr;
   ifstream finOdomdata;
   int totalNum = 0;
   PRINT_INFO_MUTEX(fixed << setprecision(6) << endl);
 
+  string map_sparse_name = "";
   switch (argc) {
     case 6:
       break;
+    case 9:
+      // Map Reuse Stereo
+      map_sparse_name = argv[8];
     case 8:
       totalNum = atoi(argv[7]);
     case 7: {
       finOdomdata.open(argv[6]);
       if (!finOdomdata.is_open()) {
         cerr << redSTR "Please check the last path_to_odometryData" << endl;
-        return -1;
+        break;
       }
       string strTmp;
       // EuRoC/TUM_VI's imu data file only has one unused line
@@ -175,7 +179,7 @@ int main(int argc, char **argv) {
     VIEO_SLAM::System::usedistort_ = true;
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
-  VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
+  VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true, map_sparse_name);
   g_pSLAM = &SLAM;  // zzh
 
   const int nImages = vstrImageLeft.size();
@@ -251,7 +255,7 @@ int main(int argc, char **argv) {
     if (!imLeftRect.empty())
       SLAM.TrackStereo(vector<cv::Mat>({imLeftRect, imRightRect}), tframe);
     else
-      SLAM.TrackStereo(vector<cv::Mat>({imLeft, imRight}), tframe, false);
+      SLAM.TrackStereo(vector<cv::Mat>({imLeft, imRight}), tframe);
 
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
@@ -318,7 +322,10 @@ int main(int argc, char **argv) {
   SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+  if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
 
+  // wait for pOdomThread finished
+  if (pOdomThread) pOdomThread->join();
   return 0;
 }
 

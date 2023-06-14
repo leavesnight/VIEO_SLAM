@@ -38,6 +38,8 @@ class FrameBase {
   using array = std::array<_Tp, _Nm>;
   template <typename _Key>
   using set = std::set<_Key>;
+  template <typename _Key, typename _Tp>
+  using map = std::map<_Key, _Tp>;
   template <typename _T1, typename _T2>
   using pair = std::pair<_T1, _T2>;
   using ostream = std::ostream;
@@ -157,13 +159,19 @@ class FrameBase {
   // for keyframe judge and culling, filled in frame (half)constructor, unchanged after
   typedef struct _StereoInfo {
     // Corresponding stereo depth and right coordinate for each keypoint.
-    vector<float> vdepth_;   // this size(n) >= v3dpoints_.size()(idxs)
-    vector<float> vuright_;  // to speed up ba for rectified stereo; "Monocular" keypoints have a negative value.
+    vector<float> vdepth_;  // this size(n) >= v3dpoints_.size()(idxs)
+    // to speed up ba for (un)distorted RGBD/(rectified) stereo; <0 means "Monocular" keypoints
+    vector<float> vuright_;
+    // Triangulated stereo observations in reference frame. for ComputeStereoXXX() and UnprojectStereo()
+    aligned_vector<Vector3d> v3dpoints_;                // keep same size with vidxs_matches
+    vector<bool> goodmatches_;                          // keep same size with vidxs_matches
+    map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
     // Stereo baseline in meters; bf means Stereo baseline multiplied by fx; bf = b * f
     float baseline_bf_[2] = {15.f / 250, 15.f};
   } StereoInfo;
   // mean if this key pt or mp is triangulated by precalibrated Tcicj
   StereoInfo stereoinfo_;
+  size_t GetMapn2idxs(size_t i);
 
   // some unchanged members after constructor func.
   // members inited in derived Frame constructor
@@ -218,26 +226,9 @@ class FrameBase {
   static GridInfo gridinfo_;
   // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
   vector<vector<vector<size_t>>> vgrids_;  //[cami][x*ROWS+y][id_kp]
-
- public:  // for serialize
-  // can also be used for set/list
-  template <class T>
-  static inline bool writeVec(ostream &os, const T &vec);
-  template <class T>
-  static inline bool writeVecwrite(ostream &os, const T &lis);
-  static inline bool writeMat(ostream &os, const cv::Mat &mat);
-  // for Eigen::Matrix<_Scalar,_Rows,_Cols>
-  template <class T>
-  static inline bool writeEigMat(ostream &os, const T &mat);
-  template <class T>
-  static inline bool readVec(istream &is, T &vec);
-  template <class T>
-  static inline bool readVecread(istream &is, T &lis);
-  static inline bool readMat(istream &is, cv::Mat &mat);
-  template <class T>
-  static inline bool readEigMat(istream &is, T &mat);
 };
 
+// speicalize
 template <>
 void FrameBase::ClearOdomPreInt<IMUData>();
 template <>
@@ -250,55 +241,5 @@ template <>
 void FrameBase::PreIntegration<IMUData>(FrameBase *plastfb, const typename aligned_list<IMUData>::const_iterator &iteri,
                                         const typename aligned_list<IMUData>::const_iterator &iterj, bool breset,
                                         int8_t verbose);
-
-// hpp
-template <class T>
-bool FrameBase::writeVec(ostream &os, const T &vec) {
-  for (typename T::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-    os.write((char *)&(*iter), sizeof(*iter));
-  }
-  return os.good();
-}
-template <class T>
-bool FrameBase::writeVecwrite(ostream &os, const T &lis) {
-  for (typename T::const_iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->write(os);
-  return os.good();
-}
-bool FrameBase::writeMat(ostream &os, const cv::Mat &mat) {
-  for (int i = 0; i < mat.rows; ++i) {
-    os.write((char *)mat.ptr(i), mat.cols * mat.elemSize());
-  }
-  return os.good();
-}
-template <class T>
-bool FrameBase::writeEigMat(ostream &os, const T &mat) {
-  // mat.size()==mat.rows()*mat.cols(), saved
-  os.write((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
-  // acquiescently as the column-major order
-  return os.good();
-}
-template <class T>
-bool FrameBase::readVec(istream &is, T &vec) {
-  for (typename T::iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-    is.read((char *)&(*iter), sizeof(*iter));
-  }
-  return is.good();
-}
-template <class T>
-bool FrameBase::readVecread(istream &is, T &lis) {
-  for (typename T::iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->read(is);
-  return is.good();
-}
-bool FrameBase::readMat(istream &is, cv::Mat &mat) {
-  for (int i = 0; i < mat.rows; ++i) {
-    is.read((char *)mat.ptr(i), mat.cols * mat.elemSize());
-  }
-  return is.good();
-}
-template <class T>
-bool FrameBase::readEigMat(istream &is, T &mat) {
-  is.read((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
-  return is.good();
-}
 
 }  // namespace VIEO_SLAM

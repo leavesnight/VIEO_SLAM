@@ -805,7 +805,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
       bexist_cam = KannalaBrandt8::ParseCamParamFile(fSettings, i, mpCameras[i]);
     } else {
       if (sCameraName == "Pinhole") {
-        CV_Assert(!pSys->usedistort_);
+        assert(!pSys->usedistort_);
         bexist_cam = Pinhole::ParseCamParamFile(fSettings, i, mpCameras[i]);
       } else if (sCameraName == "Radtan") {
         bexist_cam = Radtan::ParseCamParamFile(fSettings, i, mpCameras[i]);
@@ -932,8 +932,9 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
                           &preint_imu_kf_, &preint_enc_kf_, System::usedistort_, mpLocalMapper->th_far_pts_);
   else if (System::RGBD == mSensor)
     mCurrentFrame = Frame(vector<cv::Mat>({mImGrays[0], img_depth_}), timestamp, mpORBextractors, mpORBVocabulary,
-                          mpCameras, mbf, mThDepth, &preint_imu_kf_, &preint_enc_kf_, false);
+                          mpCameras, mbf, mThDepth, &preint_imu_kf_, &preint_enc_kf_, System::usedistort_);
   else {
+    assert(!System::usedistort_ && "Now Mono mode can not support usedistort mode!");
     if (mState == NOT_INITIALIZED || mState == NO_IMAGES_YET)
       mCurrentFrame = Frame(mImGrays, timestamp, mpIniORBextractors, mpORBVocabulary, mpCameras, mbf, mThDepth,
                             &preint_imu_kf_, &preint_enc_kf_, false);
@@ -1418,7 +1419,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
 
     // Create MapPoints and asscoiate to KeyFrame
     // every points with depth info!
-    if (mCurrentFrame.mv3Dpoints.empty()) {
+    if (mCurrentFrame.stereoinfo_.v3dpoints_.empty()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
         float z = mCurrentFrame.stereoinfo_.vdepth_[i];
         if (z > 0) {
@@ -1438,8 +1439,8 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
       }
     } else {
       // TODO: only left this
-      for (int k = 0; k < mCurrentFrame.mv3Dpoints.size(); ++k) {
-        if (mCurrentFrame.goodmatches_[k]) {
+      for (int k = 0; k < mCurrentFrame.stereoinfo_.v3dpoints_.size(); ++k) {
+        if (mCurrentFrame.stereoinfo_.goodmatches_[k]) {
           int i = mCurrentFrame.mapidxs2n_[k];
           CV_Assert(-1 != i);
           cv::Mat x3D =
@@ -1460,7 +1461,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
             }
           }
           PRINT_DEBUG_FILE_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
-          CV_Assert(icheck);
+          assert(icheck);
           pNewMP->ComputeDistinctiveDescriptors();  // choose the observed descriptor having the least median distance
                                                     // to the left
           pNewMP->UpdateNormalAndDepth();           // calc the mean viewing direction and max/min dist?
@@ -1501,6 +1502,7 @@ void Tracking::MonocularInitialization() {
 
       mInitialFrame = Frame(mCurrentFrame, true);
       mLastFrame = Frame(mCurrentFrame, true);
+      assert(!mCurrentFrame.usedistort_);
       mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
       for (size_t i = 0; i < mCurrentFrame.mvKeysUn.size(); i++) mvbPrevMatched[i] = mCurrentFrame.mvKeysUn[i].pt;
 
@@ -1815,37 +1817,38 @@ void Tracking::UpdateLastFrame() {
   const auto& lfmps = mLastFrame.GetMapPointMatches();
   for (size_t j = 0; j < vDepthIdx.size(); j++) {
     int i = vDepthIdx[j].second;
+    bool bcreatenew = false;
+    MapPoint* pmp_old = lfmps[i];
+    if (!pmp_old || pmp_old->Observations() < 1) bcreatenew = true;
 
-    bool bCreateNew = false;
-
-    MapPoint* pMP = lfmps[i];
-    if (!pMP)
-      bCreateNew = true;
-    else if (pMP->Observations() < 1) {
-      bCreateNew = true;
-    }
-
-    if (bCreateNew) {
+    if (bcreatenew) {
       cv::Mat x3D = mLastFrame.UnprojectStereo(i);
       MapPoint* pNewMP = new MapPoint(x3D, mpMap, &mLastFrame, i);  // different here, TODO: unify it
 
-      size_t ididxs = mCurrentFrame.GetMapn2idxs(i);
+      size_t ididxs = mLastFrame.GetMapn2idxs(i);
       if (-1 == ididxs) {
         mLastFrame.AddMapPoint(pNewMP, i);
       } else {
-        auto idxs = mCurrentFrame.mvidxsMatches[ididxs];
+        auto idxs = mLastFrame.mvidxsMatches[ididxs];
         bool icheck = false;
         for (int cami = 0; cami < idxs.size(); ++cami) {
           if (-1 != idxs[cami]) {
-            auto icami = mCurrentFrame.mapin2n_[cami][idxs[cami]];
-            if (icami == i) icheck = true;
-            mLastFrame.AddMapPoint(pNewMP, icami);
+            auto icami = mLastFrame.mapin2n_[cami][idxs[cami]];
+            bcreatenew = false;
+            if (icami == i) {
+              icheck = true;
+              bcreatenew = true;
+            } else {
+              pmp_old = lfmps[icami];
+              if (!pmp_old || pmp_old->Observations() < 1) bcreatenew = true;
+            }
+            if (bcreatenew) {
+              mLastFrame.AddMapPoint(pNewMP, icami);
+            }
           }
         }
-        CV_Assert(icheck);
+        assert(icheck);
       }
-      // pNewMP->ComputeDistinctiveDescriptors(); // TODO: compute and update for fisheye
-      // pNewMP->UpdateNormalAndDepth();
 
       mlpTemporalPoints.push_back(pNewMP);
       nPoints++;
@@ -2065,7 +2068,7 @@ bool Tracking::NeedNewKeyFrame() {
   int nTrackedClose = 0;
   if (mSensor != System::MONOCULAR) {
     const auto& curfmps = mCurrentFrame.GetMapPointMatches();
-    if (!mCurrentFrame.mv3Dpoints.size()) {
+    if (mCurrentFrame.stereoinfo_.v3dpoints_.empty()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
         if (mCurrentFrame.stereoinfo_.vdepth_[i] > 0 &&
             mCurrentFrame.stereoinfo_.vdepth_[i] < mThDepth)  // it's a close point
@@ -2077,8 +2080,8 @@ bool Tracking::NeedNewKeyFrame() {
         }
       }
     } else {
-      for (int k = 0; k < mCurrentFrame.mv3Dpoints.size(); ++k) {
-        if (mCurrentFrame.goodmatches_[k]) {
+      for (int k = 0; k < mCurrentFrame.stereoinfo_.v3dpoints_.size(); ++k) {
+        if (mCurrentFrame.stereoinfo_.goodmatches_[k]) {
           size_t i = mCurrentFrame.mapidxs2n_[k];
           CV_Assert(-1 != i);
           float z = mCurrentFrame.stereoinfo_.vdepth_[i];
@@ -2104,8 +2107,7 @@ bool Tracking::NeedNewKeyFrame() {
   if (!bimu_inited) timegap = 0.25;
   bool cTimeGap = false;
   int minClose = 70;
-  bool bctimegap_judge =
-      mpIMUInitiator->GetSensorIMU() || (mState == ODOMOK && System::MONOCULAR == mSensor);
+  bool bctimegap_judge = mpIMUInitiator->GetSensorIMU() || (mState == ODOMOK && System::MONOCULAR == mSensor);
   if (bctimegap_judge) {
     //#ifdef ORB3_STRATEGY
     //    if (!mpIMUInitiator->GetSensorEnc()) {
@@ -2212,7 +2214,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
     // If there are less than 100 close points we create the 100 closest close points
     vector<pair<float, int>> vDepthIdx;
     vDepthIdx.reserve(mCurrentFrame.N);
-    if (!mCurrentFrame.mv3Dpoints.size()) {
+    if (mCurrentFrame.stereoinfo_.v3dpoints_.empty()) {
       for (int i = 0; i < mCurrentFrame.N; i++) {
         float z = mCurrentFrame.stereoinfo_.vdepth_[i];
         if (z > 0) {
@@ -2220,8 +2222,8 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
         }
       }
     } else {  // TODO: speed up code, which could be unified with that in NeedNewKeyFrame()
-      for (int k = 0; k < mCurrentFrame.mv3Dpoints.size(); ++k) {
-        if (mCurrentFrame.goodmatches_[k]) {
+      for (int k = 0; k < mCurrentFrame.stereoinfo_.v3dpoints_.size(); ++k) {
+        if (mCurrentFrame.stereoinfo_.goodmatches_[k]) {
           int i = mCurrentFrame.mapidxs2n_[k];
           float z = mCurrentFrame.stereoinfo_.vdepth_[i];
           CV_Assert(-1 != i && z > 0);
@@ -2248,7 +2250,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
             bCreateNew = true;
           else if (pMP->Observations() < 1) {
             bCreateNew = true;
-            CV_Assert(mbOnlyTracking || pMP->isBad());
+            assert(mbOnlyTracking || pMP->isBad());
             // is there memory leak? we could use shared_ptr to solve this problem
             mCurrentFrame.EraseMapPointMatch(i);
           }
@@ -2284,7 +2286,6 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
           } else {
             auto idxs = mCurrentFrame.mvidxsMatches[ididxs];
             bool icheck = false;
-            CV_Assert(idxs.size());
             for (int cami = 0; cami < idxs.size(); ++cami) {
               if (-1 != idxs[cami]) {
                 auto icami = mCurrentFrame.mapin2n_[cami][idxs[cami]];
@@ -2295,7 +2296,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
               }
             }
             PRINT_DEBUG_FILE_MUTEX(endl, mlog::vieo_slam_debug_path, "debug.txt");
-            CV_Assert(icheck);
+            assert(icheck);
           }
           pNewMP->ComputeDistinctiveDescriptors();
           pNewMP->UpdateNormalAndDepth();

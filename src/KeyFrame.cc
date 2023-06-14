@@ -4,6 +4,7 @@
 
 #include <mutex>
 #include "KeyFrame.h"
+#include "common/serialize/serialize.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
 #include "common/config.h"
@@ -142,12 +143,12 @@ bool KeyFrame::read(istream &is) {
     size_t NOdom;
     is.read((char *)&NOdom, sizeof(NOdom));
     lenc.resize(NOdom);
-    readVecread(is, lenc);
+    Serialize::readVecread(is, lenc);
     SetPreIntegrationList<EncData>(lenc.begin(), lenc.end());
     listeig(IMUData) limu;
     is.read((char *)&NOdom, sizeof(NOdom));
     limu.resize(NOdom);
-    readVecread(is, limu);
+    Serialize::readVecread(is, limu);
     SetPreIntegrationList<IMUData>(limu.begin(), limu.end());
   }
   // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
@@ -188,11 +189,11 @@ bool KeyFrame::write(ostream &os) const {
     const listeig(EncData) &lenc = mOdomPreIntEnc.getlOdom();
     size_t NOdom = lenc.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeVecwrite(os, lenc);
+    Serialize::writeVecwrite(os, lenc);
     const listeig(IMUData) &limu = mOdomPreIntIMU.getlOdom();
     NOdom = limu.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeVecwrite(os, limu);
+    Serialize::writeVecwrite(os, limu);
     // we don't save mOdomPreIntOdom for it can be computed from the former odom list
   }
   os.write(&mState, sizeof(mState));
@@ -827,9 +828,25 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
 }
 
 cv::Mat KeyFrame::UnprojectStereo(int i) {
-  // TODO: if right u used for fisheye, change implementation here
+  if (mapn2in_.size() > i) {
+    const float z = stereoinfo_.vdepth_[i];
+    if (z > 0) {
+      auto ididxs = GetMapn2idxs(i);
+      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
+
+      unique_lock<mutex> lock(mMutexPose);
+      Vector3d x3Dw =
+          Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) +
+          Converter::toVector3d(Twc.rowRange(0, 3).col(3));
+      return Converter::toCvMat(x3Dw);
+    } else {
+      return cv::Mat();
+    }
+  }
+
   const float z = stereoinfo_.vdepth_[i];
   if (z > 0) {
+    assert(!usedistort_);
     const float u = mvKeysUn[i].pt.x;
     const float v = mvKeysUn[i].pt.y;
     Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);

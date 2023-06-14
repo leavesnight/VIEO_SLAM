@@ -2,6 +2,8 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <thread>
+#include <iomanip>
 // PCL
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -12,16 +14,11 @@
 //#include <pcl/filters/passthrough.h>//use the z direction filed filter
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <opencv2/core/eigen.hpp>
-
+#include <pangolin/pangolin.h>
 #include "Optimizer.h"
-
-// created by zzh over.
-
 #include "System.h"
 #include "Converter.h"
-#include <thread>
-#include <pangolin/pangolin.h>
-#include <iomanip>
+#include "common/serialize/serialize.h"
 
 namespace VIEO_SLAM {
 bool System::usedistort_ = false;
@@ -102,7 +99,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   if (sensorType == 2 || sensorType == 3) {
     IMUData::readParam(f);
     cv::Mat gravityVec(3, 1, CV_32F);
-    KeyFrame::readMat(f, gravityVec);
+    Serialize::readMat(f, gravityVec);
     mpIMUInitiator->SetGravityVec(gravityVec);
   }
 
@@ -137,7 +134,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
     if (bReadBadKF) {
       f.read(&bBad, sizeof(char));
       if (bBad) {
-        KeyFrame::readMat(f, Tcp);
+        Serialize::readMat(f, Tcp);
         if (iFirstBad == NKFs) iFirstBad = i;
       }
     }
@@ -151,7 +148,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
     KeyFrame *pPrevKF = nullptr;
     if (prevId != ULONG_MAX) pPrevKF = mapIdpKF[prevId];
     Frame tmpF(f, mpVocabulary);
-    // we use Frame::read()+KeyFrame::read() corresponding to KeyFrame::write()
+    // we use Serialize::read() corresponding to Serialize::write()
     KeyFrame *pKF = new KeyFrame(tmpF, mpMap, mpKeyFrameDatabase, pPrevKF, f);
     if (bReadBadKF && bBad) pKF->mTcp = Tcp;
 
@@ -401,7 +398,7 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSave
     }
     if (sensorType == 2 || sensorType == 3) {
       IMUData::writeParam(f);
-      KeyFrame::writeMat(f, mpIMUInitiator->GetGravityVec());
+      Serialize::writeMat(f, mpIMUInitiator->GetGravityVec());
     }
 
     long unsigned int nlData;
@@ -431,7 +428,7 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSave
         if (pKF->isBad()) {
           bBad = 1;
           f.write(&bBad, sizeof(bBad));
-          KeyFrame::writeMat(f, pKF->mTcp);
+          Serialize::writeMat(f, pKF->mTcp);
           assert(i >= NKFsInit);
           //        cout<<i<<" "<<pKF->mnId<<" "<<pKF->GetParent()->mnId<<endl;
         } else
@@ -689,10 +686,25 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   }
 }
 
-cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect) {
-  if (mSensor != STEREO && mSensor != RGBD) {
-    PRINT_ERR_MUTEX("ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD." << endl);
-    exit(-1);
+cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp) {
+  auto sz_ims = ims.size();
+  switch (mSensor) {
+    case MONOCULAR:
+      if (sz_ims < 1) {
+        PRINT_ERR_MUTEX("ERROR: you called TrackStereo(Mono) but input image size is 0." << endl);
+        exit(-1);
+      }
+      break;
+    case STEREO:
+    case RGBD:
+      if (sz_ims < 2) {
+        PRINT_ERR_MUTEX("ERROR: you called TrackStereo(Stereo/RGB-D) but input image size < 2." << endl);
+        exit(-1);
+      }
+      break;
+    default:
+      PRINT_ERR_MUTEX("ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD/MONOCULAR." << endl);
+      exit(-1);
   }
 
   // Check mode change
@@ -736,53 +748,6 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
   unique_lock<mutex> lock2(mMutexState);
   mTrackingState = mpTracker->mState;
   mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvvKeysUn[0];
-  return Tcw;
-}
-
-cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp) {
-  if (mSensor != MONOCULAR) {
-    PRINT_ERR_MUTEX("ERROR: you called TrackMonocular but input sensor was not set to Monocular." << endl);
-    exit(-1);
-  }
-
-  // Check mode change
-  {
-    unique_lock<mutex> lock(mutex_mode_);
-    if (bactivate_localization_mode_) {
-      mpLocalMapper->RequestStop();
-
-      // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped()) {
-        usleep(1000);
-      }
-
-      mpTracker->InformOnlyTracking(true);
-      bactivate_localization_mode_ = false;
-    }
-    if (bdeactivate_localization_mode_) {
-      mpTracker->InformOnlyTracking(false);
-      mpLocalMapper->Release();
-      bdeactivate_localization_mode_ = false;
-    }
-  }
-
-  // Check reset
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    if (mbReset) {
-      mpTracker->Reset();
-      mbReset = false;
-    }
-  }
-
-  cv::Mat Tcw = mpTracker->GrabImageStereo(vector<cv::Mat>{im}, timestamp);
-
-  unique_lock<mutex> lock2(mMutexState);
-  mTrackingState = mpTracker->mState;
-  mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
-
   return Tcw;
 }
 
@@ -1114,11 +1079,5 @@ vector<MapPoint *> System::GetTrackedMapPoints() {
   unique_lock<mutex> lock(mMutexState);
   return mTrackedMapPoints;
 }
-
-// vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
-//{
-//    unique_lock<mutex> lock(mMutexState);
-//    return mTrackedKeyPointsUn;
-//}
 
 }  // namespace VIEO_SLAM

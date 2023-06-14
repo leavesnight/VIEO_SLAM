@@ -16,6 +16,7 @@ namespace VIEO_SLAM {
 Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iterations) {
   mK = ReferenceFrame.mpCameras[0]->toKcv().clone();
 
+  assert(!ReferenceFrame.usedistort_);
   mvKeys1 = ReferenceFrame.mvKeysUn;
 
   mSigma = sigma;
@@ -27,6 +28,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
                              vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated) {
   // Fill structures with current keypoints and matches with reference frame
   // Reference Frame: 1, Current Frame: 2
+  assert(!CurrentFrame.usedistort_);
   mvKeys2 = CurrentFrame.mvKeysUn;
 
   mvMatches12.clear();

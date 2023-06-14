@@ -331,8 +331,9 @@ static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pc
   kps.clear();
   sigma_lvs.clear();
   urbfs.clear();
-  CV_Assert(pcams_in.size() == idxs1.size());
-  bool usedistort = Frame::usedistort_ && pKF1->mpCameras.size();
+  assert(pcams_in.size() == idxs1.size());
+  assert(!pKF1->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   for (size_t ididxs = 0; ididxs < idxs1.size(); ++ididxs) {
     size_t idx = idxs1[ididxs];
     if (-1 != idx) {
@@ -520,11 +521,11 @@ void LocalMapping::CreateNewMapPoints() {
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
           continue;
       } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
-        CV_Assert(bStereos[0]);
+        assert(bStereos[0]);
         x3D = pKF1->UnprojectStereo(idxs1.front());
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
-        CV_Assert(bStereos[1]);
+        assert(bStereos[1]);
         x3D = pKF2->UnprojectStereo(idxs2.front());
         if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
       } else
@@ -585,7 +586,7 @@ void LocalMapping::CreateNewMapPoints() {
 
 void LocalMapping::SearchInNeighbors() {
   // Retrieve neighbor keyframes
-  int nn = 10;               // RGBD
+  int nn = 10;               // RGBD/Stereo
   if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
   const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
   vector<KeyFrame *> vpTargetKFs;

@@ -405,7 +405,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
         if (thresh_depth_close < pKFi->mThDepth) thresh_depth_close = pKFi->mThDepth;
-        bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
+        assert(!pKFi->mpCameras.empty());
+        bool usedistort = Frame::usedistort_;
         auto idxs = mit->second;
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
           auto idx = *iter;
@@ -1034,7 +1035,8 @@ int Optimizer::GlobalBundleAdjustmentNavStatePRV(Map* pMap, const cv::Mat& cvgw,
       // only connect observation edges to optimized KFs/vertices
       if (pKFi->isBad() || 3 * pKFi->mnId > maxKFid - 2) continue;
       nEdges++;
-      bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
+      assert(!pKFi->mpCameras.empty());
+      bool usedistort = Frame::usedistort_;
       auto idxs = mit->second;
       for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
         auto idx = *iter;
@@ -1418,7 +1420,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame*>& vpKFs, const vector<Ma
       // only connect observation edges to optimized KFs/vertices
       if (pKFi->isBad() || pKFi->mnId > maxKFid) continue;
 
-      bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
+      assert(!pKFi->mpCameras.empty());
+      bool usedistort = Frame::usedistort_;
 
       nEdges++;
 
@@ -1641,7 +1644,8 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
   Pinhole CamInst;
-  bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
+  assert(!pFrame->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   {
     if (!usedistort) {
       auto params_tmp = pFrame->mpCameras[0]->getParameters();
@@ -2045,7 +2049,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame* pKF, bool* pbStopFlag, Map* pMap
 
       if (!pKFi->isBad())  // good pKFobserv then connect it with pMP by an edge
       {
-        bool usedistort = Frame::usedistort_ && pKFi->mpCameras.size();
+        assert(!pKFi->mpCameras.empty());
+        bool usedistort = Frame::usedistort_;
         auto idxs = mit->second;
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
           auto idx = *iter;
@@ -2331,7 +2336,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     VSim3->setId(nIDi);
     // VSim3->setMarginalized(false);//useless for initially _marginalized(false)
-    VSim3->_fix_scale = bFixScale;  // true/s=1 in VertexSE3Expmap for RGBD
+    VSim3->_fix_scale = bFixScale;  // true/s=1 in VertexSE3Expmap for RGBD/Stereo
 
     optimizer.addVertex(VSim3);
 
@@ -2701,7 +2706,8 @@ int Optimizer::OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, vector<MapPoint*>& v
 
   int nCorrespondences = 0;
 
-  bool usedistort = Frame::usedistort_ && pKF1->mpCameras.size() && pKF2->mpCameras.size();
+  assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   Pinhole CamInst;
   if (!usedistort) {
     auto params_tmp = pKF1->mpCameras[0]->getParameters();

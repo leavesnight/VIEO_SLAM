@@ -66,9 +66,6 @@ class Frame : public FrameBase {
   bool write(ostream &os) const;                   // though we don't save Frame
 
  public:
-  template <typename _Key, typename _Tp>
-  using map = std::map<_Key, _Tp>;
-
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // for quaterniond in NavState && Matrix4d
   // created by zzh over.
   Frame();
@@ -136,11 +133,8 @@ class Frame : public FrameBase {
   static cv::BFMatcher BFmatcher;  // for fisheye matching
   // Triangulated stereo observations using as reference the left camera. These are
   // computed during ComputeStereoFishEyeMatches
-  aligned_vector<Vector3d> mv3Dpoints;  // keep same size with mvidxsMatches
   vector<vector<size_t>> mvidxsMatches;
-  vector<bool> goodmatches_;  // keep same size with mvidxsMatches
-  map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
-  size_t GetMapn2idxs(size_t i);
+  // 1 ididxs-> n_cams n, here only pick one, now it's the latest one
   vector<size_t> mapidxs2n_;
   std::vector<std::vector<size_t>> mapin2n_;  // mapcamidx2n_ for addobs func.
 
@@ -155,9 +149,6 @@ class Frame : public FrameBase {
   const cv::Mat &GetcvTcwCst() const;
 
  private:
-  // Undistort keypoints given OpenCV distortion parameters.
-  // Only for the RGB-D case. Stereo must be already rectified!
-  // (called in the constructor).
   void UndistortKeyPoints();
 
   // Rotation, translation and camera center

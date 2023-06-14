@@ -17,12 +17,10 @@
 
 namespace VIEO_SLAM {
 
+// pKF1 is mpCurrentKF, pKF2 is loop candidate KFs, vpMatched12[i] matched to pKF1->mvpMapPoints[i], bFixScale=true for
+// RGBD/Stereo
 Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> &vpMatched12, const bool bFixScale)
-    : mnIterations(0),
-      mnBestInliers(0),
-      mbFixScale(bFixScale)  // pKF1 is mpCurrentKF, pKF2 is loop candidate KFs, vpMatched12[i] matched to
-                             // pKF1->mvpMapPoints[i], bFixScale=true for RGBD
-{
+    : mnIterations(0), mnBestInliers(0), mbFixScale(bFixScale) {
   mpKF1 = pKF1;
   mpKF2 = pKF2;
 
@@ -45,8 +43,9 @@ Sim3Solver::Sim3Solver(KeyFrame *pKF1, KeyFrame *pKF2, const vector<MapPoint *> 
   mvAllIndices.reserve(mN1);
 
   size_t idx = 0;
-  usedistort_[0] = Frame::usedistort_ && pKF1->mpCameras.size();
-  usedistort_[1] = Frame::usedistort_ && pKF2->mpCameras.size();
+  assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
+  usedistort_[0] = pKF1->usedistort_;
+  usedistort_[1] = pKF2->usedistort_;
   if (usedistort_[0])
     pcams_[0] = pKF1->mpCameras;
   else {

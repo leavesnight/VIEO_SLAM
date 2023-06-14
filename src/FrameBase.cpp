@@ -3,6 +3,7 @@
 //
 
 #include "FrameBase.h"
+#include "common/serialize/serialize.h"
 #include "MapPoint.h"
 #include "KannalaBrandt8.h"
 #include "radtan.h"
@@ -120,7 +121,7 @@ vector<size_t> FrameBase::GetFeaturesInArea(uint8_t cami, const float &x, const 
     for (int iy = min_celly; iy <= max_celly; ++iy) {
       const vector<size_t> vCell = vgrids_[cami][ix * gridinfo_.FRAME_GRID_ROWS + iy];
       for (size_t j = 0, jend = vCell.size(); j < jend; ++j) {
-        const cv::KeyPoint &kpUn = !Frame::usedistort_ ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
+        const cv::KeyPoint &kpUn = !usedistort_ ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
         if (bchecklevel)  // if the octave is out of level range
         {
           //-1 is also ok,0 cannot be true
@@ -239,7 +240,7 @@ bool FrameBase::read(istream &is) {
     uint8_t sz_params_tmp;
     is.read((char *)&sz_params_tmp, sizeof(sz_params_tmp));
     vector<float> params_tmp(sz_params_tmp);
-    readVec(is, params_tmp);
+    Serialize::readVec(is, params_tmp);
     switch (cam_type) {
       case GeometricCamera::CAM_PINHOLE:
         mpCameras[i] = new Pinhole();
@@ -259,36 +260,48 @@ bool FrameBase::read(istream &is) {
 
   is.read((char *)&N, sizeof(N));
   mvKeys.resize(N);
-  mvKeysUn.resize(N);
-  readVec(is, mvKeys);
-  readVec(is, mvKeysUn);
-  int N_mapn2in;
-  is.read((char *)&N_mapn2in, sizeof(N_mapn2in));
-  mapn2in_.resize(N_mapn2in);
-  readVec(is, mapn2in_);
+  Serialize::readVec(is, mvKeys);
+  if (!usedistort) {
+    mvKeysUn.resize(N);
+    Serialize::readVec(is, mvKeysUn);
+  }
+  int n_tmp;
+  is.read((char *)&n_tmp, sizeof(n_tmp));
+  mapn2in_.resize(n_tmp);
+  Serialize::readVec(is, mapn2in_);
   // we don't save old ID for it's useless in LoadMap()
   is.read((char *)&mThDepth, sizeof(mThDepth));
   mDescriptors = cv::Mat::zeros(N, 32, CV_8UC1);  // 256bit binary descriptors
-  readMat(is, mDescriptors);
+  Serialize::readMat(is, mDescriptors);
   ComputeBoW();  // calculate mBowVec & mFeatVec, or we can do it by pKF
   stereoinfo_.vdepth_.resize(N);
   stereoinfo_.vuright_.resize(N);
-  readVec(is, stereoinfo_.vdepth_);
-  readVec(is, stereoinfo_.vuright_);
+  Serialize::readVec(is, stereoinfo_.vdepth_);
+  Serialize::readVec(is, stereoinfo_.vuright_);
+  is.read((char *)&n_tmp, sizeof(n_tmp));
+  stereoinfo_.v3dpoints_.resize(n_tmp);
+  Serialize::readVecEigMat(is, stereoinfo_.v3dpoints_);
+  stereoinfo_.goodmatches_.resize(n_tmp);
+  Serialize::readVec(is, stereoinfo_.goodmatches_);
+  is.read((char *)&n_tmp, sizeof(n_tmp));
+  vector<size_t> vec_tmp(n_tmp * 3);
+  Serialize::readVec(is, vec_tmp);
+  for (int i = 0; i < n_tmp; ++i) {
+    stereoinfo_.mapcamidx2idxs_.emplace(make_pair(vec_tmp[i * 3], vec_tmp[i * 3 + 1]), vec_tmp[i * 3 + 2]);
+  }
   is.read((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));
   // trans unit from meter to pixel
   stereoinfo_.baseline_bf_[1] = stereoinfo_.baseline_bf_[0] * mpCameras[0]->toK()(0, 0);
 
-  int nscale_levels;
-  is.read((char *)&nscale_levels, sizeof(nscale_levels));
+  is.read((char *)&n_tmp, sizeof(n_tmp));
   is.read((char *)&scalepyrinfo_.fscalefactor_, sizeof(scalepyrinfo_.fscalefactor_));
   {
     scalepyrinfo_.flogscalefactor_ = log(scalepyrinfo_.fscalefactor_);
-    scalepyrinfo_.vscalefactor_.resize(nscale_levels);
-    scalepyrinfo_.vlevelsigma2_.resize(nscale_levels);
-    scalepyrinfo_.vinvlevelsigma2_.resize(nscale_levels);
+    scalepyrinfo_.vscalefactor_.resize(n_tmp);
+    scalepyrinfo_.vlevelsigma2_.resize(n_tmp);
+    scalepyrinfo_.vinvlevelsigma2_.resize(n_tmp);
     scalepyrinfo_.vscalefactor_[0] = scalepyrinfo_.vlevelsigma2_[0] = 1.0f;
-    for (int i = 1; i < nscale_levels; ++i) {
+    for (int i = 1; i < n_tmp; ++i) {
       scalepyrinfo_.vscalefactor_[i] = scalepyrinfo_.vscalefactor_[i - 1] * scalepyrinfo_.fscalefactor_;
       // at 0 level sigma=1 pixel
       scalepyrinfo_.vlevelsigma2_[i] = scalepyrinfo_.vscalefactor_[i] * scalepyrinfo_.vscalefactor_[i];
@@ -318,27 +331,37 @@ bool FrameBase::write(ostream &os) const {
     vector<float> params_tmp = mpCameras[i]->getParameters();
     uint8_t sz_params_tmp = (uint8_t)params_tmp.size();
     os.write((char *)&sz_params_tmp, sizeof(sz_params_tmp));
-    writeVec(os, params_tmp);
+    Serialize::writeVec(os, params_tmp);
   }
 
   os.write((char *)&N, sizeof(N));
-  writeVec(os, mvKeys);
-  writeVec(os, mvKeysUn);
-  int N_mapn2in = mapn2in_.size();
-  os.write((char *)&N_mapn2in, sizeof(N_mapn2in));
-  writeVec(os, mapn2in_);
+  Serialize::writeVec(os, mvKeys);
+  if (!usedistort_) {
+    Serialize::writeVec(os, mvKeysUn);
+  }
+  int n_tmp = mapn2in_.size();
+  os.write((char *)&n_tmp, sizeof(n_tmp));
+  Serialize::writeVec(os, mapn2in_);
   // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/mnId in SaveMap()
   os.write((char *)&mThDepth, sizeof(mThDepth));
-  writeMat(os, mDescriptors);
+  Serialize::writeMat(os, mDescriptors);
   // we can directly ComputeBoW() from mDescriptors
   //   mBowVec.write(os);
   //   mFeatVec.write(os);
-  writeVec(os, stereoinfo_.vdepth_);
-  writeVec(os, stereoinfo_.vuright_);
+  Serialize::writeVec(os, stereoinfo_.vdepth_);
+  Serialize::writeVec(os, stereoinfo_.vuright_);
+  n_tmp = stereoinfo_.v3dpoints_.size();
+  os.write((char *)&n_tmp, sizeof(n_tmp));
+  Serialize::writeVecEigMat(os, stereoinfo_.v3dpoints_);
+  assert(stereoinfo_.goodmatches_.size() == n_tmp);
+  Serialize::writeVec(os, stereoinfo_.goodmatches_);
+  n_tmp = stereoinfo_.mapcamidx2idxs_.size();
+  os.write((char *)&n_tmp, sizeof(n_tmp));
+  Serialize::writeVec(os, stereoinfo_.mapcamidx2idxs_);
   os.write((char *)&stereoinfo_.baseline_bf_, sizeof(stereoinfo_.baseline_bf_[0]));  // we can get bf from b & f
 
-  int nscale_levels = scalepyrinfo_.vscalefactor_.size();
-  os.write((char *)&nscale_levels, sizeof(nscale_levels));
+  n_tmp = scalepyrinfo_.vscalefactor_.size();
+  os.write((char *)&n_tmp, sizeof(n_tmp));
   os.write((char *)&scalepyrinfo_.fscalefactor_, sizeof(scalepyrinfo_.fscalefactor_));
   // we can get left scalepyrinfo_ members from former 2 parameters
 
@@ -351,4 +374,13 @@ bool FrameBase::write(ostream &os) const {
 
   // save mvpMapPoints,{mpParent,mbNotErase(mspLoopEdges)} in LoadMap for convenience
   return os.good();
+}
+
+size_t FrameBase::GetMapn2idxs(size_t i) {
+  if (mapn2in_.size() <= i) return -1;  // for no mpCameras mode sz is 0
+  auto iteridx = stereoinfo_.mapcamidx2idxs_.find(mapn2in_[i]);
+  if (iteridx == stereoinfo_.mapcamidx2idxs_.end())
+    return -1;
+  else
+    return iteridx->second;
 }

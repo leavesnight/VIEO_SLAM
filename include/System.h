@@ -67,7 +67,7 @@ class System {
 
  public:
   // Input sensor
-  enum eSensor { MONOCULAR = 0, STEREO = 1, RGBD = 2 };
+  enum eSensor { MONOCULAR = 0, STEREO, RGBD, NUM_SUPPORTED_CAM };
   static bool usedistort_;
 
  public:
@@ -76,19 +76,17 @@ class System {
   System(const string& strVocFile, const string& strSettingsFile, const eSensor sensor, const bool bUseViewer = true,
          const string& map_sparse_name = "");
 
-  // Proccess the given stereo frame. Images must be synchronized.
+  // 0.usedistort_ = false(default) means total system uses undistorted Images plane; true means distorted/raw image
+  // 0.DistCoeffs(config in strSettingsFile) all 0 mean Images are rectified for Stereo.
+  // 1.Proccess the given stereo frame. Images must be synchronized.
   // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // inputRect=true(default) means Images are rectified.
-  // Also Process the given rgbd frame. Depthmap must be registered to the RGB frame.
-  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+  // 2.Process the given rgbd frame. Depthmap must be registered to the RGB frame.
+  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale inside.
   // ims[1]: depthmap: Float (CV_32F).
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackStereo(const vector<cv::Mat>& ims, const double& timestamp, const bool inputRect = true);
-
-  // Proccess the given monocular frame
-  // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackMonocular(const cv::Mat& im, const double& timestamp);
+  // 3.Proccess the given monocular frame
+  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale inside.
+  // 0.Returns the camera pose (empty if tracking fails).
+  cv::Mat TrackStereo(const vector<cv::Mat>& ims, const double& timestamp);
 
   // This stops local mapping thread (map building) and performs only camera tracking.
   void ActivateLocalizationMode();
@@ -129,7 +127,7 @@ class System {
   void SaveTrajectoryKITTI(const string& filename);
 
   // Information from most recent processed frame
-  // You can call this right after TrackMonocular (or stereo or RGBD)
+  // You can call this right after TrackStereo
   int GetTrackingState();
   std::vector<MapPoint*> GetTrackedMapPoints();
   std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
@@ -187,7 +185,6 @@ class System {
   // Tracking state
   int mTrackingState;
   std::vector<MapPoint*> mTrackedMapPoints;
-  // std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
   std::mutex mMutexState;
 };
 

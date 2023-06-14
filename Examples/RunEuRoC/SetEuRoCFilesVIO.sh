@@ -3,6 +3,7 @@ CAMTYPE="StereoVIO"
 if [[ $1 != ""  ]]; then
     CAMTYPE=$1
 fi
+
 SHELLNAME="./SetEuRoCVIO_Once.sh"
 
 curPath=$(dirname $(readlink -f "$0"))

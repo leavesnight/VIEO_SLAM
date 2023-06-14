@@ -101,6 +101,7 @@ LIST(APPEND deps
 
 LIST(APPEND SOURCEFILES
         ${CMAKE_CURRENT_SOURCE_DIR}/mlog/log.cpp
+        serialize/serialize.cpp
         )
 
 message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})

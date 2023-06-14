@@ -380,7 +380,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
   Pinhole CamInst;
-  bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
+  assert(!pFrame->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   // configs for Prior Hessian
   const bool calc_cov_explicit = true;  // false;
 #define USE_ROBUST_PRIOR_EDGE

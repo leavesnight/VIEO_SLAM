@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
 #endif
 
     // Pass the images to the SLAM system
-    SLAM.TrackStereo(ims, tframe, false);
+    SLAM.TrackStereo(ims, tframe);
 
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
     std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

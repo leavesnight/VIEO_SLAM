@@ -110,7 +110,7 @@ void odomEncRun(ifstream &finOdomdata) {  // must use &
 
 int main(int argc, char **argv) {
   char bMode = 0;  // 0 for RGBD(pure/VIO/VEO/VIEO), 1 for MonocularVIO, 2 for Monocular
-  thread *pOdomThread = NULL, *pEncThread = NULL;
+  thread *pOdomThread = nullptr, *pEncThread = nullptr;
   ifstream finOdomdata, finEncdata;
   int totalNum = 2;
   cout << fixed << setprecision(6) << endl;
@@ -165,11 +165,11 @@ int main(int argc, char **argv) {
   }
 
   cv::FileStorage fSettings(argv[2], cv::FileStorage::READ);  // already checked in System() creator
-  cv::FileNode fnDelay = fSettings["Camera.delayForPolling"];
-  if (fnDelay.empty()) {
+  cv::FileNode node_tmp = fSettings["Camera.delayForPolling"];
+  if (node_tmp.empty()) {
     gDelayCache = 0;
   } else {
-    gDelayCache = (double)fnDelay;
+    gDelayCache = (double)node_tmp;
   }
 
   // Retrieve paths to images
@@ -196,6 +196,11 @@ int main(int argc, char **argv) {
   bool bLoaded = false;
   g_pSLAM = &SLAM;
   //    cin.get();
+
+  node_tmp = fSettings["Camera.usedistort"];
+  if (!node_tmp.empty()) {
+    VIEO_SLAM::System::usedistort_ = (bool)(int)node_tmp;
+  }
 
   // Vector for tracking time statistics
   vector<float> vTimesTrack;
@@ -232,7 +237,7 @@ int main(int argc, char **argv) {
     if (bMode == 0)
       SLAM.TrackStereo(vector<cv::Mat>({imRGB, imD}), tframe);
     else
-      SLAM.TrackMonocular(imRGB, tframe);
+      SLAM.TrackStereo(vector<cv::Mat>{imRGB}, tframe);
 
       // double data[9]={0.5,0.4};
       // SLAM.SaveFrame("./test_save/",imRGB,imD,tframe);
@@ -308,9 +313,8 @@ int main(int argc, char **argv) {
     SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
 
   // wait for pOdomThread finished
-  if (pOdomThread != NULL) pOdomThread->join();
-  if (pEncThread != NULL) pEncThread->join();
-
+  if (pOdomThread) pOdomThread->join();
+  if (pEncThread) pEncThread->join();
   return 0;
 }
 

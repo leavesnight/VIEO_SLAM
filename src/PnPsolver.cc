@@ -66,7 +66,8 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint *> &vpMapPointMatches
   mvAllIndices.reserve(frame_mps.size());
 
   int idx = 0;
-  usedistort_ = Frame::usedistort_ && F.mpCameras.size();
+  assert(!F.mpCameras.empty());
+  usedistort_ = Frame::usedistort_;
   if (usedistort_) pcams_ = F.mpCameras;
   for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
     MapPoint *pMP = vpMapPointMatches[i];
