@@ -27,7 +27,7 @@
 #ifndef G2O_GRAPH_OPTIMIZER_CHOL_H_
 #define G2O_GRAPH_OPTIMIZER_CHOL_H_
 
-#include "../stuff/macros.h"
+#include "optimizer/g2o/g2o/stuff/macros.h"
 
 #include "optimizable_graph.h"
 #include "sparse_block_matrix.h"

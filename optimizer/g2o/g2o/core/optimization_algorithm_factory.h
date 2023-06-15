@@ -27,15 +27,13 @@
 #ifndef G2O_OPTMIZATION_ALGORITHM_PROPERTY_H
 #define G2O_OPTMIZATION_ALGORITHM_PROPERTY_H
 
+#include <list>
+#include <iostream>
+#include <typeinfo>
 #include "../../config.h"
 #include "../stuff/misc.h"
 #include "optimization_algorithm_property.h"
 #include "common/mlog/log.h"
-
-#include <list>
-#include <iostream>
-#include <typeinfo>
-
 
 // define to get some verbose output
 //#define G2O_DEBUG_OPTIMIZATION_ALGORITHM_FACTORY

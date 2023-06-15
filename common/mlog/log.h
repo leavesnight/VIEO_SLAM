@@ -11,9 +11,19 @@
 #include <vector>
 #include "common/interface.h"
 
+#ifdef NDEBUG
+// assert in Release, should be put at the last include <assert.h> in .h/.cpp
+#undef NDEBUG
+#include <assert.h>
+// if still not assert takes effects, annotate this
+//#define NDEBUG
+#else
+#include <assert.h>
+#endif
+
 namespace VIEO_SLAM {
 namespace mlog {
-enum TYPE_PRINT_LEVEL { PRINT_LEVEL_SILENT = 0, PRINT_LEVEL_INFO = 1, PRINT_LEVEL_DEBUG = 2 };
+enum TYPE_PRINT_LEVEL { PRINT_LEVEL_ERROR = 0, PRINT_LEVEL_INFO = 1, PRINT_LEVEL_DEBUG = 2 };
 constexpr int PRINT_LEVEL = PRINT_LEVEL_INFO;  // PRINT_LEVEL_DEBUG;//
 
 typedef enum kVerboseLevel { kVerbRel, kVerbDeb, kVerbFull } ekVerboseLevel;
@@ -35,8 +45,12 @@ extern COMMON_API std::mutex gmutexOUTPUT;
         std::string debug_file = foldername_str + filename;            \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app); \
         fout << msg;                                                   \
-      } else                                                           \
-        std::cout << msg;                                              \
+      } else {                                                         \
+        if (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)               \
+          std::cerr << msg;                                            \
+        else                                                           \
+          std::cout << msg;                                            \
+      }                                                                \
     }                                                                  \
   } while (0)
 #define PRINT_INFO_MUTEX_BASE(msg, level, foldername, filename)           \
@@ -48,21 +62,29 @@ extern COMMON_API std::mutex gmutexOUTPUT;
         std::string debug_file = foldername_str + filename;               \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app);    \
         fout << msg;                                                      \
-      } else                                                              \
-        std::cout << msg;                                                 \
+      } else {                                                            \
+        if (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)                  \
+          std::cerr << msg;                                               \
+        else                                                              \
+          std::cout << msg;                                               \
+      }                                                                   \
     }                                                                     \
   } while (0)
+#define PRINT_ERR(msg) PRINT_INFO_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_ERROR, "", "")
+#define PRINT_ERR_MUTEX(msg) PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_ERROR, "", "")
 #define PRINT_INFO(msg) PRINT_INFO_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_INFO, "", "")
 #define PRINT_INFO_MUTEX(msg) PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_INFO, "", "")
+#define PRINT_DEBUG(msg) PRINT_INFO_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_DEBUG, "", "")
+#define PRINT_DEBUG_MUTEX(msg) PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_DEBUG, "", "")
 #define PRINT_INFO_FILE(msg, foldername, filename) \
   PRINT_INFO_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_INFO, foldername, filename)
 #define PRINT_INFO_FILE_MUTEX(msg, foldername, filename) \
   PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_INFO, foldername, filename)
-#define PRINT_DEBUG_INFO(msg, foldername, filename) \
+#define PRINT_DEBUG_FILE(msg, foldername, filename) \
   PRINT_INFO_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_DEBUG, foldername, filename)
-#define PRINT_DEBUG_INFO_MUTEX(msg, foldername, filename) \
+#define PRINT_DEBUG_FILE_MUTEX(msg, foldername, filename) \
   PRINT_INFO_MUTEX_BASE(msg, VIEO_SLAM::mlog::PRINT_LEVEL_DEBUG, foldername, filename)
-#define CLEAR_DEBUG_INFO(msg, foldername, filename)       \
+#define CLEAR_INFO_FILE(msg, foldername, filename)        \
   do {                                                    \
     auto foldername_str = std::string(foldername);        \
     if (!foldername_str.empty()) {                        \

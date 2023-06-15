@@ -40,7 +40,7 @@
 #include "parameter_container.h"
 #include "jacobian_workspace.h"
 
-#include "../stuff/macros.h"
+#include "optimizer/g2o/g2o/stuff/macros.h"
 
 namespace g2o {
 

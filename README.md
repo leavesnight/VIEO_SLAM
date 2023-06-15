@@ -1,26 +1,38 @@
 # VIEO_SLAM
-Now this project is improved by zzh
+Now this project is improved by zzh, based on ORBSLAM2 && ORBSLAM3
 
-1.Some annotations and elimination are done
+1. More Annotations and Less Codes(By Template Class Tech.)
+2. Real-Time Code With Some Subtle Changes(default is to be faster):
+   1. Able to run full ba at last(slower but map should be more accurate)
+   2. Loading uses .bin vocabulary
+   3. PoseOptimization uses PVR vertex while localBA/GlobalBA use PR-V
+   4. Some other time cost related changes
+   5. Future work can be:
+      1. inverse depth parameterization
+      2. optical flow method
+   
+3. More Camera+Sensor Modes are supported:
+   1. undistorted Monocular + (IMU/Encoder) mode: Monocular V(I)(E)O is implemented like the VIORBSLAM paper[Visual-Inertial Monocular SLAM with Map Reuse](https://arxiv.org/pdf/1610.05949.pdf), especially thanks to OnManifold Preintegration paper[On-Manifold Preintegration for Real-Time](https://arxiv.org/pdf/1512.02363.pdf) and [JingWang's initial version](https://github.com/jingpang/LearnVIORB) and our VIEOS2
+   2. rectified Stereo(max 2 cams) + (IMU/Encoder) mode: Stereo V(I)(E)O is implemented like our VIEOS2
+   3. undistorted RGBD(max 1 cam) + (IMU/Encoder) mode: RGBD V(I)(E)O is implemented like our [VIEOS2](https://github.com/leavesnight/ORB_SLAM2)
+   4. distorted Stereo(max 4 cams) + (IMU/Encoder) mode: dStereo V(I)(E)O is implemented like [ORBSLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) and our VIEOS2
+   5. distorted RGBD(max 1 cam) + (IMU/Encoder) mode: dRGBD V(I)(E)O is implemented like dStereo VIEO
+      
+4. We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor. 
+   We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
 
-2.VIORBSLAM is implemented like the VIORBSLAM paper[Visual-Inertial Monocular SLAM with Map Reuse](https://arxiv.org/pdf/1610.05949.pdf), especially thanks to OnManifold Preintegration paper[On-Manifold Preintegration for Real-Time](https://arxiv.org/pdf/1512.02363.pdf) and [JingWang's initial version](https://github.com/jingpang/LearnVIORB)
-
-3.It's a real-time code with full ba at last, PoseOptimization uses PVR vertex while localBA/GlobalBA use PR-V, No inverse depth parameterization, Loading uses .bin vocabulary, Some other related changes
-
-4.Stereo/RGBD+IMU version is completed, thought it's slow, it doesn't have unstable initialization problem on V103 & may succeed totally on V203 if PC is nice & it usually has better non-GT scaled accuracy. We call it VIORBSLAM2 for it supports three kinds of cameras.
-
-5.An RGBD/Stereo version with Encoder+IMU, Encoder has already come, we call it VIEORBSLAM2, VEORBSLAM2 respectively for it's based on ORBSLAM2 & VIORBSLAM.
-Though the code now cannot be applied for Monocular+Encoder due to the lack of pure encoder edges insertion strategy and scale initialization,
-it's not too difficult to implement and we have considered that the Initialization of Monocular SLAM is not suitable for a Differential Wheeled Robot based on our experience.
-
-6.We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor currently.
-We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
+PS:
+   1. IMU now only support max 1 IMU
+   2. If more cams on distorted Stereo, easily fix the seg bug by yourself
+   3. For Monocular V(I)EO: pure encoder edges insertion strategy now is simple like +IMU insertion strategy,
+      but scale initialization for mono is still lacked, so this mode is not fully completed;
+      And we still consider Initialization of Monocular SLAM is not suitable for a Differential Wheeled Robot based on our experience
 
 ## Test
 
 ### EuRoC Dataset
 
-*WithFull BA VIORBSLAM:*
+*WithFull BA Monocular/(d)Stereo VIO:*
 
 **ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
 ```
@@ -32,59 +44,59 @@ PS: 2017/12/26
 **With XXX_distXXX.yaml--With XXX.yaml(undist as ref)**
 ```
 V101 0.019|0.037 ->0.018|0.036 --0.019|0.036
-V102 0.023|0.018 ->0.022|0.013 --0.023|0.018
-V103 0.039|0.023 ->0.039|0.017 --0.040|0.021+
-V201 0.014|0.014 ->0.017|0.016 --0.030|0.030
-V202 0.016|0.014 ->0.011|0.010 --0.014|0.011
-V203 0.017|0.016 ->0.018|0.015 --0.026|0.024-
-MH01 0.060|0.016+->0.063|0.024 --0.069|0.024
-MH02 0.047|0.015 ->0.055|0.014 --0.051|0.017
-MH03 0.078|0.025 ->0.086|0.025 --0.076|0.024
-MH04 0.081|0.044 ->0.074|0.049 --0.093|0.054-
-MH05 0.100|0.039 ->0.133|0.082 --0.117|0.057+
-Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->24 --62
+V102 0.023|0.018 ->0.021|0.012 --0.023|0.018
+V103 0.039|0.023 ->0.038|0.017 --0.040|0.021+
+V201 0.014|0.014 ->0.019|0.017 --0.030|0.030
+V202 0.016|0.014 ->0.012|0.009 --0.014|0.011
+V203 0.017|0.016 ->0.020|0.015 --0.026|0.024-
+MH01 0.060|0.016+->0.062|0.011 --0.069|0.024
+MH02 0.047|0.015 ->0.052|0.016 --0.051|0.017
+MH03 0.078|0.025 ->0.081|0.026 --0.076|0.024
+MH04 0.081|0.044 ->0.086|0.058 --0.093|0.054-
+MH05 0.100|0.039 ->0.137|0.080+--0.117|0.057+
+Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->23 --62
 PS:2023/5/26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
-Single MH05 test: 0.092|0.038 ->0.122|0.061 --0.106|0.048+
+Single MH05 test: 0.092|0.038 ->0.137|0.077---0.106|0.048+
 tm cost(ms): 41 ->20 --30
 ```
 
 ### TUM Dataset
 
-*Without Full BA VIORBSLAM:*
+*Without Full BA dStereo VIO:*
 
 **ATE Random tests (1|2|...) StereoVIO Res(m);feat num 1000(default)->375:**
 
 **--With Full ORB3 St. as ref**
 ```
-corridor1   0.013 ->0.032---0.011|0.012
-corridor2   0.048 ->0.068---0.012|0.016
-corridor3   0.014 ->0.044---0.009|0.010
-corridor4   0.156 ->0.214---0.039|0.098
-corridor5   0.020 ->0.097---0.010|0.010
-magistrale1 0.038 ->0.818---0.219|0.350
-magistrale2 1.923 ->2.114---0.339|1.390
-magistrale3 1.616 ->1.422+--2.268|2.404
-magistrale4 0.061 ->1.430---1.276|0.170
-magistrale5 1.169 ->1.696---1.562|1.549
-magistrale6 0.299 ->3.531---1.000|0.906
-outdoors1   11.79 ->21.74---10.77|14.72
-outdoors2   7.093 ->8.438---11.09|13.73
-outdoors3   5.448 ->32.84---12.99|5.942
-outdoors4   4.000 ->14.84---3.568|4.345
-outdoors5   4.728 ->18.42---10.56|11.31
-outdoors6   13.33 ->23.07---24.06|46.62
-outdoors7   1.417 ->5.894---1.085|1.156
-outdoors8   3.797 ->7.606---10.37|10.03
-room1       0.009 ->0.010 --0.010|0.010
+corridor1   0.031-->0.032---0.011|0.012
+corridor2   0.024+->0.068---0.012|0.016
+corridor3   0.016 ->0.044---0.009|0.010
+corridor4   0.261-->0.214---0.039|0.098
+corridor5   0.040-->0.097---0.010|0.010
+magistrale1 0.107-->0.818---0.219|0.350
+magistrale2 1.134-->2.114---0.339|1.390
+magistrale3 1.437-->1.422+--2.268|2.404
+magistrale4 0.194 ->1.430---1.276|0.170
+magistrale5 0.643+->1.696---1.562|1.549
+magistrale6 0.198+->3.531---1.000|0.906
+outdoors1   8.752+->21.74---10.77|14.72
+outdoors2   4.319-->8.438---11.09|13.73
+outdoors3   2.373+->32.84---12.99|5.942
+outdoors4   2.805+->14.84---3.568|4.345
+outdoors5   5.017+->18.42---10.56|11.31
+outdoors6   15.13-->23.07---24.06|46.62
+outdoors7   1.338+->5.894---1.085|1.156
+outdoors8   3.533-->7.606---10.37|10.03
+room1       0.010 ->0.010 --0.010|0.010
 room2       0.010 ->0.009 --0.007|0.008
-room3       0.008 ->0.009 --0.008|0.007
-room4       0.007 ->0.008 --0.008|0.007
-room5       0.008 ->0.007 --0.010|0.008
+room3       0.009 ->0.009 --0.008|0.007
+room4       0.006 ->0.008 --0.008|0.007
+room5       0.010 ->0.007 --0.010|0.008
 room6       0.008 ->0.007 --0.006|0.007
-slides1     0.127 ->0.304---0.199|0.378
-slides2     0.207 ->0.875---0.638|0.627
-slides3     0.447 ->0.818---1.025|1.135
-Final parallel slides3 mean time cost per frame of frontend(ms): ~43 ->21 --31
+slides1     0.126+->0.304---0.199|0.378
+slides2     0.418-->0.875---0.638|0.627
+slides3     0.413+->0.818---1.025|1.135
+Final parallel slides3 mean time cost per frame of frontend(ms): ~46 ->21 --31
 PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
 ```
 
@@ -152,7 +164,8 @@ ORB-SLAM2 is released under a [GPLv3 license](https://github.com/raulmur/ORB_SLA
 VIEO_SLAM is under review and when the paper is published, we may also apply for GPLv3 release or just use the one from ORB-SLAM2
 
 For a closed-source version of ORB-SLAM2 for commercial purposes, please contact the authors: orbslam (at) unizar (dot) es.
-For a closed-source version of VIEO_SLAM for commercial purposes, please contact the authors: zhuzhanghao9331@yahoo.co.jp; orbslam (at) unizar (dot) es.
+
+For a closed-source version of VIEO_SLAM for commercial purposes, please contact the authors: zhuzhanghao9331@yahoo.co.jp
 
 If you use ORB-SLAM2 (Monocular) in an academic work, please cite:
 
@@ -203,17 +216,22 @@ We use [OpenCV](http://opencv.org) to manipulate images and features. Dowload an
 ## Eigen3
 Required by g2o (see below). Download and install instructions can be found at: http://eigen.tuxfamily.org. **Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10**.
 
-## DBoW2 and g2o (Included in Thirdparty folder)
-We use modified versions of the [DBoW2](https://github.com/dorian3d/DBoW2) library to perform place recognition and [g2o](https://github.com/RainerKuemmerle/g2o) library to perform non-linear optimizations. Both modified libraries (which are BSD) are included in the *Thirdparty* folder.
+## DBoW2 (Included in loop folder)
+We use modified versions of the [DBoW2](https://github.com/dorian3d/DBoW2) library to perform place recognition
+
+## g2o (Included in optimizer folder)
+We use modified versions of the [g2o](https://github.com/RainerKuemmerle/g2o) library to perform non-linear optimizations.
+
+But we can choose newest g2o by set(USE_G2O_NEWEST 1) in CMakeLists.txt
 
 ## cholmod
 ubuntu: sudo apt-get install libsuitesparse-dev
 
 ## PCL (optional)
-We use [pcl](https://github.com/PointCloudLibrary/pcl) for VEO/VIEO mode. **Tested with 1.10.0/1.9.0**.
+We use [pcl](https://github.com/PointCloudLibrary/pcl) for RGBD mode. **Tested with 1.10.0/1.9.0**.
 
 ## ROS (optional)
-We provide some examples to process the live input of a monocular, stereo or RGB-D camera using [ROS](ros.org). Building these examples is optional. In case you want to use ROS, a version Hydro or newer is needed.
+We provide some examples to process the live input of a monocular, stereo or RGB-D camera using [ROS](ros.org). Building these examples is optional. In case you want to use ROS, a version Hydro or newer is needed. **Tested with Neotic.**
 
 # 3. Building VIEO_SLAM library and examples
 
@@ -222,7 +240,7 @@ Clone the repository:
 git clone https://github.com/leavesnight/VIEO_SLAM.git VIEO_SLAM
 ```
 
-We provide a script `build.sh` to build the *Thirdparty* libraries and *VIEO_SLAM*. Please make sure you have installed all required dependencies (see section 2). Execute:
+We provide a script `build.sh` to build the submodule libraries and *VIEO_SLAM*. Please make sure you have installed all required dependencies (see section 2). Execute:
 ```
 cd VIEO_SLAM
 chmod +x build.sh
@@ -239,7 +257,7 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 
 2. Execute the following command. Change `TUMX.yaml` to TUM1.yaml,TUM2.yaml or TUM3.yaml for freiburg1, freiburg2 and freiburg3 sequences respectively. Change `PATH_TO_SEQUENCE_FOLDER`to the uncompressed sequence folder.
 ```
-./Examples/Monocular/mono_tum Vocabulary/ORBvoc.txt Examples/Monocular/TUMX.yaml PATH_TO_SEQUENCE_FOLDER
+./Examples/Monocular/mono_tum Vocabulary/ORBvoc.bin Examples/Monocular/TUMX.yaml PATH_TO_SEQUENCE_FOLDER
 ```
 
 ## KITTI Dataset  
@@ -248,7 +266,7 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 
 2. Execute the following command. Change `KITTIX.yaml`by KITTI00-02.yaml, KITTI03.yaml or KITTI04-12.yaml for sequence 0 to 2, 3, and 4 to 12 respectively. Change `PATH_TO_DATASET_FOLDER` to the uncompressed dataset folder. Change `SEQUENCE_NUMBER` to 00, 01, 02,.., 11. 
 ```
-./Examples/Monocular/mono_kitti Vocabulary/ORBvoc.txt Examples/Monocular/KITTIX.yaml PATH_TO_DATASET_FOLDER/dataset/sequences/SEQUENCE_NUMBER
+./Examples/Monocular/mono_kitti Vocabulary/ORBvoc.bin Examples/Monocular/KITTIX.yaml PATH_TO_DATASET_FOLDER/dataset/sequences/SEQUENCE_NUMBER
 ```
 
 ## EuRoC Dataset
@@ -257,11 +275,11 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 
 2. Execute the following first command for V1 and V2 sequences, or the second command for MH sequences. Change PATH_TO_SEQUENCE_FOLDER and SEQUENCE according to the sequence you want to run.
 ```
-./Examples/Monocular/mono_euroc Vocabulary/ORBvoc.txt Examples/Monocular/EuRoC.yaml PATH_TO_SEQUENCE_FOLDER/mav0/cam0/data Examples/Monocular/EuRoC_TimeStamps/SEQUENCE.txt 
+./Examples/Monocular/mono_euroc Vocabulary/ORBvoc.bin Examples/Monocular/EuRoC.yaml PATH_TO_SEQUENCE_FOLDER/mav0/cam0/data Examples/Monocular/EuRoC_TimeStamps/SEQUENCE.txt 
 ```
 
 ```
-./Examples/Monocular/mono_euroc Vocabulary/ORBvoc.txt Examples/Monocular/EuRoC.yaml PATH_TO_SEQUENCE/cam0/data Examples/Monocular/EuRoC_TimeStamps/SEQUENCE.txt 
+./Examples/Monocular/mono_euroc Vocabulary/ORBvoc.bin Examples/Monocular/EuRoC.yaml PATH_TO_SEQUENCE/cam0/data Examples/Monocular/EuRoC_TimeStamps/SEQUENCE.txt 
 ```
 
 # 5. Stereo Examples
@@ -272,7 +290,7 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 
 2. Execute the following command. Change `KITTIX.yaml`to KITTI00-02.yaml, KITTI03.yaml or KITTI04-12.yaml for sequence 0 to 2, 3, and 4 to 12 respectively. Change `PATH_TO_DATASET_FOLDER` to the uncompressed dataset folder. Change `SEQUENCE_NUMBER` to 00, 01, 02,.., 11. 
 ```
-./Examples/Stereo/stereo_kitti Vocabulary/ORBvoc.txt Examples/Stereo/KITTIX.yaml PATH_TO_DATASET_FOLDER/dataset/sequences/SEQUENCE_NUMBER
+./Examples/Stereo/stereo_kitti Vocabulary/ORBvoc.bin Examples/Stereo/KITTIX.yaml PATH_TO_DATASET_FOLDER/dataset/sequences/SEQUENCE_NUMBER
 ```
 
 ## EuRoC Dataset
@@ -281,10 +299,10 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 
 2. Execute the following first command for V1 and V2 sequences, or the second command for MH sequences. Change PATH_TO_SEQUENCE_FOLDER and SEQUENCE according to the sequence you want to run.
 ```
-./Examples/Stereo/stereo_euroc Vocabulary/ORBvoc.txt Examples/Stereo/EuRoC.yaml PATH_TO_SEQUENCE/mav0/cam0/data PATH_TO_SEQUENCE/mav0/cam1/data Examples/Stereo/EuRoC_TimeStamps/SEQUENCE.txt
+./Examples/Stereo/stereo_euroc Vocabulary/ORBvoc.bin Examples/Stereo/EuRoC.yaml PATH_TO_SEQUENCE/mav0/cam0/data PATH_TO_SEQUENCE/mav0/cam1/data Examples/Stereo/EuRoC_TimeStamps/SEQUENCE.txt
 ```
 ```
-./Examples/Stereo/stereo_euroc Vocabulary/ORBvoc.txt Examples/Stereo/EuRoC.yaml PATH_TO_SEQUENCE/cam0/data PATH_TO_SEQUENCE/cam1/data Examples/Stereo/EuRoC_TimeStamps/SEQUENCE.txt
+./Examples/Stereo/stereo_euroc Vocabulary/ORBvoc.bin Examples/Stereo/EuRoC.yaml PATH_TO_SEQUENCE/cam0/data PATH_TO_SEQUENCE/cam1/data Examples/Stereo/EuRoC_TimeStamps/SEQUENCE.txt
 ```
 
 # 6. RGB-D Example
@@ -302,12 +320,12 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
 3. Execute the following command. Change `TUMX.yaml` to TUM1.yaml,TUM2.yaml or TUM3.yaml for freiburg1, freiburg2 and freiburg3 sequences respectively. Change `PATH_TO_SEQUENCE_FOLDER`to the uncompressed sequence folder. Change `ASSOCIATIONS_FILE` to the path to the corresponding associations file.
 
   ```
-  ./Examples/RGB-D/rgbd_tum Vocabulary/ORBvoc.txt Examples/RGB-D/TUMX.yaml PATH_TO_SEQUENCE_FOLDER ASSOCIATIONS_FILE
+  ./Examples/RGB-D/rgbd_tum Vocabulary/ORBvoc.bin Examples/RGB-D/TUMX.yaml PATH_TO_SEQUENCE_FOLDER ASSOCIATIONS_FILE
   ```
 
 # 7. ROS Examples
 
-### Building the nodes for mono, monoAR, stereo and RGB-D
+### Building the nodes for Stereo/RGB-D + (IMU)
 1. Add the path including *Examples/ROS/VIEO_SLAM* to the ROS_PACKAGE_PATH environment variable. Open .bashrc file and add at the end the following line. Replace PATH by the folder where you cloned VIEO_SLAM:
 
   ```
@@ -321,26 +339,15 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
   ./build_ros.sh
   ```
   
-### Running Monocular Node
-For a monocular input from topic `/camera/image_raw` run node VIEO_SLAM/Mono. You will need to provide the vocabulary file and a settings file. See the monocular examples above.
+### Running Stereo_Inertial Node
+For a stereo/RGB-D input from topic config `Camera.topic` and `Camera.topic2` + IMU data input from `IMU.topic`(refering to a non-existent topic can run VO),
+run node VIEO_SLAM/Stereo_Inertial.
+You will need to provide the vocabulary file and a settings file.
+
+PS: If you **provide rectification matrices** (see Examples/Stereo/EuRoC.yaml example), the node will recitify the images online, **otherwise images may be pre-rectified**.
 
   ```
-  rosrun VIEO_SLAM Mono PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE
-  ```
-  
-### Running Monocular Augmented Reality Demo
-This is a demo of augmented reality where you can use an interface to insert virtual cubes in planar regions of the scene.
-The node reads images from topic `/camera/image_raw`.
-
-  ```
-  rosrun VIEO_SLAM MonoAR PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE
-  ```
-  
-### Running Stereo Node
-For a stereo input from topic `/camera/left/image_raw` and `/camera/right/image_raw` run node VIEO_SLAM/Stereo. You will need to provide the vocabulary file and a settings file. If you **provide rectification matrices** (see Examples/Stereo/EuRoC.yaml example), the node will recitify the images online, **otherwise images must be pre-rectified**.
-
-  ```
-  rosrun VIEO_SLAM Stereo PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE ONLINE_RECTIFICATION
+  rosrun VIEO_SLAM Stereo_Inertial PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE IF_ONLINE_CLACHE SPARSE_MAP_NAME
   ```
   
 **Example**: Download a rosbag (e.g. V1_01_easy.bag) from the EuRoC dataset (http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets). Open 3 tabs on the terminal and run the following command at each tab:
@@ -349,24 +356,21 @@ For a stereo input from topic `/camera/left/image_raw` and `/camera/right/image_
   ```
   
   ```
-  rosrun VIEO_SLAM Stereo Vocabulary/ORBvoc.txt Examples/Stereo/EuRoC.yaml true
+  rosrun VIEO_SLAM Stereo_Inertial Vocabulary/ORBvoc.bin Examples/Stereo/EuRoC.yaml false
   ```
   
   ```
   rosbag play --pause V1_01_easy.bag /cam0/image_raw:=/camera/left/image_raw /cam1/image_raw:=/camera/right/image_raw
   ```
   
-Once VIEO_SLAM has loaded the vocabulary, press space in the rosbag tab. Enjoy!. Note: a powerful computer is required to run the most exigent sequences of this dataset.
+Once VIEO_SLAM has loaded the vocabulary and Sensor topic has data, system will run. Enjoy it!.
 
-### Running RGB_D Node
-For an RGB-D input from topics `/camera/rgb/image_raw` and `/camera/depth_registered/image_raw`, run node VIEO_SLAM/RGBD. You will need to provide the vocabulary file and a settings file. See the RGB-D example above.
-
-  ```
-  rosrun VIEO_SLAM RGBD PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE
-  ```
+Note: a powerful computer is required to run the most exigent sequences of these datasets.
   
 # 8. Processing your own sequences
-You will need to create a settings file with the calibration of your camera. See the settings file provided for the TUM and KITTI datasets for monocular, stereo and RGB-D cameras. We use the calibration model of OpenCV. See the examples to learn how to create a program that makes use of the VIEO_SLAM library and how to pass images to the SLAM system. Stereo input must be synchronized and rectified. RGB-D input must be synchronized and depth registered.
+You will need to create a settings file with the calibration of your camera. See the settings file provided for the TUM and KITTI datasets for monocular, stereo and RGB-D cameras.
+We use the calibration model of OpenCV. See the examples to learn how to create a program that makes use of the VIEO_SLAM library and how to pass images to the SLAM system.
+Stereo input may be synchronized and rectified. RGB-D input must be synchronized and depth registered.
 
 # 9. SLAM and Localization Modes
 You can change between the *SLAM* and *Localization mode* using the GUI of the map viewer.

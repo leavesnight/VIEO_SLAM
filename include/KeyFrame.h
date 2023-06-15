@@ -6,14 +6,9 @@
 #define KEYFRAME_H
 
 #include "FrameBase.h"
-#include "MultiThreadBase.h"
+#include "common/multithreadbase.h"
 #include "MapPoint.h"
-#include "Thirdparty/DBoW2/DBoW2/BowVector.h"
-#include "Thirdparty/DBoW2/DBoW2/FeatureVector.h"
-#include "ORBVocabulary.h"
 #include "KeyFrameDatabase.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 
@@ -25,18 +20,17 @@ class GeometricCamera;
 class KeyFrame : public FrameBase, public MutexUsed {
   char mState;
 
-  std::mutex mMutexNavState;  // the mutex of mNavState(state/vertex), similar to mMutexPose
+  mutable mutex mMutexNavState;  // the mutex of mNavState(state/vertex), similar to mMutexPose
 
-  std::mutex mMutexOdomData;  // the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to
-                              // the unchanged IMU measurement, KFCulling() does change Odom measurement
+  mutable mutex mMutexOdomData;  // the mutex of PreIntegrator(measurements), though BA doesn't change bi_bar leading to
+                                 // the unchanged IMU measurement, KFCulling() does change Odom measurement
 
   // Odom connections for localBA
   KeyFrame *mpPrevKeyFrame, *mpNextKeyFrame;
-  std::mutex mMutexPNConnections;  // the mutex of Prev/Next KF(connections/sparse states related to this KF), similar
-                                   // to mMutexConnections
-  //   bool mbPNChanging;std::mutex mMutexPNChanging;
-  static std::mutex mstMutexPNChanging;  // avoid conescutive 2/3 KFs' SetBadFlag() and SetErase() at the same time!
-                                         // //or check if the former & latter KFs' mbPNChanging are both false
+  mutable mutex mMutexPNConnections;  // the mutex of Prev/Next KF(connections/sparse states related to this KF),
+                                      // similar to mMutexConnections
+  // avoid conescutive 2/3 KFs' SetBadFlag() and SetErase() at the same time!
+  static mutex mstMutexPNChanging;
 
   void UpdatePoseFromNS();
 
@@ -46,8 +40,8 @@ class KeyFrame : public FrameBase, public MutexUsed {
   Matrix<double, 15, 15> mMargCovInv;
   std::vector<bool> mvbOutlier;
   const bool mbPrior;  // always false
-  // PCL used image
-  cv::Mat Img[2];  // 0 is color,1 is depth
+  // PCL used image :now 0 is color,1 is depth
+  vector<cv::Mat> imgs_dense_;
 
   NavState GetNavState(void) override {  // cannot use const &(make mutex useless)
     unique_lock<mutex> lock(mMutexNavState);
@@ -131,7 +125,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   template <class OdomData>
   void PreIntegration(KeyFrame *pLastKF) {
     unique_lock<mutex> lock(mMutexOdomData);
-    // mOdomPreIntEnc.PreIntegration(pLastKF->mTimeStamp,mTimeStamp);
+    // mOdomPreIntEnc.PreIntegration(pLastKF->ftimestamp_,ftimestamp_);
     FrameBase::PreIntegration<OdomData>(pLastKF, mOdomPreIntEnc.getlOdom().begin(), mOdomPreIntEnc.getlOdom().end());
   }  // 0th frame don't use this function, pLastKF shouldn't be bad
   //[iteri,iterj) IMU preintegration, breset=false could make KF2KF preintegration time averaged to per frame &&
@@ -143,71 +137,22 @@ class KeyFrame : public FrameBase, public MutexUsed {
                                 int8_t verbose = 0) {
     NavState ns = plastkf->GetNavState();
     unique_lock<mutex> lock(mMutexOdomData);
-    FrameBase::PreIntegration<OdomData, EncPreIntegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+    FrameBase::PreIntegration<OdomData, EncPreIntegrator>(tmi, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset);
   }
 
   // for LoadMap() in System.cc
   KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is);
-  template <class T>
-  static inline bool readVec(istream &is, T &vec) {  // can also be used for set/list
-    for (typename T::iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      is.read((char *)&(*iter), sizeof(*iter));
-    }
-    return is.good();
-  }
-  template <class T>
-  static inline bool writeVec(ostream &os, const T &vec) {
-    for (typename T::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      os.write((char *)&(*iter), sizeof(*iter));
-    }
-    return os.good();
-  }
-  template <class _OdomData>
-  inline bool readListOdom(std::istream &is, listeig(_OdomData) & lis) {
-    for (typename listeig(_OdomData)::iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->read(is);
-    return is.good();
-  }
-  template <class _OdomData>
-  bool writeListOdom(std::ostream &os, const listeig(_OdomData) & lis) const {
-    for (typename listeig(_OdomData)::const_iterator iter = lis.begin(); iter != lis.end(); ++iter) iter->write(os);
-    return os.good();
-  }
-  static inline bool readMat(istream &is, cv::Mat &mat) {
-    for (int i = 0; i < mat.rows; ++i) {
-      is.read((char *)mat.ptr(i), mat.cols * mat.elemSize());
-    }
-    return is.good();
-  }
-  static inline bool writeMat(ostream &os, const cv::Mat &mat) {
-    for (int i = 0; i < mat.rows; ++i) {
-      os.write((char *)mat.ptr(i), mat.cols * mat.elemSize());
-    }
-    return os.good();
-  }
-  template <class T>
-  static inline bool readEigMat(istream &is, T &mat) {
-    is.read((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));
-    return is.good();
-  }
-  template <class T>
-  static inline bool writeEigMat(ostream &os, const T &mat) {               // for Eigen::Matrix<_Scalar,_Rows,_Cols>
-    os.write((char *)mat.data(), mat.size() * sizeof(typename T::Scalar));  // mat.size()==mat.rows()*mat.cols(), saved
-                                                                            // acquiescently as the column-major order
-    return os.good();
-  }
   bool read(istream &is);
-  bool write(ostream &os);
+  bool write(ostream &os) const;
 
   // for quaterniond in NavState
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // created by zzh over.
 
  public:
-  explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false, KeyFrame *pPrevKF = NULL,
-                    const char state = 2);  // 2 is OK
-
-  // Image
-  bool IsInImage(const float &x, const float &y) const;
+  // 2 is OK
+  explicit KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow = false,
+                    KeyFrame *pPrevKF = nullptr, const char state = 2);
 
   // Pose functions
   void SetPose(const cv::Mat &Tcw);
@@ -219,13 +164,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat GetStereoCenter();
   cv::Mat GetRotation();
   cv::Mat GetTranslation();
-
-  // Bag of Words Representation
-  void ComputeBoW();
-
-  // KeyPoint functions
-  // return vec<featureID>, a 2r*2r window search by Grids/Cells speed-up, here no min/maxlevel check unlike Frame.h
-  std::vector<size_t> GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const;
 
   cv::Mat UnprojectStereo(int i);
 
@@ -276,6 +214,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   std::set<KeyFrame *> GetLoopEdges();  // mspLoopEdges
 
   // Compute Scene Depth (q=2 median). Used in monocular.
+  float hist_med_depth_ = 5.f;
   float ComputeSceneMedianDepth(const int q);
 
   static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->mnId < pKF2->mnId; }
@@ -285,12 +224,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   static long unsigned int nNextId;
 
   const long unsigned int mnFrameId;
-
-  // Grid (to speed up feature matching)
-  const int mnGridCols;
-  const int mnGridRows;
-  const float mfGridElementWidthInv;
-  const float mfGridElementHeightInv;
 
   // Variables to avoid duplicate inserting
   long unsigned int mnTrackReferenceForFrame;  // for local Map in tracking
@@ -314,40 +247,8 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat mTcwBefGBA;
   long unsigned int mnBAGlobalForKF;  // mpCurrentKF used to correct loop and call GBA
 
-  // Calibration parameters
-  const float fx, fy, cx, cy, invfx, invfy, mbf, mb, mThDepth;
-
-  // Number of KeyPoints
-  const int N;
-
-  // KeyPoints, stereo coordinate and descriptors (all associated by an index)
-  const std::vector<cv::KeyPoint> mvKeys;
-  const std::vector<cv::KeyPoint> mvKeysUn;
-  const std::vector<float> mvuRight;  // negative value for monocular points
-  const std::vector<float> mvDepth;   // negative value for monocular points
-  const cv::Mat mDescriptors;
-
-  // BoW
-  DBoW2::BowVector mBowVec;
-  DBoW2::FeatureVector mFeatVec;
-
   // Pose relative to parent (this is computed when bad flag is activated)
   cv::Mat mTcp;  // used in SaveTrajectoryTUM() in System.cc
-
-  // Scale
-  const std::vector<float> mvScaleFactors;
-  const int mnScaleLevels;
-  const float mfScaleFactor;
-  const float mfLogScaleFactor;
-  const std::vector<float> mvLevelSigma2;
-  const std::vector<float> mvInvLevelSigma2;
-
-  // Image bounds and calibration
-  const int mnMinX;
-  const int mnMinY;
-  const int mnMaxX;
-  const int mnMaxY;
-  const cv::Mat mK;
 
   // The following variables need to be accessed trough a mutex to be thread safe.
  protected:
@@ -361,11 +262,6 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat Twc;
   cv::Mat Ow;
   cv::Mat Cw;  // Stereo middel point. Only for visualization
-
-  ORBVocabulary *mpORBvocabulary;
-
-  // Grid over the image to speed up feature matching
-  std::vector<std::vector<std::vector<std::vector<size_t>>>> vgrids_;
 
   // covisibility graph need KFs (>0 maybe unidirectional edge!maybe u can revise it~) covisible MapPoints
   std::map<KeyFrame *, int> mConnectedKeyFrameWeights;
@@ -382,11 +278,9 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // Loop Edges
   std::set<KeyFrame *> mspLoopEdges;
 
-  float mHalfBaseline;  // Only for visualization
-
-  std::mutex mMutexPose;
-  std::mutex mMutexConnections;
-  std::mutex mMutexFeatures;  // the mutex of mvpMapPoints(landmarks' states/vertices)
+  mutable mutex mMutexPose;
+  mutable mutex mMutexConnections;
+  mutable mutex mMutexFeatures;  // the mutex of mvpMapPoints(landmarks' states/vertices)
 
   // Covisibility graph functions
   void AddConnection(KeyFrame *pKF, const int &weight);

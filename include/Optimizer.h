@@ -19,14 +19,14 @@
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
 #else
 
-#include "Thirdparty/g2o/g2o/core/block_solver.h"
-#include "Thirdparty/g2o/g2o/core/optimization_algorithm_levenberg.h"
-#include "Thirdparty/g2o/g2o/solvers/linear_solver_eigen.h"  //must before linear_solver_cholmod...
-#include "Thirdparty/g2o/g2o/core/optimization_algorithm_gauss_newton.h"
-#include "Thirdparty/g2o/g2o/solvers/linear_solver_dense.h"
-#include "Thirdparty/g2o/g2o/solvers/linear_solver_cholmod.h"
-#include "Thirdparty/g2o/g2o/core/robust_kernel_impl.h"
-#include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
+#include "optimizer/g2o/g2o/core/block_solver.h"
+#include "optimizer/g2o/g2o/core/optimization_algorithm_levenberg.h"
+#include "optimizer/g2o/g2o/solvers/linear_solver_eigen.h"  //must before linear_solver_cholmod...
+#include "optimizer/g2o/g2o/core/optimization_algorithm_gauss_newton.h"
+#include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
+#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
+#include "optimizer/g2o/g2o/core/robust_kernel_impl.h"
+#include "optimizer/g2o/g2o/types/types_seven_dof_expmap.h"
 
 #endif
 
@@ -307,7 +307,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   InvCovBgaRW.bottomRightCorner(3, 3) =
       Matrix3d::Identity() * IMUDataBase::mInvSigmaba2;  // Accelerometer bias random walk, covariance INVERSE
   // see Manifold paper (47), notice here is Omega_d/Sigma_d.inverse()
-  double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->mTimeStamp - pLastKF->mTimeStamp;
+  double deltatij = imupreint.mdeltatij ? imupreint.mdeltatij : pFrame->ftimestamp_ - pLastKF->ftimestamp_;
+  assert(deltatij > 0);
 #ifdef USE_ZZH_IMU_EDGE_FEBA
   if (bFixedLast) {
     eNSBias->setInformation(InvCovBgaRW / deltatij * 1e-2);
@@ -379,7 +380,8 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
   Pinhole CamInst;
-  bool usedistort = Frame::usedistort_ && pFrame->mpCameras.size();
+  assert(!pFrame->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
   // configs for Prior Hessian
   const bool calc_cov_explicit = true;  // false;
 #define USE_ROBUST_PRIOR_EDGE
@@ -394,10 +396,9 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const auto &frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
   {
     if (!usedistort) {
-      CamInst.setParameter(pFrame->fx, 0);
-      CamInst.setParameter(pFrame->fy, 1);
-      CamInst.setParameter(pFrame->cx, 2);
-      CamInst.setParameter(pFrame->cy, 3);
+      auto params_tmp = pFrame->mpCameras[0]->getParameters();
+      params_tmp.resize(4);
+      CamInst.setParameters(params_tmp);
     }
 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
@@ -418,13 +419,13 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         pFrame->mvbOutlier[i] = false;
 
         // Monocular observation
-        if (pFrame->mvuRight[i] < 0)  // this may happen in RGBD case!
+        if (pFrame->stereoinfo_.vuright_[i] < 0)  // this may happen in RGBD case!
         {
           g2o::EdgeReprojectPVR *e = new g2o::EdgeReprojectPVR();
           if (!usedistort)
             e->SetParams(&CamInst, Rcb, tcb);
           else {
-            CV_Assert(pFrame->mapn2in_.size() > i);
+            assert(pFrame->mapn2in_.size() > i);
             e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
           }
 
@@ -437,7 +438,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           const cv::KeyPoint &kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
           obs << kpUn.pt.x, kpUn.pt.y;
           e->setMeasurement(obs);
-          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          const float invSigma2 = pFrame->scalepyrinfo_.vinvlevelsigma2_[kpUn.octave];
           // diagonal matrix means independece between x and y pixel noise 2*2 matrix
           e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
 
@@ -451,16 +452,17 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           vpEdgesMono.push_back(e);
           vnIndexEdgeMono.push_back(i);
           // e->computeError();
-          // PRINT_DEBUG_INFO(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
+          // PRINT_DEBUG_FILE(get<0>(pFrame->mapn2in_[i]) << "e chi2=" << e->chi2() << " ",
           // mlog::vieo_slam_debug_path,"tracking_thread_debug.txt");
         } else  // Stereo observation
         {
           g2o::EdgeReprojectPVRStereo *e = new g2o::EdgeReprojectPVRStereo();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb, &pFrame->mbf);
+            e->SetParams(&CamInst, Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
           else {
-            CV_Assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb, &pFrame->mbf);
+            assert(pFrame->mapn2in_.size() > i);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb,
+                         &pFrame->stereoinfo_.baseline_bf_[1]);
           }
 
           e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex *>(optimizer.vertex(id)));
@@ -469,10 +471,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
           // SET EDGE
           Eigen::Matrix<double, 3, 1> obs;
           const cv::KeyPoint &kpUn = !usedistort ? pFrame->mvKeysUn[i] : pFrame->mvKeys[i];
-          const float &kp_ur = pFrame->mvuRight[i];
+          const float &kp_ur = pFrame->stereoinfo_.vuright_[i];
           obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
           e->setMeasurement(obs);  // edge parameter/measurement formula output z
-          const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
+          const float invSigma2 = pFrame->scalepyrinfo_.vinvlevelsigma2_[kpUn.octave];
           e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
 
           // optimization target=KernelHuber(block)=H(e)={1/2*e sqrt(e)<=delta;delta(sqrt(e)-1/2*delta) others}
@@ -488,7 +490,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       }
     }
   }
-  // PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+  // PRINT_DEBUG_FILE(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
   PRINT_INFO_FILE("moba enterobs=" << nInitialCorrespondences << endl, mlog::vieo_slam_debug_path,
                   "tracking_thread_debug.txt");
 
@@ -532,7 +534,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   int nBadIMU = 0;
   // 4 optimizations, each 10 steps, initial value is the same, but inliers are different
   for (size_t it = 0; it < 4; it++) {
-    // PRINT_DEBUG_INFO(it << ":" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+    // PRINT_DEBUG_FILE(it << ":" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
     // Reset estimate for vertexj
     if (!bodom_edge) {
       vNSFPVR->setEstimate(nsj);
@@ -572,7 +574,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         e->setLevel(1);
         nBad++;
       } else {
-        // PRINT_DEBUG_INFO("e chi2=" << chi2 << " ", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+        // PRINT_DEBUG_FILE("e chi2=" << chi2 << " ", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
         pFrame->mvbOutlier[idx] = false;
         //        if ((int8_t)g2o::kNotExact <= exact_mode || it < 3 && optimizer.edges().size() >= 10)
         e->setLevel(0);
@@ -609,7 +611,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       if (it == 2) e->setRobustKernel(0);
     }
 
-    // PRINT_DEBUG_INFO(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
+    // PRINT_DEBUG_FILE(endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
     // it outliers+inliers(/_edges) number<10 only optimize once with RobustKernelHuber
     if (optimizer.edges().size() < 10) break;
     // we tested erasing erroneous IMU edge through chi2 error strategy, but not better, so we abandoned it

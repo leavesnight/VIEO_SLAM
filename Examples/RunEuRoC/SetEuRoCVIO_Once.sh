@@ -21,12 +21,16 @@ ConfigFileRel=""
 if [[ $6 != "" ]]; then
   ConfigFileRel=$6
 fi
+MapSparseName=""
+if [[ $7 != "" ]]; then
+  MapSparseName=$7
+fi
 
 curPath=$(dirname $(readlink -f "$0"))
 echo curPath_Once=$curPath
 
 cd $curPath
-source ./RunEuRoCVIO.sh $CAMTYPE $EUROCFILE $EUROCFILE2 $EuRoCFolderRel $ConfigFileRel
+source ./RunEuRoCVIO.sh $CAMTYPE $EUROCFILE $EUROCFILE2 "$EuRoCFolderRel" "$ConfigFileRel" "$MapSparseName"
 #cd $curPath
 #SUBFILE=VIO/NoLoopMore_0.2
 #source ./EvaluateEuRoC_Evaluate.sh

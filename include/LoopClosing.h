@@ -20,7 +20,7 @@
 #ifdef USE_G2O_NEWEST
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
 #else
-#include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
+#include "optimizer/g2o/g2o/types/types_seven_dof_expmap.h"
 #endif
 
 namespace VIEO_SLAM {
@@ -35,8 +35,6 @@ class LoopClosing {
  public:
   unsigned long mnLastOdomKFId;        // if >0 use loose loop detection for encoder error correction
   int mnIterations, mnInitIterations;  // number of Iterations in Full BA / GBA
-
-  bool mbLoopDetected;  // for ros_mono_pub.cc
 
  public:
   void CreateGBA();
@@ -60,7 +58,7 @@ class LoopClosing {
 
   void SetTracker(Tracking* pTracker);
   void SetLocalMapper(LocalMapping* pLocalMapper);
-  void SetIMUInitiator(IMUInitialization* pIMUInitiator) { mpIMUInitiator = pIMUInitiator; }  // zzh
+  void SetIMUInitiator(IMUInitialization* pIMUInitiator) { mpIMUInitiator = pIMUInitiator; }
 
   // Main function
   void Run();
@@ -135,13 +133,12 @@ class LoopClosing {
   std::mutex mMutexFinish;
 
   Map* mpMap;
-  Tracking* mpTracker;
 
   KeyFrameDatabase* mpKeyFrameDB;
   ORBVocabulary* mpORBVocabulary;
 
   LocalMapping* mpLocalMapper;
-  IMUInitialization* mpIMUInitiator;  // zzh
+  IMUInitialization* mpIMUInitiator = nullptr;
 
   std::list<KeyFrame*> mlpLoopKeyFrameQueue;
 

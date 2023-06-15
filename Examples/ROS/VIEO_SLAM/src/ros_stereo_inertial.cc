@@ -3,8 +3,6 @@
  */
 
 #include <iostream>
-#include <algorithm>
-#include <fstream>
 #include <chrono>
 #include <vector>
 #include <queue>
@@ -17,7 +15,7 @@
 
 #include <opencv2/core/core.hpp>
 
-#include "../../../include/System.h"
+#include "include/System.h"
 
 using namespace std;
 
@@ -33,11 +31,16 @@ class ImuGrabber {
 class ImageGrabber {
  public:
   ImageGrabber(VIEO_SLAM::System *pSLAM, ImuGrabber *pImuGb, const bool bClahe)
-      : mpSLAM(pSLAM), mpImuGb(pImuGb), mbClahe(bClahe) {}
+      : mpSLAM(pSLAM), mpImuGb(pImuGb), mbClahe(bClahe) {
+    if (VIEO_SLAM::System::RGBD == mpSLAM->GetSensor()) {
+      img_encodings_[0] = string();
+      img_encodings_[1] = string();
+    }
+  }
 
   void GrabImageLeft(const sensor_msgs::ImageConstPtr &msg);
   void GrabImageRight(const sensor_msgs::ImageConstPtr &msg);
-  cv::Mat GetImage(const sensor_msgs::ImageConstPtr &img_msg);
+  cv::Mat GetImage(const sensor_msgs::ImageConstPtr &img_msg, const string &image_encodings = string());
   void SyncWithImu();
 
   queue<sensor_msgs::ImageConstPtr> imgLeftBuf, imgRightBuf;
@@ -49,6 +52,7 @@ class ImageGrabber {
   cv::Mat M1l, M2l, M1r, M2r;
 
   const bool mbClahe;
+  vector<string> img_encodings_ = {sensor_msgs::image_encodings::MONO8, sensor_msgs::image_encodings::MONO8};
   cv::Ptr<cv::CLAHE> mClahe = cv::createCLAHE(3.0, cv::Size(8, 8));
 };
 
@@ -57,15 +61,24 @@ int main(int argc, char **argv) {
   ros::NodeHandle n("~");
   ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
   bool bEqual = false;
-  if (argc < 3 || argc > 4) {
-    cerr << endl << "Usage: rosrun VIEO_SLAM Stereo_Inertial path_to_vocabulary path_to_settings [do_equalize]" << endl;
+  if (argc < 3 || argc > 5) {
+    cerr << endl
+         << "Usage: rosrun VIEO_SLAM Stereo_Inertial path_to_vocabulary path_to_settings [do_equalize] [map_spase_name]"
+         << endl;
     ros::shutdown();
     return 1;
   }
 
-  if (argc == 4) {
-    std::string sbEqual(argv[3]);
-    if (sbEqual == "true") bEqual = true;
+  string map_sparse_name = "";
+  switch (argc) {
+    case 5:
+      map_sparse_name = argv[4];
+    case 4: {
+      std::string sbEqual(argv[3]);
+      if (sbEqual == "true") bEqual = true;
+    } break;
+    default:
+      break;
   }
 
   // Read rectification parameters
@@ -76,12 +89,18 @@ int main(int argc, char **argv) {
   }
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
-  VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true);
+  VIEO_SLAM::System::eSensor mode_camera = VIEO_SLAM::System::STEREO;
+  auto node_tmp = fsSettings["Camera.mode"];
+  if (!node_tmp.empty()) {
+    mode_camera = (VIEO_SLAM::System::eSensor)(int)node_tmp;
+  }
+  VIEO_SLAM::System SLAM(argv[1], argv[2], mode_camera, true, map_sparse_name);
 
   ImuGrabber imugb;
   ImageGrabber igb(&SLAM, &imugb, bEqual);
 
-  if (!fsSettings["LEFT.K"].empty()) {
+  node_tmp = fsSettings["LEFT.K"];
+  if (!node_tmp.empty()) {
     // Load settings related to stereo calibration
     if (!fsSettings.isOpened()) {
       cerr << "ERROR: Wrong path to settings" << endl;
@@ -151,21 +170,16 @@ void ImageGrabber::GrabImageRight(const sensor_msgs::ImageConstPtr &img_msg) {
   mBufMutexRight.unlock();
 }
 
-cv::Mat ImageGrabber::GetImage(const sensor_msgs::ImageConstPtr &img_msg) {
+cv::Mat ImageGrabber::GetImage(const sensor_msgs::ImageConstPtr &img_msg, const string &image_encodings) {
   // Copy the ros image message to cv::Mat.
   cv_bridge::CvImageConstPtr cv_ptr;
   try {
-    cv_ptr = cv_bridge::toCvShare(img_msg, sensor_msgs::image_encodings::MONO8);
+    cv_ptr = cv_bridge::toCvShare(img_msg, image_encodings);
   } catch (cv_bridge::Exception &e) {
     ROS_ERROR("cv_bridge exception: %s", e.what());
   }
 
-  if (cv_ptr->image.type() == 0) {
-    return cv_ptr->image.clone();
-  } else {
-    std::cout << "Error type" << std::endl;
-    return cv_ptr->image.clone();
-  }
+  return cv_ptr->image.clone();
 }
 
 #define PRINT_TIME_COST
@@ -174,7 +188,7 @@ void ImageGrabber::SyncWithImu() {
   while (1) {
     cv::Mat imLeft, imRight;
     double tImLeft = 0, tImRight = 0;
-    if (!imgLeftBuf.empty() && !imgRightBuf.empty() && !mpImuGb->imuBuf.empty()) {
+    if (!imgLeftBuf.empty() && !imgRightBuf.empty()) {
       tImLeft = imgLeftBuf.front()->header.stamp.toSec();
       tImRight = imgRightBuf.front()->header.stamp.toSec();
 
@@ -196,15 +210,15 @@ void ImageGrabber::SyncWithImu() {
         // std::cout << "big time difference" << std::endl;
         continue;
       }
-      if (tImLeft > mpImuGb->imuBuf.back()->header.stamp.toSec()) continue;
+      if (!mpImuGb->imuBuf.empty() && tImLeft > mpImuGb->imuBuf.back()->header.stamp.toSec()) continue;
 
       this->mBufMutexLeft.lock();
-      imLeft = GetImage(imgLeftBuf.front());
+      imLeft = GetImage(imgLeftBuf.front(), img_encodings_[0]);
       imgLeftBuf.pop();
       this->mBufMutexLeft.unlock();
 
       this->mBufMutexRight.lock();
-      imRight = GetImage(imgRightBuf.front());
+      imRight = GetImage(imgRightBuf.front(), img_encodings_[1]);
       imgRightBuf.pop();
       this->mBufMutexRight.unlock();
 
@@ -245,7 +259,7 @@ void ImageGrabber::SyncWithImu() {
       std::chrono::monotonic_clock::time_point t1 = std::chrono::monotonic_clock::now();
 #endif
 #endif
-      mpSLAM->TrackStereo(vector<cv::Mat>({imLeft, imRight}), tImLeft, do_rectify);
+      mpSLAM->TrackStereo(vector<cv::Mat>({imLeft, imRight}), tImLeft);
 #ifdef PRINT_TIME_COST
 #if (defined(COMPILEDWITHC11) || defined(COMPILEDWITHC17))
       std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
@@ -257,7 +271,7 @@ void ImageGrabber::SyncWithImu() {
       static size_t ttrack_num = 0;
       ++ttrack_num;
       ttrack_sum += ttrack;
-      if (1 == ttrack_num % 30) PRINT_INFO("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
+      if (1 == ttrack_num % 30) PRINT_INFO_MUTEX("ttrack=" << ttrack << ",avg=" << ttrack_sum / ttrack_num << endl);
 #endif
 
       std::chrono::milliseconds tSleep(1);

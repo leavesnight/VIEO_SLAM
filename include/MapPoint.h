@@ -18,6 +18,7 @@ namespace VIEO_SLAM {
 class KeyFrame;
 class Map;
 class Frame;
+class FrameBase;
 
 class MapPoint {
  protected:
@@ -79,8 +80,7 @@ class MapPoint {
   cv::Mat GetNormal();                   // mNormalVector
   void ComputeDistinctiveDescriptors();  // Take the descriptor with least median distance to the rest
   cv::Mat GetDescriptor();
-  int PredictScale(const float& currentDist, KeyFrame* pKF);
-  int PredictScale(const float& currentDist, Frame* pF);
+  int PredictScale(const float& currentDist, FrameBase* pfb);
 
   void IncreaseVisible(int n = 1);
   void IncreaseFound(int n = 1);

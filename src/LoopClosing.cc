@@ -2,18 +2,13 @@
  * This file is part of VIEO_SLAM
  */
 
-#include "LoopClosing.h"
-
-#include "Sim3Solver.h"
-
-#include "Converter.h"
-
-#include "Optimizer.h"
-
-#include "ORBmatcher.h"
-
 #include <mutex>
 #include <thread>
+#include "LoopClosing.h"
+#include "Sim3Solver.h"
+#include "Converter.h"
+#include "Optimizer.h"
+#include "ORBmatcher.h"
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
@@ -48,10 +43,7 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
       mpThreadGBA(NULL),
       mbFixScale(bFixScale),
       mnFullBAIdx(0),
-      mpIMUInitiator(NULL),
-      mnLastOdomKFId(0),
-      mbLoopDetected(false)  // zzh
-{
+      mnLastOdomKFId(0) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   cv::FileNode fnIter[] = {fSettings["GBA.iterations"],       fSettings["GBA.initIterations"],
                            fSettings["GBA.threshMatches"],    fSettings["GBA.threshMatches2"],
@@ -94,8 +86,6 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
   th_covisibility_consistency_[2] = th_covisibility_consistency_[0];
 }
 
-void LoopClosing::SetTracker(Tracking* pTracker) { mpTracker = pTracker; }
-
 void LoopClosing::SetLocalMapper(LocalMapping* pLocalMapper) { mpLocalMapper = pLocalMapper; }
 
 void LoopClosing::Run() {
@@ -110,8 +100,8 @@ void LoopClosing::Run() {
       if (DetectLoop()) {  // else no gw to calculate GBA //(mpIMUInitiator->GetVINSInited())&&
         // Compute similarity transformation [sR|t]
         // In the stereo/RGBD case s=1
-        unique_lock<mutex> lockScale(
-            mpMap->mMutexScaleUpdateLoopClosing);  // notice we cannot update scale during LoopClosing or LocalBA!
+        // notice we cannot update scale during LoopClosing or LocalBA!
+        unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);
         if (ComputeSim3()) {
           // Perform loop fusion and pose graph optimization
           CorrectLoop();
@@ -166,7 +156,7 @@ bool LoopClosing::DetectLoop() {
       mpKeyFrameDB->add(mpCurrentKF);
       return false;
     }
-    PRINT_DEBUG_INFO_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_DEBUG_FILE_MUTEX("SetNotErase" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                            mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetNotErase();
   }
@@ -175,8 +165,9 @@ bool LoopClosing::DetectLoop() {
   // in time from last loop
   if (mpCurrentKF->mnId < mLastLoopKFid + 10) {
     mpKeyFrameDB->add(mpCurrentKF);  // add CurrentKF into KFDataBase
-    PRINT_INFO_FILE("Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
-                    mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
+    PRINT_INFO_FILE(
+        "Too close, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
+        mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();  // allow CurrentKF to be erased
     return false;
   }
@@ -207,7 +198,7 @@ bool LoopClosing::DetectLoop() {
     // validation/roubst loop detection->restart mvConsistentGroups' counter
     mvConsistentGroups.clear();
     PRINT_INFO_FILE(
-        "CandidateKFs Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        "CandidateKFs Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
@@ -230,7 +221,7 @@ bool LoopClosing::DetectLoop() {
     set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
     // Each candidate expands a covisibility group(loop candidate+its connectedKFs in covisibility graph)
     spCandidateGroup.insert(pCandidateKF);
-    PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+    PRINT_DEBUG_FILE("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
                                << "]szcandigroup=" << spCandidateGroup.size() << endl,
                      mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
 
@@ -262,7 +253,7 @@ bool LoopClosing::DetectLoop() {
         }
         // if enough consecutive consistency counter/loop detections, here at least 3 new KFs
         // detect the consistent loop candidate group
-        PRINT_DEBUG_INFO("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
+        PRINT_DEBUG_FILE("check [" << pCandidateKF->mnId << ",tm=" << pCandidateKF->timestamp_
                                    << "]curconsist=" << nCurrentConsistency << endl,
                          mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
         if (nCurrentConsistency >= th_covisibility_consistency_[2] && !bEnoughConsistent) {
@@ -289,13 +280,13 @@ bool LoopClosing::DetectLoop() {
 
   if (mvpEnoughConsistentCandidates.empty()) {
     PRINT_INFO_FILE(
-        "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+        "Final Empty, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     mpCurrentKF->SetErase();
     return false;
   } else  // if any candidate group is enough(counter >=3) consistent with any previous group
   {       // first some detection()s won't go here
-    PRINT_INFO_FILE("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_INFO_FILE("DetectLoop!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
                     mlog::vieo_slam_debug_path, "loopclosing_thread_debug.txt");
     return true;  // keep mpCurrentKF->mbNotErase==true until ComputeSim3() or even CorrectLoop()
   }
@@ -345,7 +336,8 @@ bool LoopClosing::ComputeSim3() {
       vbDiscarded[i] = true;
       continue;
     } else {
-      Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);  // how?
+      // ICP3D
+      Sim3Solver* pSolver = new Sim3Solver(mpCurrentKF, pKF, vvpMapPointMatches[i], mbFixScale);
       // 20 is stricter than Relocalization()s, old 20 new 10
       int minInliers = mnLastOdomKFId == 0 ? thresh_inliers_[0] : thresh_inliers_[1];
       pSolver->SetRansacParameters(0.99, minInliers, 300);
@@ -413,11 +405,10 @@ bool LoopClosing::ComputeSim3() {
         {
           bMatch = true;
           mpMatchedKF = pKF;  // member data, enough matched loop candidate KF
-          g2o::Sim3 gSmw(Converter::toMatrix3d(pKF->GetRotation()), Converter::toVector3d(pKF->GetTranslation()),
-                         1.0);  // g2o::Sim3(Tc2w/T2w) for RGBD
-          mg2oScw =
-              gScm *
-              gSmw;  // g2o: T1w=T12*T2w for RGBD, this means we fix loop candidate KF, correct the mpCurrentKF's Pose
+          // g2o::Sim3(Tc2w/T2w) for RGBD/Stereo
+          g2o::Sim3 gSmw(Converter::toMatrix3d(pKF->GetRotation()), Converter::toVector3d(pKF->GetTranslation()), 1.0);
+          // g2o: T1w=T12*T2w for RGBD/Stereo, this means we fix loop candidate KF, correct the mpCurrentKF's Pose
+          mg2oScw = gScm * gSmw;
           mScw = Converter::toCvMat(mg2oScw);  // Scamera1_world/S1w/ScurrentKF_world/Scw
 
           mvpCurrentMatchedPoints = vpMapPointMatches;  // enough BA inliers' mpCurrentKF->mvpMapPoints' matched MPs
@@ -429,8 +420,8 @@ bool LoopClosing::ComputeSim3() {
 
   if (!bMatch)  // if BA inliers validation is not passed
   {
-    PRINT_DEBUG_INFO_MUTEX(
-        "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl,
+    PRINT_DEBUG_FILE_MUTEX(
+        "bMatch==false, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl,
         mlog::vieo_slam_debug_path, "debug.txt");
     for (int i = 0; i < nInitialCandidates; i++)
       mvpEnoughConsistentCandidates[i]->SetErase();  // allow loop candidate KFs && mpCurrentKF to be erased for
@@ -477,7 +468,7 @@ bool LoopClosing::ComputeSim3() {
     return true;  // notice mpCurrentKF && mpMatchedKF is still not allowed to be erased, where are they allowed?
   } else          // not pass the final validation like SearchLocalPoints() in Tracking
   {  // allow loop candidate KFs && mpCurrentKF to be erased for KF.mspLoopEdges is only added in CorrectLoop()
-    cout << "nTotalMatches<40, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->mTimeStamp << endl;
+    cout << "nTotalMatches<40, discard loop detection!" << mpCurrentKF->mnId << " " << mpCurrentKF->ftimestamp_ << endl;
     for (int i = 0; i < nInitialCandidates; i++) mvpEnoughConsistentCandidates[i]->SetErase();
     mpCurrentKF->SetErase();
     return false;
@@ -609,7 +600,7 @@ void LoopClosing::CorrectLoop() {
         MapPoint* pLoopMP = mvpCurrentMatchedPoints[i];  // matched MP of pCurMP
         MapPoint* pCurMP = mpCurrentKF->GetMapPoint(i);
         if (pCurMP) {
-          PRINT_DEBUG_INFO_MUTEX("cl" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+          PRINT_DEBUG_FILE_MUTEX("cl" << endl, mlog::vieo_slam_debug_path, "debug.txt");
           pCurMP->Replace(pLoopMP);  // use new corrected MPs(pLoopMP) instead old ones(pCurMP) for pLoopMP is corrected
                                      // by Sim3Motion-only BA optimized S12
         } else                       // may happen for additional matched MPs by last SBP() in ComputeSim3()
@@ -657,8 +648,9 @@ void LoopClosing::CorrectLoop() {
   }
 
   // Optimize graph, inform change and kfs pose/mp position change must lock MapUpdate!
+  // PoseGraph Opt.
   Optimizer::OptimizeEssentialGraph(mpMap, mpMatchedKF, mpCurrentKF, NonCorrectedSim3, CorrectedSim3, LoopConnections,
-                                    mbFixScale);  // PoseGraph Opt.
+                                    mbFixScale);
 
   // Add loop edge
   mpMatchedKF->AddLoopEdge(mpCurrentKF);
@@ -695,7 +687,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose& CorrectedPosesMap) {
     for (int i = 0; i < nLP; i++) {
       MapPoint* pRep = vpReplacePoints[i];
       if (pRep) {
-        PRINT_DEBUG_INFO_MUTEX("saf" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("saf" << endl, mlog::vieo_slam_debug_path, "debug.txt");
         pRep->Replace(
             mvpLoopMapPoints[i]);  // replace vpReplacePoints[i]/pKF->mvpMapPoints[bestIdx] by mvpLoopMapPoints[i]
       }
@@ -738,11 +730,11 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 
   bool bUseGBAPRV = false;
   int idx = mnFullBAIdx;
-  unique_lock<mutex> lockScale(
-      mpMap->mMutexScaleUpdateGBA);  // notice we cannot update scale during LoopClosing or LocalBA!
+  // notice we cannot update scale during LoopClosing or LocalBA!
+  unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);
   if (mpIMUInitiator->GetVINSInited()) {
-    if (!mpIMUInitiator
-             ->GetInitGBAOver()) {  // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
+    if (!mpIMUInitiator->GetInitGBAOver()) {
+      // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
       PRINT_INFO_FILE(redSTR "Full BA just after IMU Initializated!" << whiteSTR << endl, mlog::vieo_slam_debug_path,
                       "gba_thread_debug.txt");
       // 15 written in V-B of VIORBSLAM paper
@@ -756,11 +748,9 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
     }
     bUseGBAPRV = true;
   } else {
-    cerr << redSTR "pure-vision GBA!" << whiteSTR << endl;
-    Optimizer::GlobalBundleAdjustment(
-        mpMap, mnIterations, &mbStopGBA, nLoopKF, false,
-        mpIMUInitiator->GetSensorEnc());  // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA,
-                                          // may be stopped by next CorrectLoop()
+    PRINT_INFO_FILE(redSTR "pure-vision GBA!" << whiteSTR << endl, mlog::vieo_slam_debug_path, "gba_thread_debug.txt");
+    // GlobalBA(GBA),10 iterations same in localBA/motion-only/Sim3motion-only BA, may be stopped by next CorrectLoop()
+    Optimizer::GlobalBundleAdjustment(mpMap, mnIterations, &mbStopGBA, nLoopKF, false, mpIMUInitiator->GetSensorEnc());
   }
   // Update all MapPoints and KeyFrames
   // Local Mapping was active during BA, that means that there might be new keyframes
@@ -768,9 +758,9 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
   // We need to propagate the correction through the spanning tree
   {
     unique_lock<mutex> lock(mMutexGBA);
-    if (idx != mnFullBAIdx)  // it's for safe terminating this thread when it's so slow that mbStopGBA becomes false
-                             // again(but mnFullBAIdx++ before), synchrone mechanism
-      return;
+    // it's for safe terminating this thread when it's so slow that mbStopGBA becomes false again(but mnFullBAIdx++
+    // before), synchrone mechanism
+    if (idx != mnFullBAIdx) return;
 
     if (!mbStopGBA)  // I think it's useless for when mbStopGBA==true, idx!=mnFullBAIdx
     {
@@ -780,9 +770,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
 
-      while (!mpLocalMapper->isStopped() &&
-             !mpLocalMapper->isFinished())  // if LocalMapping is killed by System::Shutdown(), don't wait any more
-      {
+      // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      while (!mpLocalMapper->isStopped() && !mpLocalMapper->isFinished()) {
         usleep(1000);
       }
 
@@ -797,7 +786,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       // propagate the correction through the spanning tree(root is always id0 KF)
       // if the propagation is not over (notice mpMap cannot be reset for LocalMapping is stopped)
       while (!lpKFtoCheck.empty()) {
-        KeyFrame* pKF = lpKFtoCheck.front();  // for RGBD, lpKFtoCheck should only have one KF initially
+        KeyFrame* pKF = lpKFtoCheck.front();  // for RGBD/Stereo, lpKFtoCheck should only have one KF initially
         const set<KeyFrame*> sChilds = pKF->GetChilds();
         cv::Mat Twc = pKF->GetPoseInverse();
         // 		cout<<"Check: "<<pKF->mnId<<endl;
@@ -892,9 +881,6 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
 
     // mbFinishedGBA = true;
     mbRunningGBA = false;
-
-    // for ros_mono_pub.cc
-    mbLoopDetected = true;
   }
 }
 

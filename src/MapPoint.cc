@@ -2,12 +2,11 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <mutex>
 #include "MapPoint.h"
 #include "ORBmatcher.h"
 #include "KannalaBrandt8.h"
 #include "common/mlog/log.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 
@@ -114,11 +113,11 @@ MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF
   cv::Mat PC = Pos - Ow;
   const float dist = cv::norm(PC);
   const int level = pFrame->mvKeys[idxF].octave;  // Un
-  const float levelScaleFactor = pFrame->mvScaleFactors[level];
-  const int nLevels = pFrame->mnScaleLevels;
+  const float levelScaleFactor = pFrame->scalepyrinfo_.vscalefactor_[level];
+  const int nLevels = pFrame->scalepyrinfo_.vscalefactor_.size();
 
   mfMaxDistance = dist * levelScaleFactor;
-  mfMinDistance = mfMaxDistance / pFrame->mvScaleFactors[nLevels - 1];
+  mfMinDistance = mfMaxDistance / pFrame->scalepyrinfo_.vscalefactor_[nLevels - 1];
 
   pFrame->mDescriptors.row(idxF).copyTo(mDescriptor);
 
@@ -162,9 +161,9 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   CV_Assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
-  PRINT_DEBUG_INFO_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
 
-  if (pKF->mvuRight[idx] >= 0)
+  if (pKF->stereoinfo_.vuright_[idx] >= 0)
     nObs += 2;
   else
     nObs++;
@@ -180,7 +179,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF, size_t idx) {
       if (-1 == idx) {
         for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
           auto idx = *iter;
-          if (pKF->mvuRight[idx] >= 0)
+          if (pKF->stereoinfo_.vuright_[idx] >= 0)
             nObs -= 2;
           else
             nObs--;
@@ -188,7 +187,7 @@ void MapPoint::EraseObservation(KeyFrame* pKF, size_t idx) {
 
         mObservations.erase(pKF);
       } else {
-        if (pKF->mvuRight[idx] >= 0)
+        if (pKF->stereoinfo_.vuright_[idx] >= 0)
           nObs -= 2;
         else
           --nObs;
@@ -250,7 +249,7 @@ MapPoint* MapPoint::GetReplaced() {
 void MapPoint::Replace(MapPoint* pMP) {
   if (pMP->mnId == this->mnId) return;
 
-  PRINT_DEBUG_INFO_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(pMP->mnId << "replace" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
   int nvisible, nfound;
   map<KeyFrame*, set<size_t>> obs;
   {
@@ -284,7 +283,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_INFO_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }
@@ -403,9 +402,10 @@ bool MapPoint::IsInKeyFrame(KeyFrame* pKF, size_t idx, size_t cami) {
     if (-1 == cami)
       return true;
     else {
-      if (!pKF->mapn2in_.size()) return 0 == cami;
+      if (pKF->mapn2in_.empty()) return 0 == cami;
       bool ret = false;
       for (auto iteridx : iter->second) {
+        assert(pKF->mapn2in_.size() > iteridx);
         if (cami == get<0>(pKF->mapn2in_[iteridx])) {
           ret = true;
           break;
@@ -427,14 +427,14 @@ bool MapPoint::IsInKeyFrame(KeyFrame* pKF, size_t idx, size_t cami) {
 
 void MapPoint::UpdateNormalAndDepth() {
   map<KeyFrame*, set<size_t>> observations;
-  KeyFrame* pRefKF;
+  KeyFrame* prefkf;
   cv::Mat Pos;
   {
     unique_lock<mutex> lock1(mMutexFeatures);
     unique_lock<mutex> lock2(mMutexPos);
     if (mbBad) return;
     observations = mObservations;
-    pRefKF = mpRefKF;
+    prefkf = mpRefKF;
     Pos = mWorldPos.clone();
   }
 
@@ -446,9 +446,9 @@ void MapPoint::UpdateNormalAndDepth() {
        mit++) {
     KeyFrame* pKF = mit->first;
     cv::Mat twcr = pKF->GetCameraCenter();
-    cv::Mat twc = twcr.clone();
     auto idxs = mit->second;
     for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+      cv::Mat twc = twcr.clone();
       auto idx = *iter;
       size_t cami = pKF->mapn2in_.size() <= idx ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (pKF->mpCameras.size() > cami) {
@@ -463,21 +463,22 @@ void MapPoint::UpdateNormalAndDepth() {
   }
 
   // TODO(zzh): check dist&level from multicams instead of current ref cam 0
-  cv::Mat PC = Pos - pRefKF->GetCameraCenter();
+  cv::Mat PC = Pos - prefkf->GetCameraCenter();
   const float dist =
       cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
   auto& trackinfo = GetTrackInfoRef();
   if (INFINITY == trackinfo.track_depth_) trackinfo.track_depth_ = dist;
-  CV_Assert(observations.find(pRefKF) != observations.end());
-  const int level = pRefKF->mvKeys[*observations[pRefKF].begin()].octave;  // Un
-  const float levelScaleFactor = pRefKF->mvScaleFactors[level];
-  const int nLevels = pRefKF->mnScaleLevels;
+  CV_Assert(observations.find(prefkf) != observations.end());
+  const int level = prefkf->mvKeys[*observations[prefkf].begin()].octave;  // Un
+  const float levelScaleFactor = prefkf->scalepyrinfo_.vscalefactor_[level];
+  const int nlevels = prefkf->scalepyrinfo_.vscalefactor_.size();  // mnScaleLevels
 
   {
     unique_lock<mutex> lock3(mMutexPos);
-    mfMaxDistance = dist * levelScaleFactor;                              // dist*1.2^level
-    mfMinDistance = mfMaxDistance / pRefKF->mvScaleFactors[nLevels - 1];  // fMaxDis/1.2^7
     mNormalVector = normal / n;  // here maybe use normal/cv::norm(normal) better?
+
+    mfMaxDistance = dist * levelScaleFactor;                                           // dist*1.2^level
+    mfMinDistance = mfMaxDistance / prefkf->scalepyrinfo_.vscalefactor_[nlevels - 1];  // fMaxDis/1.2^7
   }
 }
 
@@ -491,37 +492,24 @@ float MapPoint::GetMaxDistanceInvariance() {
   return 1.2f * mfMaxDistance;
 }
 
-int MapPoint::PredictScale(const float& currentDist, KeyFrame* pKF) {
+int MapPoint::PredictScale(const float& currentDist, FrameBase* pfb) {
   float ratio;
   {
     unique_lock<mutex> lock(mMutexPos);
     ratio = mfMaxDistance / currentDist;
   }
 
-  int nScale = ceil(log(ratio) / pKF->mfLogScaleFactor);
-  if (nScale < 0)
-    nScale = 0;
-  else if (nScale >= pKF->mnScaleLevels)
-    nScale = pKF->mnScaleLevels - 1;
-
-  return nScale;
-}
-
-int MapPoint::PredictScale(const float& currentDist, Frame* pF) {
-  float ratio;
-  {
-    unique_lock<mutex> lock(mMutexPos);
-    ratio = mfMaxDistance / currentDist;
+  // log(ref_CurDist*1.2^ref_level/CurDist)/log(1.2)=(if CurDist=ref_CurDist)ref_level
+  // notice here use ceil, so out calling func. should let nscale-1 also to be ok
+  int nscale = ceil(log(ratio) / pfb->scalepyrinfo_.flogscalefactor_);
+  if (nscale < 0)
+    nscale = 0;
+  else {
+    auto nscalelvs = pfb->scalepyrinfo_.vscalefactor_.size();
+    if (nscale >= nscalelvs) nscale = nscalelvs - 1;
   }
 
-  int nScale = ceil(log(ratio) / pF->mfLogScaleFactor);  // log(CurDist*1.2^level/CurDist)/log(1.2)=level, notice here
-                                                         // use ceil, so nScale-1 is also ok
-  if (nScale < 0)
-    nScale = 0;
-  else if (nScale >= pF->mnScaleLevels)
-    nScale = pF->mnScaleLevels - 1;
-
-  return nScale;
+  return nscale;
 }
 
 void MapPoint::_TrackFastMatchInfo::Reset(Frame* pf) {

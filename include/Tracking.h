@@ -5,14 +5,12 @@
 #ifndef TRACKING_H
 #define TRACKING_H
 
-#include "OdomData.h"
 #include <chrono>  //for delay control
-
-// created by zzh over.
-
+#include <mutex>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
 
+#include "OdomData.h"
 #include "Viewer.h"
 #include "FrameDrawer.h"
 #include "Map.h"
@@ -26,9 +24,6 @@
 #include "MapDrawer.h"
 #include "System.h"
 #include "common/config.h"
-#include "common/macro_creator.h"
-
-#include <mutex>
 
 namespace VIEO_SLAM {
 class IMUInitialization;  // zzh, for they includes each other
@@ -58,8 +53,8 @@ class Tracking {
   /* KeyFrame *plastKF: timestamp_/imu preintegration start KF, can be NULL when type=0
    * KeyFrame *pcurKF: &imu preintegration end/storing KF
    * type: 0 for initialize, 1 for inter-Frame PreInt., 2 for inter-KF PreInt.
-   * 2 also culls the data in lists whose tm is (mLastKeyFrame.mTimeStamp,mCurrentKeyFrame.mTimeStamp],
-   * culling strategy: tm<mtmSyncOdom is discarded & tm>mCurrentFrame.mTimeStamp is reserved in lists & the left is
+   * 2 also culls the data in lists whose tm is (mLastKeyFrame.ftimestamp_,mCurrentKeyFrame.ftimestamp_],
+   * culling strategy: tm<mtmSyncOdom is discarded & tm>mCurrentFrame.ftimestamp_ is reserved in lists & the left is
    * needed for deltax~ij calculation, for the case Measurement_j-1 uses (M(tj)+M(tj-1))/2,
    * we also reserved last left one in 2 lists(especially for Enc);
    * if pLastF & pCurF exit, we use them instead of mLastFrame & mCurrentFrame
@@ -89,7 +84,7 @@ class Tracking {
                          // must use Eigen::aligned_allocator(quaterniond in NavState, or Segementation fault)
 
   // Consts
-  // Error allow between "simultaneous" IMU data(Timu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]
+  // Error allow between "simultaneous" IMU data(Timu) & Image's ftimestamp_(Timg): Timu=[Timg-err,Timg+err]
   double mdErrIMUImg;
   double tm_shift_ = 0.005;
   // Tbc,Tbo
@@ -119,15 +114,7 @@ class Tracking {
   // Add Odom(Enc/IMU) data to cache queue
   cv::Mat CacheOdom(const double &timestamp, const double *odomdata, const char mode);
 
-  void SetLastKeyFrame(KeyFrame *pKF) { mpLastKeyFrame = pKF; }
-  void SetReferenceKF(KeyFrame *pKF) { mpReferenceKF = pKF; }
-
-  // for ros_mono_pub.cc
-  bool mbKeyFrameCreated;
-  cv::Mat GetKeyFramePose() { return mpReferenceKF->GetPose(); }
-
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  // created by zzh over.
 
  public:
   Tracking(System *pSys, ORBVocabulary *pVoc, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer, Map *pMap,
@@ -138,10 +125,15 @@ class Tracking {
     }
   }
 
-  // Preprocess the input and call Track(). Extract features and performs stereo matching.
-  cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect = true);
-  cv::Mat GrabImageRGBD(const cv::Mat &imRGB, const cv::Mat &imD, const double &timestamp);
-  cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
+  void SetInitLastKeyFrame(KeyFrame *pKF) {
+    if (!plast_kf_ || !pKF) plast_kf_ = pKF;
+  }
+  void SetInitReferenceKF(KeyFrame *pKF) {
+    if (!mpReferenceKF || !pKF) mpReferenceKF = pKF;
+  }
+
+  // Preprocess the input and call Track(). Extract features and performs stereo matching for stereo cameras.
+  cv::Mat GrabImageStereo(const vector<cv::Mat> &ims, const double &timestamp);
 
   void SetLocalMapper(LocalMapping *pLocalMapper);
   void SetLoopClosing(LoopClosing *pLoopClosing);
@@ -163,9 +155,8 @@ class Tracking {
     NOT_INITIALIZED = 1,
     OK = 2,
     LOST = 3,
-    ODOMOK = 4,          // added by zzh, like RECENTLY_LOST in ORB3
-    MAP_REUSE = 5,       // added by zzh
-    MAP_REUSE_RELOC = 6  // added by zzh
+    ODOMOK = 4,     // added by zzh, like RECENTLY_LOST in ORB3
+    MAP_REUSE = 5,  // added by zzh
   };
 
   eTrackingState mState;
@@ -201,16 +192,16 @@ class Tracking {
   list<bool> mlbLost;  // true for lost!
 
   // True if local mapping is deactivated and we are performing only localization
-  bool mbOnlyTracking;
+  bool mbOnlyTracking = false;
 
   void Reset();
 
  protected:
-  // Main tracking function. It is independent of the input sensor.
-  void Track(cv::Mat img[2] = NULL);  // img[2] recorded by KFs
+  // Main tracking function. It is independent of the input sensor. imgs_dense is for dense points recover in SaveMap
+  void Track(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // Map initialization for stereo and RGB-D
-  void StereoInitialization(cv::Mat img[2] = NULL);
+  void StereoInitialization(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // Map initialization for monocular
   void MonocularInitialization();
@@ -246,7 +237,7 @@ class Tracking {
   void SearchLocalPoints();
 
   bool NeedNewKeyFrame();
-  void CreateNewKeyFrame(cv::Mat img[2] = NULL);
+  void CreateNewKeyFrame(vector<cv::Mat> imgs_dense = vector<cv::Mat>());
 
   // In case of performing only localization, this flag is true when there are no matches to
   // points in the map. Still tracking will continue if there are enough matches with temporal points.
@@ -261,7 +252,7 @@ class Tracking {
 
   // ORB
   vector<ORBextractor *> mpORBextractors = vector<ORBextractor *>(1, nullptr);
-  ORBextractor *mpIniORBextractor;
+  vector<ORBextractor *> mpIniORBextractors = vector<ORBextractor *>(1, nullptr);
 
   // BoW
   ORBVocabulary *mpORBVocabulary;
@@ -287,8 +278,6 @@ class Tracking {
   Map *mpMap;
 
   // Calibration matrix
-  cv::Mat mK;
-  cv::Mat mDistCoef;
   float mbf;
   vector<GeometricCamera *> mpCameras;
 
@@ -299,17 +288,16 @@ class Tracking {
   // Threshold close/far points
   // Points seen as close by the stereo/RGBD sensor are considered reliable
   // and inserted from just one frame. Far points requiere a match in two keyframes.
-  float mThDepth;  // 40b, here TUM use 3.2(m)
+  float mThDepth = 10.f;  // 40b, here TUM use 3.2(m)
 
   // For RGB-D inputs only. For some datasets (e.g. TUM) the depthmap values are scaled.
   float mDepthMapFactor;
 
   // Current matches in frame
   int mnMatchesInliers;  // rectified in TrackLocalMap()
-  CREATOR_VAR_MULTITHREADS(num_track_inliers, int, , protected, 0)
 
   // Last Frame, KeyFrame and Relocalisation Info
-  KeyFrame *mpLastKeyFrame;
+  KeyFrame *plast_kf_ = nullptr;  // set null for safety
   Frame mLastFrame;
   unsigned int mnLastKeyFrameId;
   unsigned int mnLastRelocFrameId;
@@ -383,11 +371,11 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
   using Eigen::aligned_list;
   using Tldata = OdomData;
 
-  double cur_time = pcurfb->mTimeStamp;
+  double cur_time = pcurfb->ftimestamp_;
   double derr_imuimg = mdErrIMUImg + tm_shift_;
   bool ret = true;
   switch (type) {  // 0/2 will cull 2 Odom lists,1 will shift the pointer
-    case 0:  // for 0th keyframe/frame: erase all the data whose tm<=mCurrentFrame.mTimeStamp but keep the last one,
+    case 0:  // for 0th keyframe/frame: erase all the data whose tm<=mCurrentFrame.ftimestamp_ but keep the last one,
              // like list.clear()
       if (!lodom_data.empty()) {
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end();
@@ -408,8 +396,8 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       // PreIntegration between 2 frames, use plastfb & pcurfb to be compatible with
       // RecomputeIMUBiasAndCurrentNavstate()
       if (!lodom_data.empty()) {
-        double last_time = plastfb->mTimeStamp;
-        bool biteri_research = plasttm_kf && *plasttm_kf != plastfb->mTimeStamp;
+        double last_time = plastfb->ftimestamp_;
+        bool biteri_research = plasttm_kf && *plasttm_kf != plastfb->ftimestamp_;
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iterj,
                                                       iteri = type == 1 ? iter_lastodom : lodom_data.begin();
         // iterj&iteri both found then calculate delta~xij(phi,p)
@@ -431,7 +419,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
             if (iterijFind<OdomData>(lodom_data, cur_time, iter, derr_imuimg - tm_shift_)) {
               cur_time2 = iter->mtm;
             }
-            bool breset_intkf = plastkf->mTimeStamp == last_time2;  // even imu tm curl back
+            bool breset_intkf = plastkf->ftimestamp_ == last_time2;  // even imu tm curl back
             if (plasttm_kf) *plasttm_kf = cur_time2;
             if (biteri_research) {
               iteri = lodom_data.begin();
@@ -460,11 +448,11 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
       break;
     case 2:
       // PreIntegration between 2 KFs & cull 2 odom lists: erase all the data whose
-      // tm<=mpReferenceKF(curKF)->mTimeStamp but keep the last one
+      // tm<=mpReferenceKF(curKF)->ftimestamp_ but keep the last one
       KeyFrame *pcurkf = dynamic_cast<KeyFrame *>(pcurfb);
       if (!lodom_data.empty()) {
         KeyFrame *plastkf2 = dynamic_cast<KeyFrame *>(plastfb);
-        double last_time = plastkf2->mTimeStamp;
+        double last_time = plastkf2->ftimestamp_;
         // iterj, iteri
         typename aligned_list<Tldata>::const_iterator iter = lodom_data.end(), iteri = lodom_data.begin(), iterj;
         // iterj&iteri both found then calculate delta~xij(phi,p)
@@ -487,7 +475,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
 
         if (!ret) break;
 
-        // mpLastKeyFrame cannot be bad here for mpReferenceKF hasn't been inserted
+        // plast_kf_ cannot be bad here for mpReferenceKF hasn't been inserted
         // (SetBadFlag only for before KFs)
         if (plastkf) {
           assert(plasttm_kf);

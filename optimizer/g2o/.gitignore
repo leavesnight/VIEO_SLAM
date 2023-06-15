@@ -1,0 +1,7 @@
+build/
+lib/
+bin/
+cmake-build-*/
+.idea/
+
+/config.h

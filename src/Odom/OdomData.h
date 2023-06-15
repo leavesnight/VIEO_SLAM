@@ -2,22 +2,14 @@
 #ifndef ODOMDATA_H
 #define ODOMDATA_H
 
-#ifdef NDEBUG  // assert in Release, should be put at the last include in .cpp
-#undef NDEBUG
-#include <assert.h>
-//#define NDEBUG//else you have to annote this line
-#else
-#include <assert.h>
-#endif
-
 #define TRACK_WITH_IMU
 
 // for Jacobi calculation & member data
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-
 // for typedef listEncData
 #include "common/eigen_utils.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 
@@ -32,9 +24,9 @@ class IMUDataBase {
  public:
   typedef double TTtime;
   static double mdRefG;  // referenced G for IV-C in VIORBSLAM paper
-  static Matrix3d mSigmag, mSigmaa, mSigmabg,
-      mSigmaba;  // b means bias/Brownian motion(Random walk), g means gyroscope, a means accelerator, d means discrete
-                 // but here may continuous one, Sigma means Covariance Matrix
+  // b means bias/Brownian motion(Random walk), g means gyroscope, a means accelerator, d means discrete
+  // but here may continuous one, Sigma means Covariance Matrix
+  static Matrix3d mSigmag, mSigmaa, mSigmabg, mSigmaba;
   static double mInvSigmabg2,
       mInvSigmaba2;  // when mSigmabi is always diagonal matrix, use this to speed up infomation matrix calculation
   double mtm;        // timestamp of IMU data

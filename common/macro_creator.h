@@ -7,14 +7,14 @@
 // notice Get##Name() calls copy constructor when return
 #define CREATOR_VAR_MUTEX(Name, Type, Suffix, InitVal) \
   Type Suffix##Name##_ = InitVal;                      \
-  mutex mutex##Name##_;
+  mutable mutex mutex##Name##_;
 #define CREATOR_GET(Name, Type, Suffix)      \
-  Type Get##Name(void) {                     \
+  Type const& Get##Name(void) const {        \
     unique_lock<mutex> lock(mutex##Name##_); \
     return Suffix##Name##_;                  \
   }
 #define CREATOR_SET(Name, Type, Suffix)      \
-  void Set##Name(Type value) {               \
+  void Set##Name(Type const& value) {        \
     unique_lock<mutex> lock(mutex##Name##_); \
     Suffix##Name##_ = value;                 \
   }

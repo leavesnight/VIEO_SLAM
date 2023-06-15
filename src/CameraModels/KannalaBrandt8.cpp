@@ -27,8 +27,7 @@ using std::vector;
 
 namespace VIEO_SLAM {
 
-bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst, cv::Mat *pK,
-                                       cv::Mat *pDistCoef) {
+bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, GeometricCamera *&pCamInst) {
   string cam_name = "Camera" + (!id ? "" : to_string(id + 1));
   cv::FileNode node_tmp = fSettings[cam_name + ".k1"];
   if (node_tmp.empty()) return false;
@@ -40,11 +39,9 @@ bool KannalaBrandt8::ParseCamParamFile(cv::FileStorage &fSettings, int id, Geome
   DistCoef.at<float>(1) = fSettings[cam_name + ".k2"];
   DistCoef.at<float>(2) = fSettings[cam_name + ".k3"];
   DistCoef.at<float>(3) = fSettings[cam_name + ".k4"];
-  if (pDistCoef) DistCoef.copyTo(*pDistCoef);
 
   pCamInst = new KannalaBrandt8(DistCoef, fSettings, id, b_miss_params);
   if (b_miss_params) return false;
-  if (pK) pCamInst->toKcv().copyTo(*pK);
 
   PRINT_INFO_MUTEX(endl << cam_name << " (KB8) Parameters: " << endl);
   PRINT_INFO_MUTEX("- k1: " << DistCoef.at<float>(0) << endl);

@@ -35,7 +35,7 @@ Calib.type: 1
 # Local Window size(0 means pure-vision+IMU Initialzation but no IMU error in BA): JW is 20, VIORBSLAM paper uses 10, but 5 for V203 in my PC
 LocalMapping.LocalWindowSize: 10
 
-# the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's mTimeStamp(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
+# the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's ftimestamp_(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
 ErrIMUImg: 0.03
 
 # IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)

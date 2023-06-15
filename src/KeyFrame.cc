@@ -2,12 +2,13 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <mutex>
 #include "KeyFrame.h"
+#include "common/serialize/serialize.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
-#include <mutex>
-#include "common/mlog/log.h"
 #include "common/config.h"
+#include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
 
@@ -84,9 +85,9 @@ void KeyFrame::PreIntegration<IMUData>(KeyFrame *pLastKF) {
   Eigen::Vector3d bgi_bar = pLastKF->GetNavState().mbg, bai_bar = pLastKF->GetNavState().mba;
   unique_lock<mutex> lock(mMutexOdomData);
 #ifndef TRACK_WITH_IMU
-  mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp, mTimeStamp);
+  mOdomPreIntIMU.PreIntegration(pLastKF->ftimestamp_, ftimestamp_);
 #else
-  // mOdomPreIntIMU.PreIntegration(pLastKF->mTimeStamp,mTimeStamp,bgi_bar,bai_bar);
+  // mOdomPreIntIMU.PreIntegration(pLastKF->ftimestamp_,ftimestamp_,bgi_bar,bai_bar);
   FrameBase::PreIntegration<IMUData>(pLastKF, mOdomPreIntIMU.getlOdom().begin(), mOdomPreIntIMU.getlOdom().end());
 #endif
 }
@@ -97,18 +98,14 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
                                                  bool breset, int8_t verbose) {
   NavState ns = plastkf->GetNavState();
   unique_lock<mutex> lock(mMutexOdomData);
-  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, mTimeStamp, ns.mbg, ns.mba, iteri, iterj, breset);
+  FrameBase::PreIntegration<IMUData, IMUPreintegrator>(tmi, ftimestamp_, ns.mbg, ns.mba, iteri, iterj, breset);
 }
 
 // for LoadMap()
+// we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is)
-    : FrameBase(F),  // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is
-                     // updated in read()
+    : FrameBase(F),
       mnFrameId(F.mnId),
-      mnGridCols(FRAME_GRID_COLS),
-      mnGridRows(FRAME_GRID_ROWS),
-      mfGridElementWidthInv(F.mfGridElementWidthInv),
-      mfGridElementHeightInv(F.mfGridElementHeightInv),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -118,111 +115,54 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      fx(F.fx),
-      fy(F.fy),
-      cx(F.cx),
-      cy(F.cy),
-      invfx(F.invfx),
-      invfy(F.invfy),
-      mbf(F.mbf),
-      mb(F.mb),
-      mThDepth(F.mThDepth),
-      N(F.N),
-      mvKeys(F.mvKeys),
-      mvKeysUn(F.mvKeysUn),
-      mvuRight(F.mvuRight),
-      mvDepth(F.mvDepth),
-      mDescriptors(F.mDescriptors.clone()),
-      mBowVec(F.mBowVec),
-      mFeatVec(F.mFeatVec),
-      mnScaleLevels(F.mnScaleLevels),
-      mfScaleFactor(F.mfScaleFactor),
-      mfLogScaleFactor(F.mfLogScaleFactor),
-      mvScaleFactors(F.mvScaleFactors),
-      mvLevelSigma2(F.mvLevelSigma2),
-      mvInvLevelSigma2(F.mvInvLevelSigma2),
-      mnMinX(F.mnMinX),
-      mnMinY(F.mnMinY),
-      mnMaxX(F.mnMaxX),
-      mnMaxY(F.mnMaxY),
-      mK(F.mK),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
-      mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(false),
-      mpParent(NULL),
+      mpParent(nullptr),
       mbNotErase(false),  // important false when LoadMap()!
       mbToBeErased(false),
-      mHalfBaseline(F.mb / 2),
       mpMap(pMap),
-      mbPrior(false)  //,mbPNChanging(false)//zzh
-{
+      mbPrior(false) {
+  mDescriptors = F.mDescriptors.clone();
+
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
-  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mpNextKeyFrame = nullptr;  // zzh, constructor doesn't need to lock mutex
 
-  mnId = nNextId++;
-  vgrids_ = F.vgrids_;
   Tcw_.release();
   SetPose(F.GetTcwRef());  // we have already used UpdatePoseFromNS() in Frame
 
   read(is);  // set odom list & mState
+
+  mnId = nNextId++;
 }
 bool KeyFrame::read(istream &is) {
-  // we've done ComputeBoW() in Frame!
+  // we've done a lot in Frame Constructor with is!
+
   {  // load odom lists
     listeig(EncData) lenc;
     size_t NOdom;
     is.read((char *)&NOdom, sizeof(NOdom));
     lenc.resize(NOdom);
-    readListOdom<EncData>(is, lenc);
+    Serialize::readVecread(is, lenc);
     SetPreIntegrationList<EncData>(lenc.begin(), lenc.end());
     listeig(IMUData) limu;
     is.read((char *)&NOdom, sizeof(NOdom));
     limu.resize(NOdom);
-    readListOdom<IMUData>(is, limu);
+    Serialize::readVecread(is, limu);
     SetPreIntegrationList<IMUData>(limu.begin(), limu.end());
   }
-  if (mpPrevKeyFrame !=
-      NULL) {  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  if (mpPrevKeyFrame) {
     PreIntegration<EncData>(mpPrevKeyFrame);
     PreIntegration<IMUData>(mpPrevKeyFrame);
   }
   is.read(&mState, sizeof(mState));
-  mHalfBaseline = mb / 2;
   // we've loaded mNavState in Frame
-  // we have calculated mGrid in Frame and load it in constructor
   return is.good();
 }
-bool KeyFrame::write(ostream &os) {
-  //   os.write((char*)&mnFrameId,sizeof(mnFrameId));//we don't save Frame ID for it's useless in LoadMap(), we save old
-  //   KF ID/mnId in SaveMap()
-  os.write((char *)&mTimeStamp, sizeof(mTimeStamp));
-  //   os.write((char*)&mfGridElementWidthInv,sizeof(mfGridElementWidthInv));os.write((char*)&mfGridElementHeightInv,sizeof(mfGridElementHeightInv));//we
-  //   can get these from mnMaxX...
-  os.write((char *)&fx, sizeof(fx));
-  os.write((char *)&fy, sizeof(fy));
-  os.write((char *)&cx, sizeof(cx));
-  os.write((char *)&cy, sizeof(cy));
-  //   os.write((char*)&invfx,sizeof(invfx));os.write((char*)&invfy,sizeof(invfy));//also from the former ones
-  os.write((char *)&mbf, sizeof(mbf));
-  os.write((char *)&mThDepth, sizeof(mThDepth));
-  //   os.write((char*)&mb,sizeof(mb));//=mbf/fx
-  os.write((char *)&N, sizeof(N));
-  writeVec(os, mvKeys);
-  writeVec(os, mvKeysUn);
-  writeVec(os, mvuRight);
-  writeVec(os, mvDepth);
-  writeMat(os, mDescriptors);
-  //   mBowVec.write(os);mFeatVec.write(os);//we can directly ComputeBoW() from mDescriptors
-  os.write((char *)&mnScaleLevels, sizeof(mnScaleLevels));
-  os.write((char *)&mfScaleFactor, sizeof(mfScaleFactor));
-  //   os.write((char*)&mfLogScaleFactor,sizeof(mfLogScaleFactor));os.write((char*)&mvScaleFactors,sizeof(mvScaleFactors));//we
-  //   can get these from former 2 parameters writeVec(os,mvLevelSigma2);writeVec(os,mvInvLevelSigma2);
-  float fTmp[4] = {mnMinX, mnMinY, mnMaxX, mnMaxY};  // compatible with Frame
-  os.write((char *)fTmp, sizeof(fTmp));
-  //   writeMat(os,mK);from fx~cy
-  // save mvpMapPoints,mpParent,mbNotErase(mspLoopEdges) in LoadMap for convenience
-  //   os.write((char*)&mHalfBaseline,sizeof(mHalfBaseline));//=mb/2;
+bool KeyFrame::write(ostream &os) const {
+  if (!FrameBase::write(os)) return false;
+
   {  // save mNavState
     const double *pdData;
     unique_lock<mutex> lock(mMutexNavState);
@@ -242,19 +182,18 @@ bool KeyFrame::write(ostream &os) {
     pdData = mNavState.mdba.data();
     os.write((const char *)pdData, sizeof(*pdData) * 3);  // dbaxyz
   }
-  //   for(unsigned int i=0; i<FRAME_GRID_COLS;i++) for (unsigned int j=0; j<FRAME_GRID_ROWS;j++){ size_t
-  //   nSize;os.write((char*)&nSize,sizeof(nSize));writeVec(os,mGrid[i][j]);}//we can still get it from mvKeysUn
+
   // we add extra info for KF at the end for KeyFrame::write & Frame::read+KeyFrame::read
   {  // save odom lists
     unique_lock<mutex> lock(mMutexOdomData);
     const listeig(EncData) &lenc = mOdomPreIntEnc.getlOdom();
     size_t NOdom = lenc.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeListOdom<EncData>(os, lenc);
+    Serialize::writeVecwrite(os, lenc);
     const listeig(IMUData) &limu = mOdomPreIntIMU.getlOdom();
     NOdom = limu.size();
     os.write((char *)&NOdom, sizeof(NOdom));
-    writeListOdom<IMUData>(os, limu);
+    Serialize::writeVecwrite(os, limu);
     // we don't save mOdomPreIntOdom for it can be computed from the former odom list
   }
   os.write(&mState, sizeof(mState));
@@ -268,10 +207,6 @@ long unsigned int KeyFrame::nNextId = 0;
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow, KeyFrame *pPrevKF, const char state)
     : FrameBase(F),
       mnFrameId(F.mnId),
-      mnGridCols(FRAME_GRID_COLS),
-      mnGridRows(FRAME_GRID_ROWS),
-      mfGridElementWidthInv(F.mfGridElementWidthInv),
-      mfGridElementHeightInv(F.mfGridElementHeightInv),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -281,48 +216,19 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
       mnRelocQuery(0),
       mnRelocWords(0),
       mnBAGlobalForKF(0),
-      fx(F.fx),
-      fy(F.fy),
-      cx(F.cx),
-      cy(F.cy),
-      invfx(F.invfx),
-      invfy(F.invfy),
-      mbf(F.mbf),
-      mb(F.mb),
-      mThDepth(F.mThDepth),
-      N(F.N),
-      mvKeys(F.mvKeys),
-      mvKeysUn(F.mvKeysUn),
-      mvuRight(F.mvuRight),
-      mvDepth(F.mvDepth),
-      mDescriptors(copy_shallow ? F.mDescriptors : F.mDescriptors.clone()),
-      mBowVec(F.mBowVec),
-      mFeatVec(F.mFeatVec),
-      mnScaleLevels(F.mnScaleLevels),
-      mfScaleFactor(F.mfScaleFactor),
-      mfLogScaleFactor(F.mfLogScaleFactor),
-      mvScaleFactors(F.mvScaleFactors),
-      mvLevelSigma2(F.mvLevelSigma2),
-      mvInvLevelSigma2(F.mvInvLevelSigma2),
-      mnMinX(F.mnMinX),
-      mnMinY(F.mnMinY),
-      mnMaxX(F.mnMaxX),
-      mnMaxY(F.mnMaxY),
-      mK(F.mK),
       mpKeyFrameDB(pKFDB),  // for mK won't be changed, it cannot be used as clone()
-      mpORBvocabulary(F.mpORBvocabulary),
       mbFirstConnection(true),
-      mpParent(NULL),
+      mpParent(nullptr),
       mbNotErase(false),
       mbToBeErased(false),
-      mHalfBaseline(F.mb / 2),
       mpMap(pMap),
       mState(state),
-      mbPrior(false)  //,mbPNChanging(false)//zzh
-{
+      mbPrior(false) {
+  if (!copy_shallow) mDescriptors = F.mDescriptors.clone();
+
   if (pPrevKF) pPrevKF->SetNextKeyFrame(this);
   mpPrevKeyFrame = pPrevKF;
-  mpNextKeyFrame = NULL;  // zzh, constructor doesn't need to lock mutex
+  mpNextKeyFrame = nullptr;  // zzh, constructor doesn't need to lock mutex
   // Set bias as bias+delta_bias, and reset the delta_bias term
   mNavState.mbg += mNavState.mdbg;
   mNavState.mba += mNavState.mdba;
@@ -330,31 +236,21 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
   // motion-only BA of next Frame(this won't optimize lastKF.mdbi any more)
   mNavState.mdbg = mNavState.mdba = Eigen::Vector3d::Zero();
 
+  Tcw_.release();
+  SetPose(F.GetTcwRef());
+  PRINT_DEBUG_FILE_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  size_t i = 0;
+  for (auto iter : mvpMapPoints) {
+    if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
+    ++i;
+  }
+
   // move preint_odom_
   F.DeepMovePreintOdomFromLastKF(mOdomPreIntEnc);
   F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
   // created by zzh over
 
   mnId = nNextId++;
-  vgrids_ = F.vgrids_;
-
-  Tcw_.release();
-  SetPose(F.GetTcwRef());
-  PRINT_DEBUG_INFO_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
-  size_t i = 0;
-  for (auto iter : mvpMapPoints) {
-    if (iter) PRINT_DEBUG_INFO_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
-    ++i;
-  }
-}
-
-void KeyFrame::ComputeBoW() {
-  if (mBowVec.empty() || mFeatVec.empty()) {
-    vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
-    // Feature vector associate features with nodes in the 4th level (from leaves up)
-    // We assume the vocabulary tree has 6 levels, change the 4 otherwise
-    mpORBvocabulary->transform(vCurrentDesc, mBowVec, mFeatVec, 4);
-  }
 }
 
 void KeyFrame::SetPose(const cv::Mat &Tcw) {
@@ -368,7 +264,7 @@ void KeyFrame::SetPose(const cv::Mat &Tcw) {
   Twc = cv::Mat::eye(4, 4, Tcw_.type());
   Rwc.copyTo(Twc.rowRange(0, 3).colRange(0, 3));
   Ow.copyTo(Twc.rowRange(0, 3).col(3));
-  cv::Mat center = (cv::Mat_<float>(4, 1) << mHalfBaseline, 0, 0, 1);
+  cv::Mat center = (cv::Mat_<float>(4, 1) << stereoinfo_.baseline_bf_[0] / 2.f, 0, 0, 1);
   Cw = Twc * center;  // 4cm right of the Ow for kinect2
 }
 
@@ -508,6 +404,7 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
   for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
     auto idx = *iter;
     mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
+    // PRINT_INFO_FILE_MUTEX("KFid" << mnId << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {
@@ -550,7 +447,7 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 }
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
-  PRINT_DEBUG_INFO_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
 #ifdef USE_SIMPLE_REPLACE
   if (!pMP || pMP->isBad()) return;
@@ -576,7 +473,7 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
   {
     pMP->AddObservation(this, idx);
-    PRINT_DEBUG_INFO_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
     AddMapPoint(pMP, idx);
   }
 }
@@ -609,12 +506,12 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
 
   // This should not happen
   if (KFcounter.empty()) {  // ODOMOK;||mState!=2&&pLastKF!=NULL
-    cout << "Failed to update spanning tree! " << mnId << " " << mnFrameId << endl;
-    if (pLastKF == NULL) {
-      if (mpParent == NULL)
-        CV_Assert(mnId == 0);  //"Error in parameter in UpdateConnections()"
-      else
-        cout << "but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl;
+    PRINT_INFO_MUTEX("Failed to update spanning tree! " << mnId << " " << mnFrameId << endl);
+    if (!pLastKF) {
+      if (!mpParent) {
+        assert(mnId == 0);
+      } else
+        PRINT_INFO_MUTEX("but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl);
     } else {
       // 	  pLastKF->AddConnection(this,0);//add the link from pLastKF to this
       // add the link from this to pLastKF
@@ -752,10 +649,9 @@ void KeyFrame::SetErase() {
   }
 }
 
-void KeyFrame::SetBadFlag(
-    bool bKeepTree)  // this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for
-                     // bad KFs may be used by some Frames' trajectory retrieve
-{
+// this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for
+// bad KFs may be used by some Frames' trajectory retrieve
+void KeyFrame::SetBadFlag(bool bKeepTree) {
   assert(!mbBad);  // check
   {
     unique_lock<mutex> lock(mMutexConnections);
@@ -910,7 +806,7 @@ void KeyFrame::SetBadFlag(
   // erase this(&KF) in mpMap && mpKeyFrameDB
   mpMap->EraseKeyFrame(this);
   mpKeyFrameDB->erase(this);
-  // cout << "End " << mnId << " " << mTimeStamp << endl;
+  // cout << "End " << mnId << " " << ftimestamp_ << endl;
 }
 
 bool KeyFrame::isBad() {
@@ -931,51 +827,31 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
   if (bUpdate) UpdateBestCovisibles();
 }
 
-vector<size_t> KeyFrame::GetFeaturesInArea(size_t cami, const float &x, const float &y, const float &r) const {
-  vector<size_t> vIndices;
-  if (vgrids_.empty()) return vIndices;
-  vIndices.reserve(N);
+cv::Mat KeyFrame::UnprojectStereo(int i) {
+  if (mapn2in_.size() > i) {
+    const float z = stereoinfo_.vdepth_[i];
+    if (z > 0) {
+      auto ididxs = GetMapn2idxs(i);
+      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
 
-  const int nMinCellX = max(0, (int)floor((x - mnMinX - r) * mfGridElementWidthInv));
-  if (nMinCellX >= mnGridCols) return vIndices;
-
-  const int nMaxCellX = min((int)mnGridCols - 1, (int)ceil((x - mnMinX + r) * mfGridElementWidthInv));
-  if (nMaxCellX < 0) return vIndices;
-
-  const int nMinCellY = max(0, (int)floor((y - mnMinY - r) * mfGridElementHeightInv));
-  if (nMinCellY >= mnGridRows) return vIndices;
-
-  const int nMaxCellY = min((int)mnGridRows - 1, (int)ceil((y - mnMinY + r) * mfGridElementHeightInv));
-  if (nMaxCellY < 0) return vIndices;
-
-  for (int ix = nMinCellX; ix <= nMaxCellX; ix++) {
-    for (int iy = nMinCellY; iy <= nMaxCellY; iy++) {
-      const vector<size_t> vCell = vgrids_[cami][ix][iy];
-      for (size_t j = 0, jend = vCell.size(); j < jend; j++) {
-        const cv::KeyPoint &kpUn = (!mpCameras.size() || !Frame::usedistort_) ? mvKeysUn[vCell[j]] : mvKeys[vCell[j]];
-        const float distx = kpUn.pt.x - x;
-        const float disty = kpUn.pt.y - y;
-
-        if (fabs(distx) < r && fabs(disty) < r) vIndices.push_back(vCell[j]);
-      }
+      unique_lock<mutex> lock(mMutexPose);
+      Vector3d x3Dw =
+          Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) +
+          Converter::toVector3d(Twc.rowRange(0, 3).col(3));
+      return Converter::toCvMat(x3Dw);
+    } else {
+      return cv::Mat();
     }
   }
 
-  return vIndices;
-}
-
-bool KeyFrame::IsInImage(const float &x, const float &y) const {
-  return (x >= mnMinX && x < mnMaxX && y >= mnMinY && y < mnMaxY);
-}
-
-cv::Mat KeyFrame::UnprojectStereo(int i) {
-  // TODO: if right u used for fisheye, change implementation here
-  const float z = mvDepth[i];
+  const float z = stereoinfo_.vdepth_[i];
   if (z > 0) {
-    const float u = mvKeys[i].pt.x;
-    const float v = mvKeys[i].pt.y;
-    const float x = (u - cx) * z * invfx;
-    const float y = (v - cy) * z * invfy;
+    assert(!usedistort_);
+    const float u = mvKeysUn[i].pt.x;
+    const float v = mvKeysUn[i].pt.y;
+    Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);
+    const float x = uv_normal[0] * z;
+    const float y = uv_normal[1] * z;
     cv::Mat x3Dc = (cv::Mat_<float>(3, 1) << x, y, z);
 
     unique_lock<mutex> lock(mMutexPose);
@@ -1008,9 +884,15 @@ float KeyFrame::ComputeSceneMedianDepth(const int q) {
     }
   }
 
+  auto sz_depth = vDepths.size();
+  if (!sz_depth) {
+    return hist_med_depth_;  // like baseline_bf_[0] for mono to be 0.1m
+  }
   sort(vDepths.begin(), vDepths.end());
-
-  return vDepths[(vDepths.size() - 1) / q];
+  float med_d = vDepths[(vDepths.size() - 1) / q];
+  const float alpha = 0.8;
+  hist_med_depth_ = hist_med_depth_ * (1 - alpha) + med_d * alpha;
+  return med_d;
 }
 
 }  // namespace VIEO_SLAM

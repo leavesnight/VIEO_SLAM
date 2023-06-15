@@ -2,6 +2,8 @@
  * This file is part of VIEO_SLAM
  */
 
+#include <thread>
+#include <iomanip>
 // PCL
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -12,33 +14,15 @@
 //#include <pcl/filters/passthrough.h>//use the z direction filed filter
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <opencv2/core/eigen.hpp>
-
+#include <pangolin/pangolin.h>
 #include "Optimizer.h"
-
-// created by zzh over.
-
 #include "System.h"
 #include "Converter.h"
-#include <thread>
-#include <pangolin/pangolin.h>
-#include <iomanip>
+#include "common/serialize/serialize.h"
 
 namespace VIEO_SLAM {
 bool System::usedistort_ = false;
 
-bool System::GetLoopDetected() { return mpLoopCloser->mbLoopDetected; }
-bool System::SetLoopDetected(bool loopDeteced) {
-  mpLoopCloser->mbLoopDetected = loopDeteced;
-  return true;
-}
-std::vector<KeyFrame *> System::GetAllKeyFrames() { return mpMap->GetAllKeyFrames(); }
-bool System::GetKeyFrameCreated() { return mpTracker->mbKeyFrameCreated; }
-bool System::SetKeyFrameCreated(bool bTmp) {
-  mpTracker->mbKeyFrameCreated = bTmp;
-  return true;
-}
-cv::Mat System::GetKeyFramePose() { return mpTracker->GetKeyFramePose(); }
-// for ros_mono_pub.cc
 cv::Mat System::TrackOdom(const double &timestamp, const double *odomdata, const char mode) {
   cv::Mat Tcw = mpTracker->CacheOdom(timestamp, odomdata, mode);
 
@@ -81,213 +65,322 @@ void System::SaveKeyFrameTrajectoryNavState(const string &filename, bool bUseTbc
     Eigen::Quaterniond q = ns.mRwb.unit_quaternion();  // qwb from Rwb
     Eigen::Vector3d t = ns.mpwb;                       // twb
     Eigen::Vector3d v = ns.mvwb, bg = ns.mbg + ns.mdbg, ba = ns.mba + ns.mdba;
-    f << setprecision(9) << pKF->mTimeStamp << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " " << q.y()
-      << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " " << bg(1)
-      << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
+    f << setprecision(9) << pKF->ftimestamp_ << " " << t(0) << " " << t(1) << " " << t(2) << " " << q.x() << " "
+      << q.y() << " " << q.z() << " " << q.w() << " " << v(0) << " " << v(1) << " " << v(2) << " " << bg(0) << " "
+      << bg(1) << " " << bg(2) << " " << ba(0) << " " << ba(1) << " " << ba(2) << endl;
   }
 
   f.close();
   PRINT_INFO_MUTEX(endl << "NavState trajectory saved!" << endl);
 }
 bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
-  if (!bPCL) {
-    PRINT_INFO_MUTEX(endl
-                     << "Loading Map: 1st step...SensorType(static ones),Keyframe (F,PrevKF,BoW),NavState(Pose) from "
-                     << filename << " ..." << endl);
-    ifstream f;
-    f.open(filename.c_str(), ios_base::in | ios_base::binary);
-    if (!f.is_open()) {
-      cout << redSTR << "Opening Map Failed!" << whiteSTR << endl;
-      return false;
-    }
-    char sensorType = 0;  // 0 for nothing/pure visual SLAM, 1 for encoder/VEO, 2 for IMU/VIO, 3 for encoder+IMU/VIEO
-    f.read(&sensorType, sizeof(sensorType));
-    if (f.bad()) {
-      f.close();
-      PRINT_INFO_MUTEX(redSTR << "Reading Map Failed!" << whiteSTR << endl);
-      return false;
-    }
-    cout << (int)sensorType << "!Mode" << endl;
-    if (sensorType == 1 || sensorType == 3) {
-      EncData::readParam(f);
-    }
-    if (sensorType == 2 || sensorType == 3) {
-      IMUData::readParam(f);
-      cv::Mat gravityVec(3, 1, CV_32F);
-      KeyFrame::readMat(f, gravityVec);
-      mpIMUInitiator->SetGravityVec(gravityVec);
-    }
-
-    size_t NKFs;
-    f.read((char *)&NKFs, sizeof(NKFs));
-    list<unsigned long> lRefKFParentId;  // old parent id of mpTracker->mlpReferences
-    if (!mpViewer->isFinished() && !mpLocalMapper->isFinished() && !mpLoopCloser->isFinished() &&
-        !mpIMUInitiator->GetFinish()) {
-      mpTracker->Reset();
-    } else {
-      if (bReadBadKF) {  // before clear KFs, we save the old id of mpTracker->mlpReferences
-        list<KeyFrame *> &lRefKF = mpTracker->mlpReferences;
-        for (list<KeyFrame *>::iterator iter = lRefKF.begin(), iterEnd = lRefKF.end(); iter != iterEnd; ++iter) {
-          lRefKFParentId.push_back((*iter)->mnId);
-        }
-      }
-
-      mpKeyFrameDatabase->clear();
-      mpMap->clear();  // clear MPs,KFs & KFOrigins
-      MapPoint::nNextId = 0;
-      KeyFrame::nNextId = 0;
-      Frame::nNextId = 0;  // new id of good MPs,KFs & Fs starts from 0
-    }
-
-    map<size_t, KeyFrame *> mapIdpKF;                         // make a map from mnId (old) to KeyFrame*
-    vector<vector<long unsigned int>> vpKFMPIdMatches(NKFs);  //<vpKFs.size()<cache matched MPs' id (old)>>
-    size_t iFirstBad = NKFs;
-    for (size_t i = 0; i < NKFs; ++i) {
-      cv::Mat Tcp(4, 4, CV_32F);
-      char bBad;
-      if (bReadBadKF) {
-        f.read(&bBad, sizeof(char));
-        if (bBad) {
-          KeyFrame::readMat(f, Tcp);
-          if (iFirstBad == NKFs) iFirstBad = i;
-        }
-      }
-
-      long unsigned int oldId;
-      f.read((char *)&oldId, sizeof(oldId));  // old Id of KF
-      long unsigned int prevId;
-      f.read((char *)&prevId, sizeof(prevId));                       // old prevKF's Id
-      if (prevId != ULONG_MAX) assert(mapIdpKF.count(prevId) == 1);  // 0<i<NKFsInit
-      KeyFrame *pPrevKF = NULL;                                      // NULL correponds to prevId==ULONG_MAX
-      if (prevId != ULONG_MAX) pPrevKF = mapIdpKF[prevId];
-      Frame tmpF(f, mpVocabulary);
-      KeyFrame *pKF = new KeyFrame(tmpF, mpMap, mpKeyFrameDatabase, pPrevKF,
-                                   f);  // we use Frame::read()+KeyFrame::read() corresponding to KeyFrame::write()
-      if (bReadBadKF && bBad) pKF->mTcp = Tcp;
-
-      mapIdpKF[oldId] = pKF;
-      size_t NMPMatches;
-      f.read((char *)&NMPMatches, sizeof(NMPMatches));  // size of KeyPoints
-      vpKFMPIdMatches[i].resize(NMPMatches);
-      for (size_t j = 0; j < NMPMatches; ++j) {
-        // MP's (old) id(if ULONG_MAX meaning unmatched)
-        f.read((char *)&vpKFMPIdMatches[i][j], sizeof(vpKFMPIdMatches[i][j]));
-      }
-
-      mpMap->AddKeyFrame(pKF);  // Insert KeyFrame in the map
-      if (i == 0) {             // ORB_SLAM2 just uses 0th KF/F as the KFOrigins
-        assert(pKF->mnId == 0 && oldId == 0);
-        mpMap->mvpKeyFrameOrigins.push_back(pKF);
-      }
-    }
-
-    PRINT_INFO_MUTEX("2nd step...MapPoint old Id & Position & refKFId & observations from " << filename << " ..."
-                                                                                            << endl);
-    map<size_t, MapPoint *> mapIdpMP;  // make a map from mnId (old) to MapPoint*
-    long unsigned int nlData;          // for id
-    size_t NMPs;
-    f.read((char *)&NMPs, sizeof(NMPs));  // size of observations
-    for (size_t i = 0; i < NMPs; ++i) {
-      long unsigned int oldId;
-      f.read((char *)&oldId, sizeof(oldId));  // old Id
-      f.read((char *)&nlData,
-             sizeof(nlData));  // refKF's id (old), notice the KeyFrame*/address is different in LoadMap from SaveMap
-      assert(mapIdpKF.count(nlData) == 1);
-      MapPoint *pMP = new MapPoint(mapIdpKF[nlData], mpMap, f);
-
-      size_t Nobs;
-      f.read((char *)&Nobs, sizeof(Nobs));  // size of observations/MPs
-      for (size_t j = 0; j < Nobs; ++j) {
-        f.read((char *)&nlData, sizeof(nlData));  // obs: KFj's id (old)
-        assert(mapIdpKF.count(nlData) == 1);
-        // obs: KFj's corresponding KeyPoint's ids/order of this MP
-        size_t size_idxs;
-        f.read((char *)&size_idxs, sizeof(size_idxs));
-        for (size_t idxi = 0; idxi < size_idxs; ++idxi) {
-          size_t idx;
-          f.read((char *)&idx, sizeof(idx));
-          pMP->AddObservation(mapIdpKF[nlData], idx);
-        }
-      }
-      pMP->ComputeDistinctiveDescriptors();
-      pMP->UpdateNormalAndDepth();
-      mpMap->AddMapPoint(pMP);
-
-      mapIdpMP[oldId] = pMP;
-    }
-
-    cout << "3rd step...Add matched MapPoints to KeyFrames, Update Spanning Tree, AddLoopEdges, Add KeyFrameDatabase..."
-         << endl;
-    vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();  // it's using the mnId of KF as the order, so we must keep the
-                                                          // new id has the same order as the old one
-    for (size_t i = 0; i < NKFs; ++i) {                   // or vpKFMPIdMatches.size()
-      KeyFrame *pKF = vpKFs[i];
-      for (size_t j = 0; j < vpKFMPIdMatches[i].size(); ++j) {
-        if (vpKFMPIdMatches[i][j] == ULONG_MAX) {  // unmatched
-          pKF->EraseMapPointMatch(j);
-        } else {
-          assert(mapIdpMP.count(vpKFMPIdMatches[i][j]) == 1);
-          pKF->AddMapPoint(mapIdpMP[vpKFMPIdMatches[i][j]], j);
-        }
-      }
-      // Update Spanning Tree, must be after when mapIdpKF is made
-      long unsigned int parentId, loopId;
-      f.read((char *)&parentId, sizeof(parentId));  // old parent KF's Id
-      if (i > 0) assert(parentId != ULONG_MAX);
-      if (parentId != ULONG_MAX) {
-        assert(mapIdpKF.count(parentId) == 1);
-        pKF->ChangeParent(mapIdpKF[parentId]);
-      }
-      // Add LoopEdges
-      size_t nLoops;
-      f.read((char *)&nLoops, sizeof(nLoops));  // pKF->mspLoopEdges.size()
-      for (size_t j = 0; j < nLoops; ++j) {
-        f.read((char *)&loopId, sizeof(loopId));  // old loop KF's Id
-        assert(mapIdpKF.count(loopId) == 1);
-        pKF->AddLoopEdge(mapIdpKF[loopId]);
-      }
-      mpKeyFrameDatabase->add(pKF);
-    }
-
-    cout << "4th step...Update Covisible Graph(Only/Without Spanning Tree)...";
-    for (size_t i = 0; i < NKFs; ++i) {
-      KeyFrame *pKF = vpKFs[i];
-      // Update Covisible Graph(mbFirstConnection==false!), it needs pKF->mvpMapPoints & pMP->mObservations
-      pKF->UpdateConnections();
-    }
-
-    if (bReadBadKF) {  // we delete bad KFs and correct mpTracker->mlpReferences
-      for (size_t i = iFirstBad; i < NKFs; ++i) {
-        // i>= NKFsInit; we need keep bad KFs' parent & Tcp unchanged for SaveTrajectoryTUM()!!!
-        vpKFs[i]->SetBadFlag(true);
-      }
-      list<KeyFrame *> &lRefKF = mpTracker->mlpReferences;
-      list<unsigned long>::iterator iterID = lRefKFParentId.begin();
-      for (list<KeyFrame *>::iterator iter = lRefKF.begin(), iterEnd = lRefKF.end(); iter != iterEnd;
-           ++iter, ++iterID) {
-        assert(mapIdpKF.count(*iterID) == 1);
-        *iter = mapIdpKF[*iterID];  // old KF's id to its new corresponding KF*
-      }
-    }
-
-    if (iFirstBad > 0) {
-      mpTracker->mState = Tracking::MAP_REUSE;
-      mpTracker->SetLastKeyFrame(vpKFs[iFirstBad - 1]);
-      mpTracker->SetReferenceKF(vpKFs[iFirstBad - 1]);
-      if (sensorType >= 2) {
-        mpIMUInitiator->SetFinishRequest(true);  // we don't need to init when loading a VIEO/VIO map
-        mpIMUInitiator->SetVINSInited(true);
-      }
-    }
-
-    cout << "Over" << endl;
-    f.close();
-    return true;
+  if (bPCL) return false;
+  PRINT_INFO_MUTEX(endl
+                   << "Loading Map: 1st step...SensorType(static ones),Keyframe (F,PrevKF,BoW),NavState(Pose) from "
+                   << filename << " ..." << endl);
+  ifstream f;
+  f.open(filename.c_str(), ios_base::in | ios_base::binary);
+  if (!f.is_open()) {
+    cout << redSTR << "Opening Map Failed!" << whiteSTR << endl;
+    return false;
   }
+  char sensorType = 0;  // 0 for nothing/pure visual SLAM, 1 for encoder/VEO, 2 for IMU/VIO, 3 for encoder+IMU/VIEO
+  f.read(&sensorType, sizeof(sensorType));
+  if (f.bad()) {
+    f.close();
+    PRINT_INFO_MUTEX(redSTR << "Reading Map Failed!" << whiteSTR << endl);
+    return false;
+  }
+
+  cout << (int)sensorType << "!Mode" << endl;
+  if (sensorType == 1 || sensorType == 3) {
+    EncData::readParam(f);
+  }
+  if (sensorType == 2 || sensorType == 3) {
+    IMUData::readParam(f);
+    cv::Mat gravityVec(3, 1, CV_32F);
+    Serialize::readMat(f, gravityVec);
+    mpIMUInitiator->SetGravityVec(gravityVec);
+  }
+
+  size_t NKFs;
+  f.read((char *)&NKFs, sizeof(NKFs));
+  list<unsigned long> lRefKFParentId;  // old parent id of mpTracker->mlpReferences
+  if (!mpViewer->isFinished() && !mpLocalMapper->isFinished() && !mpLoopCloser->isFinished() &&
+      !mpIMUInitiator->GetFinish()) {
+    mpTracker->Reset();
+  } else {
+    // now only suitable for loading current map
+    if (bReadBadKF) {  // before clear KFs, we save the old id of mpTracker->mlpReferences
+      list<KeyFrame *> &lRefKF = mpTracker->mlpReferences;
+      for (list<KeyFrame *>::iterator iter = lRefKF.begin(), iterEnd = lRefKF.end(); iter != iterEnd; ++iter) {
+        lRefKFParentId.push_back((*iter)->mnId);
+      }
+    }
+
+    mpKeyFrameDatabase->clear();
+    mpMap->clear();  // clear MPs,KFs & KFOrigins
+    MapPoint::nNextId = 0;
+    KeyFrame::nNextId = 0;
+    Frame::nNextId = 0;  // new id of good MPs,KFs & Fs starts from 0
+  }
+
+  map<size_t, KeyFrame *> mapIdpKF;                         // make a map from mnId (old) to KeyFrame*
+  vector<vector<long unsigned int>> vpKFMPIdMatches(NKFs);  //<vpKFs.size()<cache matched MPs' id (old)>>
+  size_t iFirstBad = NKFs;
+  for (size_t i = 0; i < NKFs; ++i) {
+    cv::Mat Tcp(4, 4, CV_32F);
+    char bBad;
+    if (bReadBadKF) {
+      f.read(&bBad, sizeof(char));
+      if (bBad) {
+        Serialize::readMat(f, Tcp);
+        if (iFirstBad == NKFs) iFirstBad = i;
+      }
+    }
+
+    long unsigned int oldId;
+    f.read((char *)&oldId, sizeof(oldId));  // old Id of KF
+    long unsigned int prevId;
+    f.read((char *)&prevId, sizeof(prevId));                       // old prevKF's Id
+    if (prevId != ULONG_MAX) assert(mapIdpKF.count(prevId) == 1);  // 0<i<NKFsInit
+    // NULL correponds to prevId==ULONG_MAX
+    KeyFrame *pPrevKF = nullptr;
+    if (prevId != ULONG_MAX) pPrevKF = mapIdpKF[prevId];
+    Frame tmpF(f, mpVocabulary);
+    // we use Serialize::read() corresponding to Serialize::write()
+    KeyFrame *pKF = new KeyFrame(tmpF, mpMap, mpKeyFrameDatabase, pPrevKF, f);
+    if (bReadBadKF && bBad) pKF->mTcp = Tcp;
+
+    mapIdpKF[oldId] = pKF;
+    size_t NMPMatches;
+    f.read((char *)&NMPMatches, sizeof(NMPMatches));  // size of KeyPoints
+    vpKFMPIdMatches[i].resize(NMPMatches);
+    for (size_t j = 0; j < NMPMatches; ++j) {
+      // MP's (old) id(if ULONG_MAX meaning unmatched)
+      f.read((char *)&vpKFMPIdMatches[i][j], sizeof(vpKFMPIdMatches[i][j]));
+    }
+
+    mpMap->AddKeyFrame(pKF);  // Insert KeyFrame in the map
+    if (i == 0) {             // ORB_SLAM2 just uses 0th KF/F as the KFOrigins
+      assert(pKF->mnId == 0 && oldId == 0);
+      mpMap->mvpKeyFrameOrigins.push_back(pKF);
+    }
+  }
+
+  PRINT_INFO_MUTEX("2nd step...MapPoint old Id & Position & refKFId & observations from " << filename << " ..."
+                                                                                          << endl);
+  map<size_t, MapPoint *> mapIdpMP;  // make a map from mnId (old) to MapPoint*
+  long unsigned int nlData;          // for id
+  size_t NMPs;
+  f.read((char *)&NMPs, sizeof(NMPs));  // size of observations
+  for (size_t i = 0; i < NMPs; ++i) {
+    long unsigned int oldId;
+    f.read((char *)&oldId, sizeof(oldId));  // old Id
+    // refKF's id (old), notice the KeyFrame*/address is different in LoadMap from SaveMap
+    f.read((char *)&nlData, sizeof(nlData));
+    assert(mapIdpKF.count(nlData) == 1);
+    MapPoint *pMP = new MapPoint(mapIdpKF[nlData], mpMap, f);
+
+    size_t Nobs;
+    f.read((char *)&Nobs, sizeof(Nobs));  // size of observations/MPs
+    for (size_t j = 0; j < Nobs; ++j) {
+      f.read((char *)&nlData, sizeof(nlData));  // obs: KFj's id (old)
+      assert(mapIdpKF.count(nlData) == 1);
+      // obs: KFj's corresponding KeyPoint's ids/order of this MP
+      size_t size_idxs;
+      f.read((char *)&size_idxs, sizeof(size_idxs));
+      for (size_t idxi = 0; idxi < size_idxs; ++idxi) {
+        size_t idx;
+        f.read((char *)&idx, sizeof(idx));
+        pMP->AddObservation(mapIdpKF[nlData], idx);
+      }
+    }
+    pMP->ComputeDistinctiveDescriptors();
+    pMP->UpdateNormalAndDepth();
+    mpMap->AddMapPoint(pMP);
+
+    mapIdpMP[oldId] = pMP;
+  }
+
+  cout << "3rd step...Add matched MapPoints to KeyFrames, Update Spanning Tree, AddLoopEdges, Add KeyFrameDatabase..."
+       << endl;
+  vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();  // it's using the mnId of KF as the order, so we must keep the
+                                                        // new id has the same order as the old one
+  for (size_t i = 0; i < NKFs; ++i) {                   // or vpKFMPIdMatches.size()
+    KeyFrame *pKF = vpKFs[i];
+    for (size_t j = 0; j < vpKFMPIdMatches[i].size(); ++j) {
+      if (vpKFMPIdMatches[i][j] == ULONG_MAX) {  // unmatched
+        pKF->EraseMapPointMatch(j);
+      } else {
+        assert(mapIdpMP.count(vpKFMPIdMatches[i][j]) == 1);
+        pKF->AddMapPoint(mapIdpMP[vpKFMPIdMatches[i][j]], j);
+      }
+    }
+    // Update Spanning Tree, must be after when mapIdpKF is made
+    long unsigned int parentId, loopId;
+    f.read((char *)&parentId, sizeof(parentId));  // old parent KF's Id
+    if (i > 0) assert(parentId != ULONG_MAX);
+    if (parentId != ULONG_MAX) {
+      assert(mapIdpKF.count(parentId) == 1);
+      pKF->ChangeParent(mapIdpKF[parentId]);
+    }
+    // Add LoopEdges
+    size_t nLoops;
+    f.read((char *)&nLoops, sizeof(nLoops));  // pKF->mspLoopEdges.size()
+    for (size_t j = 0; j < nLoops; ++j) {
+      f.read((char *)&loopId, sizeof(loopId));  // old loop KF's Id
+      assert(mapIdpKF.count(loopId) == 1);
+      pKF->AddLoopEdge(mapIdpKF[loopId]);
+    }
+    mpKeyFrameDatabase->add(pKF);
+  }
+
+  cout << "4th step...Update Covisible Graph(Only/Without Spanning Tree)...";
+  for (size_t i = 0; i < NKFs; ++i) {
+    KeyFrame *pKF = vpKFs[i];
+    // Update Covisible Graph(mbFirstConnection==false!), it needs pKF->mvpMapPoints & pMP->mObservations
+    pKF->UpdateConnections();
+  }
+
+  if (bReadBadKF) {  // we delete bad KFs and correct mpTracker->mlpReferences
+    for (size_t i = iFirstBad; i < NKFs; ++i) {
+      // i>= NKFsInit; we need keep bad KFs' parent & Tcp unchanged for SaveTrajectoryTUM()!!!
+      vpKFs[i]->SetBadFlag(true);
+    }
+    list<KeyFrame *> &lRefKF = mpTracker->mlpReferences;
+    list<unsigned long>::iterator iterID = lRefKFParentId.begin();
+    for (list<KeyFrame *>::iterator iter = lRefKF.begin(), iterEnd = lRefKF.end(); iter != iterEnd; ++iter, ++iterID) {
+      assert(mapIdpKF.count(*iterID) == 1);
+      *iter = mapIdpKF[*iterID];  // old KF's id to its new corresponding KF*
+    }
+  }
+
+  if (iFirstBad > 0) {
+    mpTracker->mState = Tracking::MAP_REUSE;
+    mpTracker->SetInitLastKeyFrame(vpKFs[iFirstBad - 1]);
+    // for NeedNewKeyFrame() judge
+    mpTracker->SetInitReferenceKF(vpKFs[iFirstBad - 1]);
+    // to avoid first frame after LoadMap() to be keyframe, causing UpdateConnections() assert bug
+    mpLocalMapper->SetInitLastCamKF(vpKFs[iFirstBad - 1]);
+    if (sensorType >= 2) {
+      mpIMUInitiator->SetFinishRequest(true);  // we don't need to init when loading a VIEO/VIO map
+      mpIMUInitiator->SetInitGBAOver(true);    // gravity & scale should already be inited
+      mpIMUInitiator->SetVINSInited(true);
+    }
+  }
+
+  cout << "Over" << endl;
+  f.close();
+  return true;
 }
-void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc,
-                     bool bSaveBadKF) {  // maybe can be rewritten in Tracking.cc
+void System::SaveMapPCL(const string &filename) {
+  if (RGBD != mSensor) {
+    PRINT_INFO_MUTEX("Unsupported sensor to " << __FUNCTION__ << endl);
+    return;
+  }
+  // typedef
+  typedef pcl::PointXYZRGB PointT;
+
+  typedef pcl::PointCloud<PointT> PointCloud;
+  PRINT_INFO_MUTEX(endl << "Saving keyframe map to " << filename << " ..." << endl);
+
+  vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
+  sort(vpKFs.begin(), vpKFs.end(), KeyFrame::lId);
+
+  // Transform all keyframes so that the first keyframe is at the origin.
+  // After a loop closure the first keyframe might not be at the origin???here it's at the origin
+  // cv::Mat Two = vpKFs[0]->GetPoseInverse();
+
+  PointCloud::Ptr pPC(new PointCloud);
+  // vector<Eigen::Isometry3d*> poses;
+  double fx = fsSettings["Camera.fx"], fy = fsSettings["Camera.fy"], cx = fsSettings["Camera.cx"],
+         cy = fsSettings["Camera.cy"];
+  double depthScale = fsSettings["DepthMapFactor"];
+  for (size_t i = 0; i < vpKFs.size(); i += 2) {
+    KeyFrame *pKF = vpKFs[i];
+    // pKF->SetPose(pKF->GetPose()*Two);
+    if (pKF->isBad()) continue;
+
+    // cv::Mat R = pKF->GetRotation().t();
+    // vector<float> q = Converter::toQuaternion(R);
+    // cv::Mat t = pKF->GetCameraCenter();
+    // f << setprecision(6) << pKF->ftimestamp_ << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) <<
+    // " " << t.at<float>(2)
+    //<< " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
+    cv::Mat cvTwc = pKF->GetPoseInverse();
+    Eigen::Matrix3d r;
+    cv::cv2eigen(cvTwc.colRange(0, 3).rowRange(0, 3), r);
+    Eigen::Isometry3d *Twc = new Eigen::Isometry3d(r);
+    (*Twc)(0, 3) = cvTwc.at<float>(0, 3);
+    (*Twc)(1, 3) = cvTwc.at<float>(1, 3);
+    (*Twc)(2, 3) = cvTwc.at<float>(2, 3);
+    // poses.push_back(Twc);]
+
+    PointCloud::Ptr current(new PointCloud);
+    assert(2 == pKF->imgs_dense_.size());
+    cv::Mat color = pKF->imgs_dense_[0];
+    cv::Mat depth = pKF->imgs_dense_[1];
+    Eigen::Isometry3d T = *(Twc);
+    for (int v = 0; v < color.rows; ++v)
+      for (int u = 0; u < color.cols; ++u) {
+        float d = depth.ptr<unsigned short>(v)[u] * 1.0 / depthScale;
+        if (d == 0 || d > 7) continue;
+        Eigen::Vector3d point;
+        point[2] = d;
+        point[0] = (u - cx) * point[2] / fx;
+        point[1] = (v - cy) * point[2] / fy;
+        Eigen::Vector3d pointWorld = T * point;
+
+        PointT p;
+        p.x = pointWorld[0];
+        p.y = pointWorld[1];
+        p.z = pointWorld[2];
+        p.b = color.data[v * color.step + u * color.channels()];
+        p.g = color.data[v * color.step + u * color.channels() + 1];
+        p.r = color.data[v * color.step + u * color.channels() + 2];
+        current->points.push_back(p);
+      }
+    // depth filter and statistical removal
+    /*
+    PointCloud::Ptr pTmp(new PointCloud);
+    pcl::StatisticalOutlierRemoval<PointT> statis_filter;  // this one costs lots of time!!!
+    statis_filter.setMeanK(50);  // the number of the nearest points used to calculate the mean neighbor distance
+    // the standart deviation multiplier,here just use 70% for the normaldistri.
+    statis_filter.setStddevMulThresh(1.0);
+    statis_filter.setInputCloud(current);
+    statis_filter.filter(*pTmp);
+    *pPC += *pTmp;*/
+    *pPC += *current;
+  }
+  pPC->is_dense = false;  // it contains nan data
+  cout << "PC has " << pPC->size() << " points" << endl;
+
+  // voxel filter, to make less volume
+  pcl::VoxelGrid<PointT> voxel_filter;
+  voxel_filter.setLeafSize(0.05, 0.05, 0.05);  // 1cm^3 resolution;now 5cm
+  PointCloud::Ptr pTmp(new PointCloud);
+  voxel_filter.setInputCloud(pPC);
+  voxel_filter.filter(*pTmp);
+  // pTmp->swap(*pPC);
+
+  // statistical filter, to eliminate the single points
+  pcl::StatisticalOutlierRemoval<PointT> statis_filter;  // this one costs lots of time!!!
+  statis_filter.setMeanK(50);  // the number of the nearest points used to calculate the mean neighbor distance
+  statis_filter.setStddevMulThresh(1.0);  // the standart deviation multiplier,here just use 70% for the normal distri.
+  statis_filter.setInputCloud(pTmp);
+  statis_filter.filter(*pPC);
+
+  cout << "after downsampling, it has " << pPC->size() << " points" << endl;
+  pcl::io::savePCDFileBinary(filename, *pPC);
+
+  PRINT_INFO_MUTEX(endl << "Map saved!" << endl);
+}
+// maybe can be rewritten in Tracking.cc
+void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSaveBadKF) {
+  if (filename.empty()) return;
   if (!bPCL) {
+    // save sparse map for Map ReUse
     PRINT_INFO_MUTEX(
         endl
         << "Saving Map: 1st step...SensorType(static ones),Keyframe NavState & matched MapPoints' old Id to "
@@ -305,7 +398,7 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc,
     }
     if (sensorType == 2 || sensorType == 3) {
       IMUData::writeParam(f);
-      KeyFrame::writeMat(f, mpIMUInitiator->GetGravityVec());
+      Serialize::writeMat(f, mpIMUInitiator->GetGravityVec());
     }
 
     long unsigned int nlData;
@@ -335,7 +428,7 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc,
         if (pKF->isBad()) {
           bBad = 1;
           f.write(&bBad, sizeof(bBad));
-          KeyFrame::writeMat(f, pKF->mTcp);
+          Serialize::writeMat(f, pKF->mTcp);
           assert(i >= NKFsInit);
           //        cout<<i<<" "<<pKF->mnId<<" "<<pKF->GetParent()->mnId<<endl;
         } else
@@ -427,99 +520,8 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc,
     return;
   }
 
-  // typedef
-  typedef pcl::PointXYZRGB PointT;
-
-  typedef pcl::PointCloud<PointT> PointCloud;
-  PRINT_INFO_MUTEX(endl << "Saving keyframe map to " << filename << " ..." << endl);
-
-  vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
-  sort(vpKFs.begin(), vpKFs.end(), KeyFrame::lId);
-
-  // Transform all keyframes so that the first keyframe is at the origin.
-  // After a loop closure the first keyframe might not be at the origin???here it's at the origin
-  // cv::Mat Two = vpKFs[0]->GetPoseInverse();
-
-  PointCloud::Ptr pPC(new PointCloud);
-  // vector<Eigen::Isometry3d*> poses;
-  double fx = fsSettings["Camera.fx"], fy = fsSettings["Camera.fy"], cx = fsSettings["Camera.cx"],
-         cy = fsSettings["Camera.cy"];
-  double depthScale = fsSettings["DepthMapFactor"];
-  for (size_t i = 0; i < vpKFs.size(); i += 2) {
-    KeyFrame *pKF = vpKFs[i];
-    // pKF->SetPose(pKF->GetPose()*Two);
-    if (pKF->isBad()) continue;
-
-    // cv::Mat R = pKF->GetRotation().t();
-    // vector<float> q = Converter::toQuaternion(R);
-    // cv::Mat t = pKF->GetCameraCenter();
-    // f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << "
-    // " << t.at<float>(2)
-    //<< " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
-    cv::Mat cvTwc = pKF->GetPoseInverse();
-    Eigen::Matrix3d r;
-    cv::cv2eigen(cvTwc.colRange(0, 3).rowRange(0, 3), r);
-    Eigen::Isometry3d *Twc = new Eigen::Isometry3d(r);
-    (*Twc)(0, 3) = cvTwc.at<float>(0, 3);
-    (*Twc)(1, 3) = cvTwc.at<float>(1, 3);
-    (*Twc)(2, 3) = cvTwc.at<float>(2, 3);
-    // poses.push_back(Twc);]
-
-    PointCloud::Ptr current(new PointCloud);
-    cv::Mat color = pKF->Img[0];
-    cv::Mat depth = pKF->Img[1];
-    Eigen::Isometry3d T = *(Twc);
-    for (int v = 0; v < color.rows; ++v)
-      for (int u = 0; u < color.cols; ++u) {
-        unsigned int d = depth.ptr<unsigned short>(v)[u];
-        if (d == 0 || d > 7000) continue;
-        Eigen::Vector3d point;
-        point[2] = d * 1.0 / depthScale;
-        point[0] = (u - cx) * point[2] / fx;
-        point[1] = (v - cy) * point[2] / fy;
-        Eigen::Vector3d pointWorld = T * point;
-
-        PointT p;
-        p.x = pointWorld[0];
-        p.y = pointWorld[1];
-        p.z = pointWorld[2];
-        p.b = color.data[v * color.step + u * color.channels()];
-        p.g = color.data[v * color.step + u * color.channels() + 1];
-        p.r = color.data[v * color.step + u * color.channels() + 2];
-        current->points.push_back(p);
-      }
-    // depth filter and statistical removal
-    /*PointCloud::Ptr pTmp(new PointCloud);
-    pcl::StatisticalOutlierRemoval<PointT> statis_filter;//this one costs lots of time!!!
-    statis_filter.setMeanK(50);//the number of the nearest points used to calculate the mean neighbor distance
-    statis_filter.setStddevMulThresh(1.0);//the standart deviation multiplier,here just use 70% for the normal distri.
-    statis_filter.setInputCloud(current);
-    statis_filter.filter(*pTmp);
-    *pPC+=*pTmp;*/
-    *pPC += *current;
-  }
-  pPC->is_dense = false;  // it contains nan data
-  cout << "PC has " << pPC->size() << " points" << endl;
-
-  // voxel filter, to make less volume
-  pcl::VoxelGrid<PointT> voxel_filter;
-  voxel_filter.setLeafSize(0.05, 0.05, 0.05);  // 1cm^3 resolution;now 5cm
-  PointCloud::Ptr pTmp(new PointCloud);
-  voxel_filter.setInputCloud(pPC);
-  voxel_filter.filter(*pTmp);
-  // pTmp->swap(*pPC);
-
-  // statistical filter, to eliminate the single points
-  pcl::StatisticalOutlierRemoval<PointT> statis_filter;  // this one costs lots of time!!!
-  statis_filter.setMeanK(50);  // the number of the nearest points used to calculate the mean neighbor distance
-  statis_filter.setStddevMulThresh(1.0);  // the standart deviation multiplier,here just use 70% for the normal distri.
-  statis_filter.setInputCloud(pTmp);
-  statis_filter.filter(*pPC);
-
-  cout << "after downsampling, it has " << pPC->size() << " points" << endl;
-  pcl::io::savePCDFileBinary(filename, *pPC);
-
-  PRINT_INFO_MUTEX(endl << "Map saved!" << endl);
+  SaveMapPCL(filename);
+  return;
 }
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -546,7 +548,7 @@ void System::SaveFrame(string foldername, const cv::Mat &im, const cv::Mat &dept
     }
   }
   char ch[25];                     // at least 10+1+6+4+1=22
-  sprintf(ch, "%.6f.", tm_stamp);  // mpTracker->mCurrentFrame.mTimeStamp);
+  sprintf(ch, "%.6f.", tm_stamp);  // mpTracker->mCurrentFrame.ftimestamp_);
   rgbname = rgbname + ch + "bmp";
   depthname = depthname + ch + "png";
 
@@ -584,12 +586,9 @@ int System::mkdir_p(string foldername, int mode) {
 
 // created by zzh over.
 
-System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer)
-    : mSensor(sensor),
-      mpViewer(static_cast<Viewer *>(NULL)),
-      mbReset(false),
-      mbActivateLocalizationMode(false),
-      mbDeactivateLocalizationMode(false) {
+System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer,
+               const string &map_sparse_name)
+    : mSensor(sensor), mpViewer(static_cast<Viewer *>(NULL)), mbReset(false) {
   // Output welcome message
   PRINT_INFO_MUTEX(endl
                    << "VIEO_SLAM Copyright (C) 2016-2018 Zhanghao Zhu, University of Tokyo." << endl
@@ -612,7 +611,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   // cv::FileStorage
   fsSettings.open(strSettingsFile.c_str(), cv::FileStorage::READ);
   if (!fsSettings.isOpened()) {
-    cerr << "Failed to open settings file at: " << strSettingsFile << endl;
+    PRINT_ERR_MUTEX("Failed to open settings file at: " << strSettingsFile << endl);
     exit(-1);
   }
 
@@ -627,8 +626,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   } else
     bVocLoad = mpVocabulary->loadFromBinaryFile(strVocFile);
   if (!bVocLoad) {
-    cerr << "Wrong path to vocabulary. " << endl;
-    cerr << "Falied to open at: " << strVocFile << endl;
+    PRINT_ERR_MUTEX("Wrong path to vocabulary. " << endl);
+    PRINT_ERR_MUTEX("Falied to open at: " << strVocFile << endl);
     exit(-1);
   }
   PRINT_INFO_MUTEX("Vocabulary loaded!" << endl << endl);
@@ -667,10 +666,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mpTracker->SetLocalMapper(mpLocalMapper);
   mpTracker->SetLoopClosing(mpLoopCloser);
 
-  mpLocalMapper->SetTracker(mpTracker);
   mpLocalMapper->SetLoopCloser(mpLoopCloser);
 
-  mpLoopCloser->SetTracker(mpTracker);
   mpLoopCloser->SetLocalMapper(mpLocalMapper);
 
   // created by zzh
@@ -682,18 +679,38 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mpLocalMapper->SetIMUInitiator(mpIMUInitiator);
   mpLoopCloser->SetIMUInitiator(mpIMUInitiator);
   mpIMUInitiator->SetLocalMapper(mpLocalMapper);  // for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
+
+  if (!map_sparse_name.empty()) {
+    map_name_[0] = map_sparse_name;
+    LoadMap(map_sparse_name, false);
+  }
 }
 
-cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp, const bool inputRect) {
-  if (mSensor != STEREO) {
-    cerr << "ERROR: you called TrackStereo but input sensor was not set to STEREO." << endl;
-    exit(-1);
+cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp) {
+  auto sz_ims = ims.size();
+  switch (mSensor) {
+    case MONOCULAR:
+      if (sz_ims < 1) {
+        PRINT_ERR_MUTEX("ERROR: you called TrackStereo(Mono) but input image size is 0." << endl);
+        exit(-1);
+      }
+      break;
+    case STEREO:
+    case RGBD:
+      if (sz_ims < 2) {
+        PRINT_ERR_MUTEX("ERROR: you called TrackStereo(Stereo/RGB-D) but input image size < 2." << endl);
+        exit(-1);
+      }
+      break;
+    default:
+      PRINT_ERR_MUTEX("ERROR: you called TrackStereo but input sensor was not set to STEREO/RGBD/MONOCULAR." << endl);
+      exit(-1);
   }
 
   // Check mode change
   {
-    unique_lock<mutex> lock(mMutexMode);
-    if (mbActivateLocalizationMode) {
+    unique_lock<mutex> lock(mutex_mode_);
+    if (bactivate_localization_mode_ || bsave_map_) {
       mpLocalMapper->RequestStop();
 
       // Wait until Local Mapping has effectively stopped
@@ -701,13 +718,19 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
         usleep(1000);
       }
 
-      mpTracker->InformOnlyTracking(true);
-      mbActivateLocalizationMode = false;
+      if (bactivate_localization_mode_) mpTracker->InformOnlyTracking(true);
+      if (bsave_map_) {
+        SaveMap(map_name_[0], false);
+        SaveMap(map_name_[1], true);
+        bsave_map_ = false;
+        if (!bactivate_localization_mode_) mpLocalMapper->Release();
+      }
+      if (bactivate_localization_mode_) bactivate_localization_mode_ = false;
     }
-    if (mbDeactivateLocalizationMode) {
+    if (bdeactivate_localization_mode_) {
       mpTracker->InformOnlyTracking(false);
       mpLocalMapper->Release();
-      mbDeactivateLocalizationMode = false;
+      bdeactivate_localization_mode_ = false;
     }
   }
 
@@ -720,115 +743,25 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp,
     }
   }
 
-  cv::Mat Tcw = mpTracker->GrabImageStereo(ims, timestamp, inputRect);
+  cv::Mat Tcw = mpTracker->GrabImageStereo(ims, timestamp);
 
   unique_lock<mutex> lock2(mMutexState);
   mTrackingState = mpTracker->mState;
   mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvvKeysUn[0];
-  return Tcw;
-}
-
-cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp) {
-  if (mSensor != RGBD) {
-    cerr << "ERROR: you called TrackRGBD but input sensor was not set to RGBD." << endl;
-    exit(-1);
-  }
-
-  // Check mode change
-  {
-    unique_lock<mutex> lock(mMutexMode);
-    if (mbActivateLocalizationMode) {
-      mpLocalMapper->RequestStop();
-
-      // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped()) {
-        usleep(1000);
-      }
-
-      mpTracker->InformOnlyTracking(true);
-      mbActivateLocalizationMode = false;
-    }
-    if (mbDeactivateLocalizationMode) {
-      mpTracker->InformOnlyTracking(false);
-      mpLocalMapper->Release();
-      mbDeactivateLocalizationMode = false;
-    }
-  }
-
-  // Check reset
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    if (mbReset) {
-      mpTracker->Reset();
-      mbReset = false;
-    }
-  }
-
-  // important tracking function!
-  cv::Mat Tcw = mpTracker->GrabImageRGBD(im, depthmap, timestamp);
-
-  unique_lock<mutex> lock2(mMutexState);
-  mTrackingState = mpTracker->mState;
-  mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
-  return Tcw;
-}
-
-cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp) {
-  if (mSensor != MONOCULAR) {
-    cerr << "ERROR: you called TrackMonocular but input sensor was not set to Monocular." << endl;
-    exit(-1);
-  }
-
-  // Check mode change
-  {
-    unique_lock<mutex> lock(mMutexMode);
-    if (mbActivateLocalizationMode) {
-      mpLocalMapper->RequestStop();
-
-      // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped()) {
-        usleep(1000);
-      }
-
-      mpTracker->InformOnlyTracking(true);
-      mbActivateLocalizationMode = false;
-    }
-    if (mbDeactivateLocalizationMode) {
-      mpTracker->InformOnlyTracking(false);
-      mpLocalMapper->Release();
-      mbDeactivateLocalizationMode = false;
-    }
-  }
-
-  // Check reset
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    if (mbReset) {
-      mpTracker->Reset();
-      mbReset = false;
-    }
-  }
-
-  cv::Mat Tcw = mpTracker->GrabImageMonocular(im, timestamp);
-
-  unique_lock<mutex> lock2(mMutexState);
-  mTrackingState = mpTracker->mState;
-  mTrackedMapPoints = mpTracker->mCurrentFrame.GetMapPointMatches();
-  // mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn[0];
-
   return Tcw;
 }
 
 void System::ActivateLocalizationMode() {
-  unique_lock<mutex> lock(mMutexMode);
-  mbActivateLocalizationMode = true;
+  unique_lock<mutex> lock(mutex_mode_);
+  bactivate_localization_mode_ = true;
 }
-
 void System::DeactivateLocalizationMode() {
-  unique_lock<mutex> lock(mMutexMode);
-  mbDeactivateLocalizationMode = true;
+  unique_lock<mutex> lock(mutex_mode_);
+  bdeactivate_localization_mode_ = true;
+}
+void System::SaveMap() {
+  unique_lock<mutex> lock(mutex_mode_);
+  bsave_map_ = true;
 }
 
 bool System::MapChanged() {
@@ -1075,7 +1008,7 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename, const bool bgravi
       q = Converter::toQuaternion(R);
       t = Converter::toCvMat(Vector3d((RIw.matrix() * Converter::toVector3d(t))));
     }
-    f << setprecision(6) << pKF->mTimeStamp << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << " "
+    f << setprecision(6) << pKF->ftimestamp_ << setprecision(7) << " " << t.at<float>(0) << " " << t.at<float>(1) << " "
       << t.at<float>(2) << " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
   }
 
@@ -1146,11 +1079,5 @@ vector<MapPoint *> System::GetTrackedMapPoints() {
   unique_lock<mutex> lock(mMutexState);
   return mTrackedMapPoints;
 }
-
-// vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
-//{
-//    unique_lock<mutex> lock(mMutexState);
-//    return mTrackedKeyPointsUn;
-//}
 
 }  // namespace VIEO_SLAM

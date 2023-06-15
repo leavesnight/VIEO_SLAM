@@ -1,22 +1,13 @@
-// created by zzh, inspired by JingWang
-#ifndef IMUINITIALIZATION_H
-#define IMUINITIALIZATION_H
+#pragma once
 
-// #include <list>
 #include <mutex>
 #include <string>
 #include <ctime>
 #include <opencv2/opencv.hpp>
-// #include <Eigen/Core>
-// #include <Eigen/Geometry>
-
+#include <unistd.h>
 #include "OdomPreIntegrator.h"
-// #include "KeyFrame.h"
-// #include "Map.h"
 #include "LocalMapping.h"
 #include "common/macro_creator.h"
-
-#include <unistd.h>
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
@@ -53,9 +44,9 @@ class IMUInitialization {  // designed for multi threads
   // cv::Mat mRwiInit;//unused
 
   CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b, private, false);
-  CREATOR_VAR_MULTITHREADS(SensorIMU, bool, b, private,
-                           false);  // for auto reset judgement of this system, automatically check if IMU exists, for
-                                    // it needs initialization with a quite long period of tracking without LOST
+  // for auto reset judgement of this system, automatically check if IMU exists, for it needs initialization with a
+  // quite long period of tracking without LOST
+  CREATOR_VAR_MULTITHREADS(SensorIMU, bool, b, private, false);
   CREATOR_VAR_MULTITHREADS(VINSInited, bool, b, private, false)  // if IMU initialization is over
   cv::Mat mGravityVec;                                           // gravity vector in world frame
   std::mutex mMutexInitIMU;                                      // for mGravityVec, improved by zzh
@@ -94,9 +85,9 @@ class IMUInitialization {  // designed for multi threads
     if (GetReset()) {
       // reset relevant variables
       mdStartTime = -1;
-      SetCurrentKeyFrame(NULL);  // SetSensorIMU(false);
-      SetVINSInited(false);      // usually this 3 variables are false when LOST then this func. will be called
-      SetInitGBA(false);         // if it's true, won't be automatically reset
+      SetCurrentKeyFrame(nullptr);  // SetSensorIMU(false);
+      SetVINSInited(false);         // usually this 3 variables are false when LOST then this func. will be called
+      SetInitGBA(false);            // if it's true, won't be automatically reset
       SetInitGBAOver(false);
       SetInitGBAPriorCoeff(1);
       SetInitGBA2(false);
@@ -182,5 +173,3 @@ class IMUKeyFrameInitFix : public IMUKeyFrameInit {
 };
 
 }  // namespace VIEO_SLAM
-
-#endif

@@ -3,7 +3,7 @@
 #include "IMUInitialization.h"//for color cout
 #ifdef USE_G2O_NEWEST
 #else
-#include "../Thirdparty/g2o/g2o/types/se3_ops.h"
+#include "optimizer/g2o/g2o/types/se3_ops.h"
 #endif
 
 using namespace std;

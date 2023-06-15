@@ -29,9 +29,9 @@
 #include <fstream>
 #include <iomanip>
 
-#include "../stuff/timeutil.h"
-#include "../stuff/macros.h"
-#include "../stuff/misc.h"
+#include "optimizer/g2o/g2o/stuff/timeutil.h"
+#include "optimizer/g2o/g2o/stuff/macros.h"
+#include "optimizer/g2o/g2o/stuff/misc.h"
 
 namespace g2o {
 
@@ -72,7 +72,7 @@ void BlockSolver<Traits>::resize(int* blockPoseIndices, int numPoseBlocks,
 
   if (_doSchur) {
     // the following two are only used in schur
-    assert(_sizePoses > 0 && "allocating with wrong size");
+    assert(_sizePoses > 0 && s > 0 && "allocating with wrong size");
     _coefficients = new double [s];
     _bschur = new double[_sizePoses];
   }

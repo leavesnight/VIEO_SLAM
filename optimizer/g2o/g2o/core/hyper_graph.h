@@ -27,6 +27,11 @@
 #ifndef G2O_AIS_HYPER_GRAPH_HH
 #define G2O_AIS_HYPER_GRAPH_HH
 
+#ifdef _MSC_VER
+#include <unordered_map>
+#else
+#include <tr1/unordered_map>
+#endif
 #include <map>
 #include <set>
 #include <bitset>
@@ -35,13 +40,6 @@
 #include <limits>
 #include <cstddef>
 #include "common/mlog/log.h"
-
-#ifdef _MSC_VER
-#include <unordered_map>
-#else
-#include <tr1/unordered_map>
-#endif
-
 
 /** @addtogroup graph */
 //@{

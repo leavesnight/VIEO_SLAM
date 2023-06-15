@@ -11,7 +11,6 @@
 #include <string>
 #include <thread>
 #include <opencv2/core/core.hpp>
-
 #include "Tracking.h"
 #include "FrameDrawer.h"
 #include "MapDrawer.h"
@@ -42,6 +41,8 @@ class System {
   // System thread: a new IMUInitialization thread added
   std::thread* mptIMUInitialization;
 
+  void SaveMapPCL(const string& filename);
+
  public:
   enum eOdom { ENCODER = 0, IMU, BOTH };
 
@@ -57,50 +58,42 @@ class System {
   void SaveKeyFrameTrajectoryNavState(const string& filename, bool bUseTbc = true);
   void SaveTrajectoryNavState(const string& filename, bool bUseTbc = true);
   void SaveMap(const string& filename, bool bPCL = true, bool bUseTbc = true, bool bSaveBadKF = false);
-  bool LoadMap(const string& filename, bool bPCL = true,
-               bool bReadBadKF = false);  // if read bad KFs, we correct mpTracker->mlpReferences
+  // if read bad KFs, we correct mpTracker->mlpReferences
+  bool LoadMap(const string& filename, bool bPCL = true, bool bReadBadKF = false);
   void SaveFrame(string foldername, const cv::Mat& im, const cv::Mat& depthmap, double tm_stamp);
   int mkdir_p(string foldername, int mode);
-  // for ros_mono_pub.cc
-  bool GetLoopDetected();
-  bool SetLoopDetected(bool loopDeteced);
-  std::vector<KeyFrame*> GetAllKeyFrames();
-  bool GetKeyFrameCreated();
-  bool SetKeyFrameCreated(bool bTmp);
-  cv::Mat GetKeyFramePose();
 
   // created by zzh over.
 
  public:
   // Input sensor
-  enum eSensor { MONOCULAR = 0, STEREO = 1, RGBD = 2 };
+  enum eSensor { MONOCULAR = 0, STEREO, RGBD, NUM_SUPPORTED_CAM };
   static bool usedistort_;
 
  public:
   // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
-  System(const string& strVocFile, const string& strSettingsFile, const eSensor sensor, const bool bUseViewer = true);
+  // map_sparse_name != "" for Map Reuse LoadMap(map_sparse_name)
+  System(const string& strVocFile, const string& strSettingsFile, const eSensor sensor, const bool bUseViewer = true,
+         const string& map_sparse_name = "");
 
-  // Proccess the given stereo frame. Images must be synchronized.
+  // 0.usedistort_ = false(default) means total system uses undistorted Images plane; true means distorted/raw image
+  // 0.DistCoeffs(config in strSettingsFile) all 0 mean Images are rectified for Stereo.
+  // 1.Proccess the given stereo frame. Images must be synchronized.
   // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // inputRect=true(default) means Images are rectified.
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackStereo(const vector<cv::Mat>& ims, const double& timestamp, const bool inputRect = true);
-
-  // Process the given rgbd frame. Depthmap must be registered to the RGB frame.
-  // Input image: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // Input depthmap: Float (CV_32F).
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackRGBD(const cv::Mat& im, const cv::Mat& depthmap, const double& timestamp);
-
-  // Proccess the given monocular frame
-  // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-  // Returns the camera pose (empty if tracking fails).
-  cv::Mat TrackMonocular(const cv::Mat& im, const double& timestamp);
+  // 2.Process the given rgbd frame. Depthmap must be registered to the RGB frame.
+  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale inside.
+  // ims[1]: depthmap: Float (CV_32F).
+  // 3.Proccess the given monocular frame
+  // Input images: ims[0]: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale inside.
+  // 0.Returns the camera pose (empty if tracking fails).
+  cv::Mat TrackStereo(const vector<cv::Mat>& ims, const double& timestamp);
 
   // This stops local mapping thread (map building) and performs only camera tracking.
   void ActivateLocalizationMode();
   // This resumes local mapping thread and performs SLAM again.
   void DeactivateLocalizationMode();
+  // This SaveMap through window
+  void SaveMap();
 
   // Returns true if there have been a big map change (loop closure, global BA)
   // since last call to this function
@@ -134,10 +127,11 @@ class System {
   void SaveTrajectoryKITTI(const string& filename);
 
   // Information from most recent processed frame
-  // You can call this right after TrackMonocular (or stereo or RGBD)
+  // You can call this right after TrackStereo
   int GetTrackingState();
   std::vector<MapPoint*> GetTrackedMapPoints();
   std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
+  const eSensor& GetSensor() const { return mSensor; }
 
  private:
   // Input sensor
@@ -181,14 +175,16 @@ class System {
   bool mbReset;
 
   // Change mode flags
-  std::mutex mMutexMode;
-  bool mbActivateLocalizationMode;
-  bool mbDeactivateLocalizationMode;
+  std::mutex mutex_mode_;
+  bool bactivate_localization_mode_ = false;
+  bool bdeactivate_localization_mode_ = false;
+  bool bsave_map_ = false;
+  // map_name_[0] is map_sparse_name_, [1] is map_dense_name_(now PCL)
+  vector<string> map_name_ = {"Map.bin", "Map.pcd"};
 
   // Tracking state
   int mTrackingState;
   std::vector<MapPoint*> mTrackedMapPoints;
-  // std::vector<cv::KeyPoint> mTrackedKeyPointsUn;
   std::mutex mMutexState;
 };
 

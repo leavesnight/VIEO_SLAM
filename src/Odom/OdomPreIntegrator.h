@@ -53,7 +53,7 @@ class OdomPreIntegratorBase {  // base class
                                              const typename aligned_list<_OdomData>::const_iterator &end) {
     mlOdom.splice(mlOdom.begin(), x, begin, end);
   }
-  const listeig(_OdomData) & getlOdom() { return mlOdom; }  // the list of Odom, for KFCulling()
+  const listeig(_OdomData) & getlOdom() const { return mlOdom; }  // the list of Odom, for KFCulling()
   // the list of Odom, for deep proc(like KFCulling())
   aligned_list<_OdomData> &GetRawDataRef() { return mlOdom; }
   // Odom PreIntegration
@@ -261,7 +261,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
     }
 
     for (typename listeig(IMUDataBase)::const_iterator iterj = iter_start; iterj != iter_stop;) {
-      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj; // iterj-1
+      typename listeig(IMUDataBase)::const_iterator iterjm1 = iterj;  // iterj-1
       if (bimu_order_back) {
         if (iterj == iterBegin) {
           iterj = iter_stop;
@@ -285,8 +285,7 @@ int IMUPreIntegratorBase<IMUDataBase>::PreIntegration(const double &timeStampi, 
       // for we use [nearest imu data at timeStampi, nearest but <=timeStampj] or [/(timeStampi,timeStampj],
       // when we concate them in KeyFrameCulling(), dt may be 0
       if (dt == 0) continue;
-      // for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
-      // (20frames,>=10Hz, 1.5s<=2s is enough for not using MAP_REUSE_RELOC)
+      // Also for Map Reuse, the edge between last KF of the map and 0th KF of 2nd SLAM should have no odom info
       if (abs(dt) > 1.5) {
         this->mdeltatij = 0;
         std::cout << "CheckIMU!!!" << std::endl;
