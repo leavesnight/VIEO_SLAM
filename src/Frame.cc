@@ -69,7 +69,7 @@ int Frame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi, dou
 // please don't forget voc!! Or ComputeBoW() will have a segement fault problem
 Frame::Frame(istream &is, ORBVocabulary *voc) {
   mpORBvocabulary = voc;
-  mnId = nNextId++;  // new Frame ID
+  nid_ = nNextId++;  // new Frame ID
   read(is);
   // N is got in read(), very important allocation! for LoadMap()
   mvpMapPoints.resize(N, static_cast<MapPoint *>(NULL));
@@ -229,7 +229,7 @@ Frame::Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<O
   mThDepth = thDepth;
 
   // Frame ID
-  mnId = nNextId++;
+  nid_ = nNextId++;
   if (busedist_set_)
     assert(usedistort == usedistort_);
   else {

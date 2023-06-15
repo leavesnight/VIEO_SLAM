@@ -322,7 +322,7 @@ int main(int argc, char **argv) {
   SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
-  if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
+  if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name);  // for Reused Sparse Map
 
   // wait for pOdomThread finished
   if (pOdomThread) pOdomThread->join();

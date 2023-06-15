@@ -122,7 +122,12 @@ class FrameBase {
   vector<pair<size_t, size_t>> mapn2in_;
   // the left associated members are from mDescriptors
 
-  long unsigned int mnId;
+  // some unchanged members after constructor func.
+  using FrameId = unsigned long;
+  static constexpr FrameId InvalidFrameId = (FrameId)(-1);
+  // notice construct this in derived Frame/KeyFrame with different static nnext_id_
+  // now smaller nid_ also mean smaller/same timestamp_(future may not)!
+  FrameId nid_;
 
   // flow related
   // Threshold close/far points. Close points are inserted from 1 view.

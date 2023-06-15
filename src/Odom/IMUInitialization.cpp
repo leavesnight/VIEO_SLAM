@@ -96,11 +96,11 @@ void IMUInitialization::Run() {
             mdStartTime = mpMap->mvpKeyFrameOrigins.front()->timestamp_;
           }
           if (mdStartTime >= 0 && pCurKF->timestamp_ - mdStartTime >= mdInitTime)
-            if (pCurKF->mnId > initedid) {
+            if (pCurKF->nid_ > initedid) {
               // if succeed in IMU Initialization, this thread will finish, when u want the users' pushing reset button
               // be effective, delete break!
 #ifndef USE_FAST_IMU_INIT
-              initedid = pCurKF->mnId;
+              initedid = pCurKF->nid_;
               if (TryInitVIO()) break;
 #else
 #endif
@@ -210,8 +210,8 @@ bool IMUInitialization::TryInitVIO_zzh() {
   // see VIORBSLAM paper IV, here N=all KFs in map, not the meaning of local KFs' number
   // Use all KeyFrames in map to compute
   vector<KeyFrame *> vScaleGravityKF = mpMap->GetAllKeyFrames();
-  assert(!vScaleGravityKF.empty() && (*vScaleGravityKF.begin())->mnId == 0);
-  if (verbose && (*vScaleGravityKF.begin())->mnId != 0) cerr << "vScaleGrayvityKF begin id !=0!" << endl;
+  assert(!vScaleGravityKF.empty() && (*vScaleGravityKF.begin())->nid_ == 0);
+  if (verbose && (*vScaleGravityKF.begin())->nid_ != 0) cerr << "vScaleGrayvityKF begin id !=0!" << endl;
   int NvSGKF = vScaleGravityKF.size();
   KeyFrame *pNewestKF = vScaleGravityKF[NvSGKF - 1];
   // Store initialization-required KeyFrame data
@@ -596,8 +596,8 @@ bool IMUInitialization::TryInitVIO_zzh() {
   PRINT_INFO_MUTEX("gwbefore=" << gwbefore.transpose() << ", gwafter=" << gwafter.transpose() << endl);
 
   // Debug the frequency & sstar2&sstar
-  PRINT_INFO_MUTEX("Time: " << fixed << setprecision(9) << pNewestKF->ftimestamp_ - mdStartTime << ", s_star: " << s_star
-                            << ", s: " << s_ << defaultfloat << endl);
+  PRINT_INFO_MUTEX("Time: " << fixed << setprecision(9) << pNewestKF->ftimestamp_ - mdStartTime
+                            << ", s_star: " << s_star << ", s: " << s_ << defaultfloat << endl);
   //<<" bgest: "<<bgest.transpose()<<", gw*(gwafter)="<<gwafter.t()<<", |gw*|="<<cv::norm(gwafter)<<",
   // norm(gwbefore,gwstar)"<<cv::norm(gwbefore.t())<<" "<<cv::norm(gwstar.t())<<endl;
   if (mTmpfilepath.length() > 0) {  // Debug the Rwistar2
@@ -619,7 +619,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
   if (mdStartTime < 0) mdStartTime = pNewestKF->ftimestamp_;
   PRINT_INFO_MUTEX(yellowSTR "condnum=" << cond_num2 << ";max=" << w2(0) << ";min=" << w2(w2.size() - 1) << whiteSTR
                                         << endl);
-  int min_cond_num = 500;                                                                 // try 700
+  int min_cond_num = 500;                                                                  // try 700
   if (cond_num2 < min_cond_num and pNewestKF->ftimestamp_ - mdStartTime >= mdFinalTime) {  // 15s in the paper V-A
     bVIOInited = true;
   }
@@ -809,8 +809,8 @@ bool IMUInitialization::TryInitVIO() {
   // Use all KeyFrames in map to compute
   vector<KeyFrame *> vScaleGravityKF = mpMap->GetAllKeyFrames();
   // sort(vScaleGravityKF.begin(),vScaleGravityKF.end(),[](const KeyFrame *a,const KeyFrame *b){return
-  // a->mnId<b->mnId;});//we change the set less/compare func. so that we don't need to sort them!
-  assert((*vScaleGravityKF.begin())->mnId == 0);
+  // a->nid_<b->nid_;});//we change the set less/compare func. so that we don't need to sort them!
+  assert((*vScaleGravityKF.begin())->nid_ == 0);
   int N = 0, NvSGKF = vScaleGravityKF.size();
   KeyFrame *pNewestKF = vScaleGravityKF[NvSGKF - 1];
   // Store initialization-required KeyFrame data
@@ -862,8 +862,8 @@ bool IMUInitialization::TryInitVIO() {
     cv::Mat dp23 = Converter::toCvMat(pKF3->mOdomPreIntIMU.mpij);
     //     cout<<fixed<<setprecision(6);
     //     cout<<"dt12:"<<dt12<<" KF1:"<<vKFInit[i]->timestamp_<<" KF2:"<<pKF2->timestamp_<<" dt23:"<<dt23<<"
-    //     KF3:"<<pKF3->timestamp_<<endl; cout<<dp12.t()<<" 1id:"<<vScaleGravityKF[i]->mnId<<"
-    //     2id:"<<vScaleGravityKF[i+1]->mnId<<" 3id:"<<vScaleGravityKF[i+2]->mnId<<endl; cout<<"
+    //     KF3:"<<pKF3->timestamp_<<endl; cout<<dp12.t()<<" 1id:"<<vScaleGravityKF[i]->nid_<<"
+    //     2id:"<<vScaleGravityKF[i+1]->nid_<<" 3id:"<<vScaleGravityKF[i+2]->nid_<<endl; cout<<"
     //     Size12="<<pKF2->mOdomPreIntIMU.getlOdom().size()<<" Size23="<<pKF3->mOdomPreIntIMU.getlOdom().size()<<endl;
     // Pose of camera in world frame
     cv::Mat Twc1 = vKFInit[i]->mTwc;  // Twci for pwci&Rwci, not necessary for clone()

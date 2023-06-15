@@ -66,8 +66,9 @@ class Frame : public FrameBase {
   bool write(ostream &os) const;                   // though we don't save Frame
 
  public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // for quaterniond in NavState && Matrix4d
-  // created by zzh over.
+  // for quaterniond in NavState && Matrix4d
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
   Frame();
 
   // Copy constructor. for Tcw is cv::Mat, we need to deep copy it

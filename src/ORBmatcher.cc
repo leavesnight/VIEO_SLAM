@@ -176,7 +176,7 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
           //                PRINT_DEBUG_FILE_MUTEX("iter=" << *iter << " ", mlog::vieo_slam_debug_path, "debug.txt");
           //              }
           //              PRINT_DEBUG_FILE_MUTEX(
-          //                  pKF->mnId << "kfidx" << idx << "mpid" << pMP2->mnId << ";check kf bad=" <<
+          //                  pKF->nid_ << "kfidx" << idx << "mpid" << pMP2->mnId << ";check kf bad=" <<
           //                  (int)pKF->isBad()
           //                            << ";check mpobs=" << pMP2->Observations() << "/" <<
           //                            pMP2->GetObservations().size() << endl,

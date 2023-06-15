@@ -117,6 +117,7 @@ class IMUInitialization {  // designed for multi threads
   CREATOR_GET(Finish, bool, b)
   CREATOR_SET(FinishRequest, bool, b)
   void RequestReset() {  // blocking(3ms refreshing) mode, called by Tracking thread
+    if (GetFinish()) return;
     SetReset(true);
     for (;;) {
       if (!GetReset()) break;  // if mbReset changes from true to false, resetting is finished

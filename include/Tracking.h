@@ -77,7 +77,7 @@ class Tracking {
   bool GetVelocityByEnc(bool bMapUpdated);
 
   // Flags for relocalization. Create new KF once bias re-computed & flag for preparation for bias re-compute
-  bool mbRelocBiasPrepare;  // true means preparing/not prepared
+  bool mbRelocBiasPrepare = false;  // true means preparing/not prepared
   // 20 Frames are used to compute bias
   vector<Frame *>
       mv20pFramesReloc;  // vector<Frame,Eigen::aligned_allocator<Frame> > mv20FramesReloc used by JW, notice why we
@@ -108,7 +108,7 @@ class Tracking {
   bool brecompute_kf2kfpreint_[2];
   bool blast_kf2kfpreint_;
 
-  unsigned long mnLastOdomKFId;
+  unsigned long mnLastOdomKFId = 0;
 
  public:
   // Add Odom(Enc/IMU) data to cache queue
@@ -243,7 +243,7 @@ class Tracking {
   // points in the map. Still tracking will continue if there are enough matches with temporal points.
   // In that case we are doing visual odometry. The system will try to do relocalization to recover
   // "zero-drift" localization to the map.
-  bool mbVO;
+  bool mbVO = false;
 
   // Other Thread Pointers
   LocalMapping *mpLocalMapper;
@@ -259,7 +259,7 @@ class Tracking {
   KeyFrameDatabase *mpKeyFrameDB;
 
   // Initalization (only for monocular)
-  Initializer *mpInitializer;
+  Initializer *mpInitializer = nullptr;
 
   // Local Map
   KeyFrame *mpReferenceKF;  // corresponding to mCurrentFrame(most of time ==mCurrentFrame.mpReferenceKF)
@@ -270,7 +270,7 @@ class Tracking {
   System *mpSystem;
 
   // Drawers
-  Viewer *mpViewer;
+  Viewer *mpViewer = nullptr;
   FrameDrawer *mpFrameDrawer;
   MapDrawer *mpMapDrawer;
 
@@ -299,8 +299,8 @@ class Tracking {
   // Last Frame, KeyFrame and Relocalisation Info
   KeyFrame *plast_kf_ = nullptr;  // set null for safety
   Frame mLastFrame;
-  unsigned int mnLastKeyFrameId;
-  unsigned int mnLastRelocFrameId;
+  unsigned int mnLastKeyFrameId = KeyFrame::InvalidFrameId;
+  unsigned int mnLastRelocFrameId = 0;
 
   // Motion Model
   cv::Mat mVelocity;
@@ -382,7 +382,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
         // we just find the nearest iteri(for next time) to cur_time, don't need to judge if it's true
         iterijFind<OdomData>(lodom_data, cur_time - tm_shift_, iter, derr_imuimg);
         if (verbose)
-          cout << redSTR "ID=" << mCurrentFrame.mnId << "; curDiff:" << iter->mtm - cur_time << whiteSTR << endl;
+          cout << redSTR "ID=" << mCurrentFrame.nid_ << "; curDiff:" << iter->mtm - cur_time << whiteSTR << endl;
 
         // retain the nearest allowed OdomData / iteri used to calculate the Enc PreIntegration
         lodom_data.erase(lodom_data.begin(), iter);
@@ -404,7 +404,7 @@ bool Tracking::PreIntegration(const int8_t type, Eigen::aligned_list<OdomData> &
         if (iterijFind<OdomData>(lodom_data, cur_time + tm_shift_, iter, derr_imuimg) &&
             iterijFind<OdomData>(lodom_data, last_time - tm_shift_, iteri, derr_imuimg, false)) {
           //                        assert((miter_lastodom->mtm-last_time)==0&&(iter->mtm-curFTime)==0);
-          //                        cout<<redSTR"ID="<<pcurfb->mnId<<"; LastDiff:"<<miter_lastodom->mtm-last_time<<",
+          //                        cout<<redSTR"ID="<<pcurfb->nid_<<"; LastDiff:"<<miter_lastodom->mtm-last_time<<",
           //                        curDiff:"<<iter->mtm-curfTime<<whiteSTR<<endl;
           iterj = iter;
           pcurfb->PreIntegration<OdomData>(plastfb, iteri, ++iterj);  // it is optimized without copy

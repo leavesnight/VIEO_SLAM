@@ -105,7 +105,7 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
 // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is)
     : FrameBase(F),
-      mnFrameId(F.mnId),
+      mnFrameId(F.nid_),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -133,7 +133,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
 
   read(is);  // set odom list & mState
 
-  mnId = nNextId++;
+  nid_ = nNextId++;
 }
 bool KeyFrame::read(istream &is) {
   // we've done a lot in Frame Constructor with is!
@@ -151,7 +151,7 @@ bool KeyFrame::read(istream &is) {
     Serialize::readVecread(is, limu);
     SetPreIntegrationList<IMUData>(limu.begin(), limu.end());
   }
-  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through nid_
   if (mpPrevKeyFrame) {
     PreIntegration<EncData>(mpPrevKeyFrame);
     PreIntegration<IMUData>(mpPrevKeyFrame);
@@ -206,7 +206,7 @@ long unsigned int KeyFrame::nNextId = 0;
 
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow, KeyFrame *pPrevKF, const char state)
     : FrameBase(F),
-      mnFrameId(F.mnId),
+      mnFrameId(F.nid_),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -238,7 +238,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
-  PRINT_DEBUG_FILE_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("checkkf" << nid_ << " ", mlog::vieo_slam_debug_path, "debug.txt");
   size_t i = 0;
   for (auto iter : mvpMapPoints) {
     if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
@@ -250,7 +250,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
   F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
   // created by zzh over
 
-  mnId = nNextId++;
+  nid_ = nNextId++;
 }
 
 void KeyFrame::SetPose(const cv::Mat &Tcw) {
@@ -403,8 +403,8 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
   set<size_t> idxs = pMP->GetIndexInKeyFrame(this);
   for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
     auto idx = *iter;
-    mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
-    // PRINT_INFO_FILE_MUTEX("KFid" << mnId << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    mvpMapPoints[idx] = static_cast<MapPoint *>(nullptr);
+    // PRINT_INFO_FILE_MUTEX("KFid" << nid_ << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {
@@ -447,7 +447,7 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 }
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
-  PRINT_DEBUG_FILE_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(nid_ << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
 #ifdef USE_SIMPLE_REPLACE
   if (!pMP || pMP->isBad()) return;
@@ -499,17 +499,17 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
 
     map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
     for (auto mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
-      if (mit->first->mnId == mnId) continue;
+      if (mit->first->nid_ == nid_) continue;
       KFcounter[mit->first]++;
     }
   }
 
   // This should not happen
   if (KFcounter.empty()) {  // ODOMOK;||mState!=2&&pLastKF!=NULL
-    PRINT_INFO_MUTEX("Failed to update spanning tree! " << mnId << " " << mnFrameId << endl);
+    PRINT_INFO_MUTEX("Failed to update spanning tree! " << nid_ << " " << mnFrameId << endl);
     if (!pLastKF) {
       if (!mpParent) {
-        assert(mnId == 0);
+        assert(nid_ == 0);
       } else
         PRINT_INFO_MUTEX("but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl);
     } else {
@@ -524,8 +524,8 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
       // 	  mvOrderedWeights.push_back(0);//0 means it's an Odom link
 
       // if first connected then update spanning tree
-      // mnId!=0/this!=plastkf is important for 0th F/KF to ensure its parent is NULL!
-      if (mbFirstConnection && mnId != 0) {
+      // nid_!=0/this!=plastkf is important for 0th F/KF to ensure its parent is NULL!
+      if (mbFirstConnection && nid_ != 0) {
         assert(this != pLastKF);
         mbFirstConnection = false;
         mpParent = pLastKF;  // the closer, the first connection is better
@@ -580,7 +580,7 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
     mvpOrderedConnectedKeyFrames = vector<KeyFrame *>(lKFs.begin(), lKFs.end());
     mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-    if (mbFirstConnection && mnId != 0) {
+    if (mbFirstConnection && nid_ != 0) {
       mpParent = mvpOrderedConnectedKeyFrames.front();  // the closer, the first connection is better
       mpParent->AddChild(this);
       mbFirstConnection = false;
@@ -656,7 +656,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree) {
   {
     unique_lock<mutex> lock(mMutexConnections);
     // cannot erase the initial/fixed KF
-    if (mnId == 0)
+    if (nid_ == 0)
       return;
     else if (mbNotErase)  // mbNotErase may be set true by LoopClosing
     {
@@ -668,7 +668,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree) {
     // 1: use some extra judgements
     mbBad = true;
   }
-  CV_Assert(mnId != 0);
+  assert(nid_ != 0);
 
   // erase the relation with this(&KF)
   for (map<KeyFrame *, int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend = mConnectedKeyFrameWeights.end();
@@ -715,7 +715,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree) {
           for (size_t i = 0, iend = vpConnected.size(); i < iend; i++) {
             for (set<KeyFrame *>::iterator spcit = sParentCandidates.begin(), spcend = sParentCandidates.end();
                  spcit != spcend; spcit++) {
-              if (vpConnected[i]->mnId == (*spcit)->mnId) {
+              if (vpConnected[i]->nid_ == (*spcit)->nid_) {
                 // notice vpConnected[i]->GetWeight(pKF) may not exist for not in time
                 // vpConnected[i]->UpdateConnections()
                 int w = pKF->GetWeight(vpConnected[i]);
@@ -806,7 +806,7 @@ void KeyFrame::SetBadFlag(bool bKeepTree) {
   // erase this(&KF) in mpMap && mpKeyFrameDB
   mpMap->EraseKeyFrame(this);
   mpKeyFrameDB->erase(this);
-  // cout << "End " << mnId << " " << ftimestamp_ << endl;
+  // cout << "End " << nid_ << " " << ftimestamp_ << endl;
 }
 
 bool KeyFrame::isBad() {

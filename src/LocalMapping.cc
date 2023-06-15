@@ -53,7 +53,7 @@ void LocalMapping::Run() {
       // BoW conversion and insertion in Map
       PRINT_DEBUG_FILE_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
       ProcessNewKeyFrame();
-      PRINT_DEBUG_FILE_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+      PRINT_DEBUG_FILE_MUTEX(mpCurrentKeyFrame->nid_ << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
@@ -92,11 +92,11 @@ void LocalMapping::Run() {
       if ((!CheckNewKeyFrames()) && !stopRequested()) {
         // Local BA
         // at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left
-        // &&mpCurrentKeyFrame->mnId>mnLastOdomKFId+1
+        // &&mpCurrentKeyFrame->nid_>mnLastOdomKFId+1
         if (mpMap->KeyFramesInMap() > 2) {
           chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
           if (!mpIMUInitiator->GetVINSInited()) {
-            if (mpCurrentKeyFrame->mnId > mnLastOdomKFId + 1) {
+            if (mpCurrentKeyFrame->nid_ > mnLastOdomKFId + 1) {
               if (!mpIMUInitiator->GetSensorEnc())
                 Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap);  // local BA
               else
@@ -185,12 +185,12 @@ void LocalMapping::ProcessNewKeyFrame() {
 
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
-                           << mpCurrentKeyFrame->ftimestamp_ << ",id=" << mpCurrentKeyFrame->mnId << endl,
+                           << mpCurrentKeyFrame->ftimestamp_ << ",id=" << mpCurrentKeyFrame->nid_ << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
-    if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->mnId <= mnLastOdomKFId + 5) {
+    if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->nid_ <= mnLastOdomKFId + 5) {
       // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
       if (mpIMUInitiator->SetCopyInitKFs(true)) {
         KeyFrame *pLastKF = mpCurrentKeyFrame;
@@ -219,7 +219,7 @@ void LocalMapping::ProcessNewKeyFrame() {
             mpLastCamKF = pLastKF;
           }
         } else {
-          int count = mpCurrentKeyFrame->mnId - mnLastOdomKFId;
+          int count = mpCurrentKeyFrame->nid_ - mnLastOdomKFId;
           do {
             pLastKF = pLastKF->GetPrevKeyFrame();
             vecEraseKF.push_back(pLastKF);
@@ -245,7 +245,7 @@ void LocalMapping::ProcessNewKeyFrame() {
         mpIMUInitiator->SetCopyInitKFs(false);
       }
     }
-    mnLastOdomKFId = mpCurrentKeyFrame->mnId;
+    mnLastOdomKFId = mpCurrentKeyFrame->nid_;
   } else {  // OK
     mpLastCamKF = mpCurrentKeyFrame;
   }
@@ -286,7 +286,7 @@ void LocalMapping::ProcessNewKeyFrame() {
 void LocalMapping::MapPointCulling() {
   // Check Recent Added MapPoints
   list<MapPoint *>::iterator lit = mlpRecentAddedMapPoints.begin();
-  const unsigned long int nCurrentKFid = mpCurrentKeyFrame->mnId;
+  const unsigned long int nCurrentKFid = mpCurrentKeyFrame->nid_;
 
   int nThObs;
   if (mbMonocular)
@@ -469,7 +469,7 @@ void LocalMapping::CreateNewMapPoints() {
     assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
     bool usedistort[2] = {Frame::usedistort_, Frame::usedistort_};
     if (!usedistort[0]) {
-      CV_Assert(!usedistort[1]);
+      assert(!usedistort[1]);
       auto params_tmp = pKF1->mpCameras[0]->getParameters();
       params_tmp.resize(4);
       pcaminst[0] = make_shared<Pinhole>(params_tmp);
@@ -560,7 +560,8 @@ void LocalMapping::CreateNewMapPoints() {
       }
 
       // Triangulation is succesfull
-      MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
+      // notice pMp->mnFirstKFid=mpCurrentKeyFrame->nid_
+      MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);
 
       PRINT_DEBUG_FILE_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       for (auto idx : idxs1) {
@@ -593,10 +594,10 @@ void LocalMapping::SearchInNeighbors() {
   for (vector<KeyFrame *>::const_iterator vit = vpNeighKFs.begin(), vend = vpNeighKFs.end(); vit != vend; vit++) {
     KeyFrame *pKFi = *vit;
     if (pKFi->isBad() ||
-        pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)  // bad or entered(avoid duplications), cannot be itself
+        pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->nid_)  // bad or entered(avoid duplications), cannot be itself
       continue;
     vpTargetKFs.push_back(pKFi);
-    pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+    pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;
   }
 
   // Add some covisible of covisible
@@ -607,10 +608,10 @@ void LocalMapping::SearchInNeighbors() {
          vit2 != vend2; vit2++) {
       KeyFrame *pKFi2 = *vit2;
       // avoid bad,duplications && itself(KF now)
-      if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->mnId ||
-          pKFi2->mnId == mpCurrentKeyFrame->mnId)
+      if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->nid_ ||
+          pKFi2->nid_ == mpCurrentKeyFrame->nid_)
         continue;
-      pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
+      pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;  // fixed efficiency bug in ORB2
       vpTargetKFs.push_back(pKFi2);
     }
 #define ORB3_STRATEGY
@@ -625,12 +626,12 @@ void LocalMapping::SearchInNeighbors() {
   if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
     KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
     while (vpTargetKFs.size() < 20 && pKFi) {
-      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {
+      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->nid_) {
         pKFi = pKFi->GetPrevKeyFrame();
         continue;
       }
       vpTargetKFs.push_back(pKFi);
-      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
+      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;
       pKFi = pKFi->GetPrevKeyFrame();
     }
   }
@@ -665,9 +666,9 @@ void LocalMapping::SearchInNeighbors() {
       MapPoint *pMP = *vitMP;
       if (!pMP)  // avoid no corresponding/empty MapPoints
         continue;
-      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->mnId)  // avoid bad,duplications
+      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->nid_)  // avoid bad,duplications
         continue;
-      pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->mnId;
+      pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->nid_;
       vpFuseCandidates.push_back(pMP);
     }
   }
@@ -806,7 +807,7 @@ void LocalMapping::KeyFrameCulling() {
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
       // pKF is bad check for loop closing thread setnoterase and check can speed up
-      if (pKF->mnId == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
+      if (pKF->nid_ == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
 
       // timespan restriction is implemented as the VIORBSLAM paper III-B
       double tmNext = -1;
@@ -818,7 +819,7 @@ void LocalMapping::KeyFrameCulling() {
           // other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
             int bkfbad = (int)pKF->isBad();
-            PRINT_INFO_MUTEX(pKF->mnId << " " << bkfbad << endl);
+            PRINT_INFO_MUTEX(pKF->nid_ << " " << bkfbad << endl);
             vbEntered[vi] = true;
             continue;
           }
@@ -845,7 +846,7 @@ void LocalMapping::KeyFrameCulling() {
       KeyFrame *pNextKF = pKF->GetNextKeyFrame();
       if (pNextKF == NULL) {
         int bkfbad = (int)pKF->isBad();
-        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << bkfbad << endl);
+        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->nid_ << " " << bkfbad << endl);
         continue;
       }
       // solved old bug
@@ -929,8 +930,8 @@ void LocalMapping::KeyFrameCulling() {
           tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
         }  // must done before pKF->SetBadFlag()!
 
-        // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
-        PRINT_DEBUG_FILE("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+        // PRINT_INFO_MUTEX(pKF->nid_ << "badflag" << endl);
+        PRINT_DEBUG_FILE("badflag kfid=" << pKF->nid_ << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
                          mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();

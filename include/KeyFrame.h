@@ -217,7 +217,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   float hist_med_depth_ = 5.f;
   float ComputeSceneMedianDepth(const int q);
 
-  static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->mnId < pKF2->mnId; }
+  static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->nid_ < pKF2->nid_; }
 
   // The following variables are accesed from only 1 thread or never change (no mutex needed).
  public:

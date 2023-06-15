@@ -19,7 +19,7 @@ void MapPoint::UpdateScale(const float& scale) {
 
 // for Load/SaveMap()
 MapPoint::MapPoint(KeyFrame* pRefKF, Map* pMap, istream& is)
-    : mnFirstKFid(pRefKF->mnId),
+    : mnFirstKFid(pRefKF->nid_),
       nObs(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
@@ -64,7 +64,7 @@ long unsigned int MapPoint::nNextId = 0;
 mutex MapPoint::mGlobalMutex;
 
 MapPoint::MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap)
-    : mnFirstKFid(pRefKF->mnId),
+    : mnFirstKFid(pRefKF->nid_),
       nObs(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
@@ -283,7 +283,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->nid_ << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }
@@ -524,7 +524,7 @@ void MapPoint::_TrackFastMatchInfo::Reset(Frame* pf) {
   //  return;
   //  }
 
-  if (pf) last_seen_frameid_ = pf->mnId;  // don't need to match it in SBP()
+  if (pf) last_seen_frameid_ = pf->nid_;  // don't need to match it in SBP()
 
   //  if (vtrack_cami_.empty()) return;
   //  auto cami = pf->mapn2in_.size() <= i ? 0 : get<0>(pf->mapn2in_[i]);

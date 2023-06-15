@@ -31,7 +31,7 @@ void FrameBase::AddMapPoint(MapPoint *pMP, const size_t &idx) {
   //    cout << "check mpid=" << mvpMapPoints[idx]->mnId << " ";
   //    auto vobs = mvpMapPoints[idx]->GetObservations();
   //    for (auto obs : vobs) {
-  //      cout << obs.first->mnId << ":";
+  //      cout << obs.first->nid_ << ":";
   //      for (auto idx : obs.second) cout << idx << " ";
   //      cout << endl;
   //    }
@@ -342,7 +342,7 @@ bool FrameBase::write(ostream &os) const {
   int n_tmp = mapn2in_.size();
   os.write((char *)&n_tmp, sizeof(n_tmp));
   Serialize::writeVec(os, mapn2in_);
-  // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/mnId in SaveMap()
+  // we don't save old ID for it's useless in LoadMap(), but we'll save old KF ID/nid_ in SaveMap()
   os.write((char *)&mThDepth, sizeof(mThDepth));
   Serialize::writeMat(os, mDescriptors);
   // we can directly ComputeBoW() from mDescriptors

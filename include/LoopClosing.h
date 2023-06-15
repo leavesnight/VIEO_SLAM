@@ -63,7 +63,7 @@ class LoopClosing {
   // Main function
   void Run();
 
-  void InsertKeyFrame(KeyFrame* pKF);  // mlpLoopKeyFrameQueue.push_back(pKF)(pKF->mnID!=0)
+  void InsertKeyFrame(KeyFrame* pKF);  // mlpLoopKeyFrameQueue.push_back(pKF)(pKF->nid_!=0)
 
   void RequestReset();
 

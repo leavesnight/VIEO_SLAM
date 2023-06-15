@@ -9,7 +9,7 @@
 namespace VIEO_SLAM {
 
 bool Map::KFIdComapre::operator()(const KeyFrame *kfleft, const KeyFrame *kfright) const {  // zzh
-  return kfleft->mnId < kfright->mnId;
+  return kfleft->nid_ < kfright->nid_;
 }
 void Map::ClearBadMPs() {
   unique_lock<mutex> lock(mMutexMap);
@@ -38,7 +38,7 @@ Map::Map()
 void Map::AddKeyFrame(KeyFrame *pKF) {
   unique_lock<mutex> lock(mMutexMap);
   mspKeyFrames.insert(pKF);
-  if (pKF->mnId > mnMaxKFid) mnMaxKFid = pKF->mnId;
+  if (pKF->nid_ > mnMaxKFid) mnMaxKFid = pKF->nid_;
 }
 
 void Map::AddMapPoint(MapPoint *pMP) {
@@ -189,14 +189,14 @@ long unsigned int Map::GetMaxKFid() {
 
 void Map::clear() {
   for (set<MapPoint *>::iterator sit = mspMapPoints.begin(), send = mspMapPoints.end(); sit != send; sit++) delete *sit;
-
   for (set<KeyFrame *>::iterator sit = mspKeyFrames.begin(), send = mspKeyFrames.end(); sit != send; sit++) delete *sit;
-
   mspMapPoints.clear();
   mspKeyFrames.clear();
   mnMaxKFid = 0;
-  mvpReferenceMapPoints.clear();
   mvpKeyFrameOrigins.clear();
+
+  unique_lock<mutex> lock(mMutexMap);
+  mvpReferenceMapPoints.clear();
 }
 
 }  // namespace VIEO_SLAM

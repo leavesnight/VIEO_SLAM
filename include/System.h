@@ -57,9 +57,9 @@ class System {
   // from Twb
   void SaveKeyFrameTrajectoryNavState(const string& filename, bool bUseTbc = true);
   void SaveTrajectoryNavState(const string& filename, bool bUseTbc = true);
-  void SaveMap(const string& filename, bool bPCL = true, bool bUseTbc = true, bool bSaveBadKF = false);
+  void SaveMap(const string& filename, bool bPCL = false, bool bUseTbc = true, bool bSaveBadKF = false);
   // if read bad KFs, we correct mpTracker->mlpReferences
-  bool LoadMap(const string& filename, bool bPCL = true, bool bReadBadKF = false);
+  bool LoadMap(const string& filename, bool bPCL = false, bool bReadBadKF = false);
   void SaveFrame(string foldername, const cv::Mat& im, const cv::Mat& depthmap, double tm_stamp);
   int mkdir_p(string foldername, int mode);
 
@@ -94,13 +94,15 @@ class System {
   void DeactivateLocalizationMode();
   // This SaveMap through window
   void SaveMap();
+  // This LoadMap through window, no localization mode change
+  void LoadMap();
 
   // Returns true if there have been a big map change (loop closure, global BA)
   // since last call to this function
   bool MapChanged();  // used by user, need try
 
   // Reset the system (clear map)
-  void Reset();
+  void Reset(bool bsmart = false);
 
   void ShutdownViewer();
   // All threads will be requested to finish.
@@ -173,14 +175,16 @@ class System {
   // Reset flag
   std::mutex mMutexReset;
   bool mbReset;
+  bool breset_smart_ = false;
 
   // Change mode flags
   std::mutex mutex_mode_;
   bool bactivate_localization_mode_ = false;
   bool bdeactivate_localization_mode_ = false;
   bool bsave_map_ = false;
-  // map_name_[0] is map_sparse_name_, [1] is map_dense_name_(now PCL)
-  vector<string> map_name_ = {"Map.bin", "Map.pcd"};
+  bool bload_map_ = false;
+  // map_name_[0] is map_sparse_name_(save), [1] is map_dense_name_(now PCL), [2] for map_sparse_(load)
+  vector<string> map_name_ = {"Map.bin", "Map.pcd", ""};
 
   // Tracking state
   int mTrackingState;
