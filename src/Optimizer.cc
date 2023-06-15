@@ -1589,6 +1589,9 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
 
   int nInitialCorrespondences = 0;
 
+  /*#ifdef __AVX__
+    PRINT_ERR_MUTEX("AVX,MAX_ALIGN_BYTES=" << EIGEN_MAX_ALIGN_BYTES << std::endl);
+  #endif*/
   // Set Frame vertex
   g2o::VertexNavStatePR* vns = new g2o::VertexNavStatePR();  // 6*1 vertex
   // here g2o vertex uses Twb(different in default VertexSE3 using EdgeSE3); edge/measurement formula input R&p(<-p+dp)
