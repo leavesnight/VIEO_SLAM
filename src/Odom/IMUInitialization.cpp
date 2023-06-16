@@ -73,20 +73,45 @@ IMUInitialization::IMUInitialization(Map *pMap, const bool bMonocular, const str
     mnSleepTime = (double)fnTime[1] * 1e6;
     mdFinalTime = fnTime[2];
   }
+
+  pthread_ = new thread(&IMUInitialization::Run, this);
+}
+
+void IMUInitialization::ResetIfRequested() {
+  if (!Getreset()) return;
+  //    chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
+  if (verbose_)
+    PRINT_INFO_FILE(redSTR "start reset imu initialize thread..." << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                    "imu_init_thread_debug.txt");
+  // reset relevant variables
+  int8_t id_cam = Getreset_id_cam_();
+  if (-1 == id_cam) {
+    n_imu_extra_init_ = 0;
+    mdStartTime = -1;
+    SetCurrentKeyFrame(nullptr);  // SetSensorIMU(false);
+    SetInitGBA(false);            // if it's true, won't be automatically reset
+    SetInitGBAOver(false);
+    SetInitGBAPriorCoeff(1);
+    SetInitGBA2(false);
+  }
+  SetVINSInited(false);  // usually this 3 variables are false when LOST then this func. will be called
+
+  Setreset(false);
 }
 
 void IMUInitialization::Run() {
+  PRINT_INFO_FILE(greenSTR << "start IMU_Init Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                  "imu_init_thread_debug.txt");
+
   unsigned long initedid;
-  cout << "start VINSInitThread" << endl;
-  bFinish_ = false;
-  static int n_imu_extra_init;
+  bfinish_ = false;
   while (true) {
     if (GetSensorIMU()) {
       if (!GetVINSInited()) {  // at least 4 consecutive KFs, see IV-B/C VIORBSLAM paper
         if (mdStartTime == -1) {
           initedid = 0;
           mdStartTime = -2;
-          n_imu_extra_init = 0;
+          n_imu_extra_init_ = 0;
         }
 
         KeyFrame *pCurKF = GetCurrentKeyFrame();
@@ -101,7 +126,7 @@ void IMUInitialization::Run() {
               // be effective, delete break!
 #ifndef USE_FAST_IMU_INIT
               initedid = pCurKF->nid_;
-              if (TryInitVIO()) break;
+              TryInitVIO();
 #else
 #endif
             }
@@ -109,13 +134,52 @@ void IMUInitialization::Run() {
       }
     }
 
+    if (Stop()) {
+      // Safe area to stop, stopped for localization mode
+      while (isStopped() && !Getfinish_request() && !Getreset()) usleep(3000);
+    }
+
     ResetIfRequested();
-    if (GetFinishRequest()) break;
-    //     usleep(3000);
+    if (Getfinish_request()) break;
     usleep(mnSleepTime);  // 3,1,0.5
   }
-  SetFinish(true);
-  cout << "VINSInitThread is Over." << endl;
+
+  SetFinish();
+  PRINT_INFO_MUTEX("IMU_Init Thread is Over." << endl);
+}
+
+void IMUInitialization::RequestStop() {
+  unique_lock<mutex> lock(mutex_stop_);
+  bstop_requested_ = true;
+}
+bool IMUInitialization::isStopped() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstopped_;
+}
+bool IMUInitialization::stopRequested() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstop_requested_;
+}
+bool IMUInitialization::Stop() {
+  unique_lock<mutex> lock(mutex_stop_);
+  if (bstop_requested_) {
+    bstopped_ = true;
+    PRINT_INFO_FILE("IMUInit STOP" << endl, mlog::vieo_slam_debug_path, "imu_init_thread_debug.txt");
+    return true;
+  }
+
+  return false;
+}
+void IMUInitialization::Release() {
+  unique_lock<mutex> lock(mutex_stop_);
+  {
+    unique_lock<mutex> lock2(mutexfinish_);
+    if (bfinish_) return;
+  }
+  bstop_requested_ = false;
+  bstopped_ = false;
+
+  PRINT_INFO_FILE("IMUInit RELEASE" << endl, mlog::vieo_slam_debug_path, "imu_init_thread_debug.txt");
 }
 
 int IMUInitialization::deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit) {
@@ -641,8 +705,8 @@ bool IMUInitialization::TryInitVIO_zzh() {
     {  // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped() &&
-             !mpLocalMapper->isFinished()) {  // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      while (!mpLocalMapper->isStopped() && !mpLocalMapper->Getfinish()) {
         usleep(1000);
       }
 
@@ -651,7 +715,7 @@ bool IMUInitialization::TryInitVIO_zzh() {
       unique_lock<mutex> lockScale2(mpMap->mMutexScaleUpdateGBA);
       unique_lock<mutex> lock(mpMap->mMutexMapUpdate, std::defer_lock);  // Get Map Mutex
       while (!lock.try_lock()) {
-        if (GetReset()) {
+        if (Getreset()) {
           mpLocalMapper->Release();  // recover LocalMapping thread, same as CorrectLoop()
           return false;
         }
@@ -1058,8 +1122,8 @@ bool IMUInitialization::TryInitVIO() {
     {  // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped() &&
-             !mpLocalMapper->isFinished()) {  // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      // if LocalMapping is killed by System::Shutdown(), don't wait any more
+      while (!mpLocalMapper->isStopped() && !mpLocalMapper->Getfinish()) {
         usleep(1000);
       }
 
@@ -1068,7 +1132,7 @@ bool IMUInitialization::TryInitVIO() {
       unique_lock<mutex> lockScale2(mpMap->mMutexScaleUpdateGBA);
       unique_lock<mutex> lock(mpMap->mMutexMapUpdate, std::defer_lock);  // Get Map Mutex
       while (!lock.try_lock()) {
-        if (GetReset()) {
+        if (Getreset()) {
           mpLocalMapper->Release();  // recover LocalMapping thread, same as CorrectLoop()
           return false;
         }

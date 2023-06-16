@@ -6,9 +6,7 @@
 #include <opencv2/opencv.hpp>
 #include <unistd.h>
 #include "OdomPreIntegrator.h"
-#include "LocalMapping.h"
-#include "common/macro_creator.h"
-#include "common/mlog/log.h"
+#include "common/multithreadbase.h"
 
 namespace VIEO_SLAM {
 
@@ -23,7 +21,7 @@ using namespace std;
 
 class IMUKeyFrameInit;
 
-class IMUInitialization {  // designed for multi threads
+class IMUInitialization : public MultiThreadBase {  // designed for multi threads
  public:
   // for fast imu init
   typedef enum IMUInitMode {
@@ -37,23 +35,26 @@ class IMUInitialization {  // designed for multi threads
   typedef float Tcalc_sgba;
 
  private:
-  string mTmpfilepath;
-  double mdInitTime, mdFinalTime;
-  unsigned int mnSleepTime;
-  double mdStartTime;  // for reset
-  // cv::Mat mRwiInit;//unused
+  // imu init related interface params
+  // const
+  Map *mpMap;
+  bool mbMonocular;
 
+  // TODO: bSensorIMU and mGravityVec is in map
   CREATOR_VAR_MULTITHREADS(SensorEnc, bool, b, private, false);
   // for auto reset judgement of this system, automatically check if IMU exists, for it needs initialization with a
   // quite long period of tracking without LOST
   CREATOR_VAR_MULTITHREADS(SensorIMU, bool, b, private, false);
   CREATOR_VAR_MULTITHREADS(VINSInited, bool, b, private, false)  // if IMU initialization is over
+  double mdStartTime;                                            // for reset
   cv::Mat mGravityVec;                                           // gravity vector in world frame
   std::mutex mMutexInitIMU;                                      // for mGravityVec, improved by zzh
-  // double mnVINSInitScale; //scale estimation for Mono, not necessary here
-
   // for copying/cache KFs in IMU initialization thread avoiding KeyFrameCulling()
   CREATOR_VAR_MUTEX(CopyInitKFs, bool, b, false)
+
+  // imu init related inner params
+  // print related
+  string mTmpfilepath;
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
@@ -66,13 +67,6 @@ class IMUInitialization {  // designed for multi threads
 
   // like the part of LocalMapping
   CREATOR_VAR_MULTITHREADS(CurrentKeyFrame, KeyFrame *, p, private, nullptr)  // updated by LocalMapping thread
-  CREATOR_VAR_MUTEX(Finish, bool, b, false)                                   // checked/get by System.cc
-  CREATOR_VAR_MUTEX(FinishRequest, bool, b, false)                            // requested/set by System.cc
-  CREATOR_VAR_MULTITHREADS(Reset, bool, b, private, false)                    // for reset Initialization variables
-  // const
-  Map *mpMap;
-  bool mbMonocular;
-  LocalMapping *mpLocalMapper;  // for Stop LocalMapping thread&&NeedNewKeyFrame() in Tracking thread
 
   bool TryInitVIO(void);
   bool TryInitVIO_zzh(void);
@@ -81,26 +75,43 @@ class IMUInitialization {  // designed for multi threads
     return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
             -v.at<float>(1), v.at<float>(0), 0);
   }
-  void ResetIfRequested() {
-    if (GetReset()) {
-      // reset relevant variables
-      mdStartTime = -1;
-      SetCurrentKeyFrame(nullptr);  // SetSensorIMU(false);
-      SetVINSInited(false);         // usually this 3 variables are false when LOST then this func. will be called
-      SetInitGBA(false);            // if it's true, won't be automatically reset
-      SetInitGBAOver(false);
-      SetInitGBAPriorCoeff(1);
-      SetInitGBA2(false);
 
-      SetReset(false);
-    }
-  }
-  CREATOR_SET(Finish, bool, b)
-  CREATOR_GET(FinishRequest, bool, b)
+ protected:  // thread related special params
+  double mdInitTime, mdFinalTime;
+  unsigned int mnSleepTime;
+
+  // stop lba thread and wait signal
+  bool bstopped_ = false;
+  bool bstop_requested_ = false;
+  mutex mutex_stop_;
+
+  // for Stop LocalMapping thread
+  LocalMapping *mpLocalMapper = nullptr;
+
+  void ResetIfRequested();
+
+ private:
+  // parts for fast imu init
+  static int deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit);
+  static int reduceKFs(const vector<char> &reduced_hids, vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
+                       vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
+                       vector<char> &id_cams, vector<char> *id_cams_ref);
+
  public:
   bool mbUsePureVision;  // for pure-vision+IMU Initialization mode!
 
   IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath);
+  ~IMUInitialization() override {
+    // we have to stop thread firstly then ~() this class, then ~base class!
+    if (pthread_) {
+      Setfinish_request(true);
+      if (pthread_->joinable()) pthread_->join();
+      delete pthread_;
+      pthread_ = nullptr;
+    }
+  }
+
+  void SetLocalMapper(LocalMapping *pLocalMapper) { mpLocalMapper = pLocalMapper; }
 
   void Run();
 
@@ -110,25 +121,16 @@ class IMUInitialization {  // designed for multi threads
     bCopyInitKFs_ = copying;
     return true;
   }
-
   cv::Mat GetGravityVec(void);
   void SetGravityVec(const cv::Mat &mat);
 
-  CREATOR_GET(Finish, bool, b)
-  CREATOR_SET(FinishRequest, bool, b)
-  void RequestReset() {  // blocking(3ms refreshing) mode, called by Tracking thread
-    if (GetFinish()) return;
-    SetReset(true);
-    for (;;) {
-      if (!GetReset()) break;  // if mbReset changes from true to false, resetting is finished
-      usleep(3000);
-    }
-  }
-  void SetLocalMapper(LocalMapping *pLocalMapper) { mpLocalMapper = pLocalMapper; }
-  static int deleteKFs_ret(vector<vector<IMUKeyFrameInit *> *> &vKFsInit);
-  static int reduceKFs(const vector<char> &reduced_hids, vector<vector<IMUKeyFrameInit *> *> &vKFsInit,
-                       vector<vector<IMUKeyFrameInit *> *> &vKFsInit2, vector<int> &Ns, int &num_handlers,
-                       vector<char> &id_cams, vector<char> *id_cams_ref);
+  void RequestStop();
+  bool isStopped();
+  bool stopRequested();
+  bool Stop();
+  void Release();
+
+  int n_imu_extra_init_ = 0;
 
   char verbose = mlog::kVerbDeb;  // mlog::kVerbRel; //
 };

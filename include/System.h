@@ -38,8 +38,6 @@ class System {
 
   // Local Mapper. It manages the local map and performs local bundle adjustment.
   IMUInitialization* mpIMUInitiator;
-  // System thread: a new IMUInitialization thread added
-  std::thread* mptIMUInitialization;
 
   void SaveMapPCL(const string& filename);
 
@@ -166,9 +164,8 @@ class System {
   FrameDrawer* mpFrameDrawer;
   MapDrawer* mpMapDrawer;
 
-  // System threads: Local Mapping, Loop Closing(will create a new GBA thread), Viewer.
+  // System threads: Loop Closing(will create a new GBA thread), Viewer.
   // The Tracking thread "lives" in the main execution thread that creates the System object.
-  std::thread* mptLocalMapping;
   std::thread* mptLoopClosing;
   std::thread* mptViewer;
 

@@ -15,12 +15,7 @@
 namespace VIEO_SLAM {
 
 LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSettingPath)
-    : mbMonocular(bMonocular),
-      mbResetRequested(false),
-      mbFinishRequested(false),
-      mbFinished(true),
-      mpMap(pMap),
-      mnLastOdomKFId(0) {
+    : mbMonocular(bMonocular), mpMap(pMap) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   auto node_tmp = fSettings["LocalMapping.LocalWindowSize"];
   if (node_tmp.empty()) {
@@ -35,15 +30,34 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
     PRINT_INFO_MUTEX(blueSTR "depth > thFarPoints will be moved from Tracking SBP && LBA CreateMP" << whiteSTR << endl);
     th_far_pts_ = (float)node_tmp;
   }
+
+  pthread_ = new thread(&LocalMapping::Run, this);
+}
+LocalMapping::~LocalMapping() {
+  if (pthread_) {  // for base ~() will be called at last, here need to be stop before imu_init_~()
+    Setfinish_request(true);
+    if (pthread_->joinable()) pthread_->join();
+    delete pthread_;
+    pthread_ = nullptr;
+  }
+  if (mpIMUInitiator) {
+    delete mpIMUInitiator;
+    mpIMUInitiator = nullptr;
+  }
+
+  // release dynamic memory, e.g. pkfs in lnewkfs_
+  ReleaseDynamicMemory();
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing *pLoopCloser) { mpLoopCloser = pLoopCloser; }
 
 void LocalMapping::Run() {
-  mbFinished = false;
+  PRINT_INFO_FILE(greenSTR << "Start LBA Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                  "localmapping_thread_debug.txt");
 
-  while (1)  // every 3ms until mbFinishRequested==true
-  {
+  unsigned int sleep_time = 3000;
+  bfinish_ = false;
+  while (1) {
     // Tracking will see that Local Mapping is busy
     SetAcceptKeyFrames(false);
 
@@ -92,11 +106,11 @@ void LocalMapping::Run() {
       if ((!CheckNewKeyFrames()) && !stopRequested()) {
         // Local BA
         // at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left
-        // &&mpCurrentKeyFrame->nid_>mnLastOdomKFId+1
+        // &&mpCurrentKeyFrame->nid_>nlast_kfid_odom_+1
         if (mpMap->KeyFramesInMap() > 2) {
           chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
           if (!mpIMUInitiator->GetVINSInited()) {
-            if (mpCurrentKeyFrame->nid_ > mnLastOdomKFId + 1) {
+            if (mpCurrentKeyFrame->nid_ > nlast_kfid_odom_ + 1) {
               if (!mpIMUInitiator->GetSensorEnc())
                 Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap);  // local BA
               else
@@ -144,43 +158,86 @@ void LocalMapping::Run() {
                       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
-      while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction
-      {
-        usleep(3000);
-      }
-      if (CheckFinish())  // is this useless?
-        break;
+      // stopped for localization mode or LoopClosing thread's correction
+      while (isStopped() && !Getfinish_request() && !Getreset()) usleep(3000);
     }
-
-    ResetIfRequested();
 
     // Tracking will see that Local Mapping is idle/not busy
     SetAcceptKeyFrames(true);
 
-    if (CheckFinish()) break;
-
+    ResetIfRequested();
+    if (Getfinish_request()) break;
     usleep(3000);
   }
 
   SetFinish();
 }
 
-void LocalMapping::InsertKeyFrame(KeyFrame *pKF) {
-  unique_lock<mutex> lock(mMutexNewKFs);
-  mlNewKeyFrames.push_back(pKF);
-  mbAbortBA = true;  // stop localBA
+void LocalMapping::ResetIfRequested() {
+  if (!Getreset()) return;
+  if (verbose_)
+    PRINT_INFO_FILE(redSTR "start reset LBA Thread..." << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                    "localmapping_thread_debug.txt");
+  // reset relevant variables
+  int8_t id_cam = Getreset_id_cam_();
+  if (-1 == id_cam) {
+    // for thread
+    SetCurrentKeyFrames(list<KeyFrame *>());
+    ReleaseDynamicMemory();
+
+    // for mappoint culling
+    mlpRecentAddedMapPoints.clear();
+
+    // for pure odom edges
+    nlast_kfid_odom_ = 0;
+    SetInitLastCamKF(nullptr);
+  } else {
+    // TODO
+    assert(0);
+  }
+
+  Setreset(false);
+}
+void LocalMapping::SetFinish() {
+  unique_lock<mutex> lock(mutexfinish_);
+  bfinish_ = true;
+  unique_lock<mutex> lock2(mutex_stop_);
+  bstopped_ = true;
+}
+void LocalMapping::ReleaseDynamicMemory(bool block) {
+  unique_lock<mutex> lock(mutex_newkfs_, defer_lock);
+  if (block) lock.lock();
+  for (auto lit = lnewkeyframes_.begin(), lend = lnewkeyframes_.end(); lit != lend; lit++) {
+    KeyFrame *pkftmp = *lit;
+    //    auto pmap = pmaps_->GetCurrentMap();
+    //    pmap->EraseMapTimeToFrameBaseAndKeyFrame(pkftmp);  // Before SetBadFlag()!
+    if (!pkftmp->isBad()) pkftmp->SetBadFlag(KeyFrame::MapNoErase);
+
+    delete pkftmp;
+  }
+  lnewkeyframes_.clear();
 }
 
 bool LocalMapping::CheckNewKeyFrames() {
-  unique_lock<mutex> lock(mMutexNewKFs);
-  return (!mlNewKeyFrames.empty());
+  unique_lock<mutex> lock(mutex_newkfs_);
+  return !lnewkeyframes_.empty();
 }
-
 void LocalMapping::ProcessNewKeyFrame() {
+  list<KeyFrame *> curkfs;
   {
-    unique_lock<mutex> lock(mMutexNewKFs);
-    mpCurrentKeyFrame = mlNewKeyFrames.front();
-    mlNewKeyFrames.pop_front();
+    unique_lock<mutex> lock(mutex_newkfs_);
+    while (lnewkeyframes_.size() && !curkfs.size()) {
+      double ref_time = lnewkeyframes_.front()->ftimestamp_;
+      // Now tightly coupled with SLAM, clear_kfs_no_handler only happens when there are all fake slam kfs
+      while (lnewkeyframes_.size() && lnewkeyframes_.front()->ftimestamp_ == ref_time) {
+        KeyFrame *pkftmp = lnewkeyframes_.front();
+        curkfs.push_back(pkftmp);
+        lnewkeyframes_.pop_front();
+      }
+    }
+    SetCurrentKeyFrames(curkfs);
+    assert(1 == curkfs.size());
+    mpCurrentKeyFrame = curkfs.front();
   }
 
   // added by zzh, it can also be put in InsertKeyFrame()
@@ -190,7 +247,7 @@ void LocalMapping::ProcessNewKeyFrame() {
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
-    if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->nid_ <= mnLastOdomKFId + 5) {
+    if (nlast_kfid_odom_ > 0 && mpCurrentKeyFrame->nid_ <= nlast_kfid_odom_ + 5) {
       // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
       if (mpIMUInitiator->SetCopyInitKFs(true)) {
         KeyFrame *pLastKF = mpCurrentKeyFrame;
@@ -219,7 +276,7 @@ void LocalMapping::ProcessNewKeyFrame() {
             mpLastCamKF = pLastKF;
           }
         } else {
-          int count = mpCurrentKeyFrame->nid_ - mnLastOdomKFId;
+          int count = mpCurrentKeyFrame->nid_ - nlast_kfid_odom_;
           do {
             pLastKF = pLastKF->GetPrevKeyFrame();
             vecEraseKF.push_back(pLastKF);
@@ -245,7 +302,7 @@ void LocalMapping::ProcessNewKeyFrame() {
         mpIMUInitiator->SetCopyInitKFs(false);
       }
     }
-    mnLastOdomKFId = mpCurrentKeyFrame->nid_;
+    nlast_kfid_odom_ = mpCurrentKeyFrame->nid_;
   } else {  // OK
     mpLastCamKF = mpCurrentKeyFrame;
   }
@@ -301,13 +358,13 @@ void LocalMapping::MapPointCulling() {
       lit = mlpRecentAddedMapPoints.erase(lit);  // already bad MPs don't need to be culled any more
     } else if (pMP->GetFoundRatio() <
                0.25f)  // if only 1/4 visibles(matched by TrackWithMM()/TrackRefKF()/mCurrentFrame.isInFrustum(local
-                       // MPs)) can be regarded as inliers(found)
+    // MPs)) can be regarded as inliers(found)
     {
       pMP->SetBadFlag();
       lit = mlpRecentAddedMapPoints.erase(lit);
     } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 2 &&
                pMP->Observations() <= cnThObs)  // long age(>=2 frames) new unimportant(<=3 monocular KFs observation)
-                                                // MapPoints are discarded as bad ones
+    // MapPoints are discarded as bad ones
     {
       pMP->SetBadFlag();  // firstly cannot be consecutively(3KFs) observed far MPs will be deleted
       lit = mlpRecentAddedMapPoints.erase(lit);
@@ -317,6 +374,182 @@ void LocalMapping::MapPointCulling() {
     else
       lit++;
   }
+}
+void LocalMapping::KeyFrameCulling() {
+  // during the copying KFs' stage in IMU Initialization, don't cull any KF!
+  if (!mpIMUInitiator->SetCopyInitKFs(true)) return;
+
+  // Check redundant keyframes (only local keyframes)
+  // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
+  // in at least other 3 keyframes (in the same or finer scale)
+  // We only consider close stereo points
+  // get all 1st layer covisibility KFs as localKFs, notice no mpCurrentKeyFrame
+  vector<KeyFrame *> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
+
+  // get last Nth KF or the front KF of the local window
+  KeyFrame *pLastNthKF = mpCurrentKeyFrame;
+  double tmNthKF = -1;  // pLastNthKF==NULL then -1
+  vector<bool> vbEntered;
+  int nRestrict = 1;                                 // for not VIO mode
+  bool bSensorIMU = mpIMUInitiator->GetSensorIMU();  // false;
+  if (mnLocalWindowSize < 1 && mpIMUInitiator->GetVINSInited())
+    bSensorIMU = false;  // for pure-vision+IMU Initialization mode!
+  if (bSensorIMU) {
+    int Nlocal = mnLocalWindowSize;
+    while (--Nlocal > 0 && pLastNthKF != NULL) {  // maybe less than N KFs in pMap
+      pLastNthKF = pLastNthKF->GetPrevKeyFrame();
+    }
+    if (pLastNthKF != NULL) tmNthKF = pLastNthKF->ftimestamp_;  // N starts from 1 & notice ftimestamp_>=0
+
+    vbEntered.resize(vpLocalKeyFrames.size(), false);
+    if (mpIMUInitiator->GetVINSInited()) {
+      // notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW, for MH04 has
+      // problem with 0.5/3s strategy!
+      nRestrict = 2;
+    }
+  }
+
+  // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
+  for (int k = 0; k < nRestrict; ++k) {
+    int vi = 0;
+    // PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
+    for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
+         ++vit, ++vi) {
+      KeyFrame *pKF = *vit;
+      // pKF is bad check for loop closing thread setnoterase and check can speed up
+      if (pKF->nid_ == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
+
+      // timespan restriction is implemented as the VIORBSLAM paper III-B
+      double tmNext = -1;
+      if (k == 0) {
+        if (bSensorIMU) {  // restriction is only for VIO
+          assert(pKF != NULL);
+          // assert(pKF->GetPrevKeyFrame()!=NULL);
+          // solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in
+          // other's connectedKFs
+          if (pKF->GetPrevKeyFrame() == NULL) {
+            int bkfbad = (int)pKF->isBad();
+            PRINT_INFO_MUTEX(pKF->nid_ << " " << bkfbad << endl);
+            vbEntered[vi] = true;
+            continue;
+          }
+          tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
+          if (tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 0.5)
+            continue;
+          else
+            vbEntered[vi] = true;
+
+          // if
+          // (pKF==pLastNthKF||pLastNthKF!=NULL&&pKF==pLastNthKF->GetNextKeyFrame()||pKF->GetNextKeyFrame()==mpCurrentKeyFrame)
+          // {vbEntered[vi]=true;continue;}
+        }
+      } else {  // loose restriction when k==1
+        if (vbEntered[vi]) continue;
+        assert(pKF != NULL && pKF->GetPrevKeyFrame() != NULL);
+        tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
+        // this KF is in next time's local window or N+1th
+        if (tmNext > tmNthKF || tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 3)
+          continue;  // normal restriction to perform full BA
+      }
+
+      // cannot erase last ODOMOK & first ODOMOK's parent!
+      KeyFrame *pNextKF = pKF->GetNextKeyFrame();
+      if (pNextKF == NULL) {
+        int bkfbad = (int)pKF->isBad();
+        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->nid_ << " " << bkfbad << endl);
+        continue;
+      }
+      // solved old bug
+      //  for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the
+      //  loaded map
+      // if (pNextKF!=NULL){
+      if (pNextKF->getState() == Tracking::ODOMOK) {
+        // 2 consecutive ODOMOK KFs then delete the former one for a better quality map
+        if (pKF->getState() == Tracking::ODOMOK) {
+          // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
+          if (tmNext > tmNthKF && pLastNthKF != NULL) {
+            pLastNthKF = pLastNthKF->GetPrevKeyFrame();
+            tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
+          }  // must done before pKF->SetBadFlag()!
+          PRINT_INFO_MUTEX(greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl);
+          pKF->SetBadFlag();
+        }  // else next is OK then continue
+        continue;
+      } else {
+        // next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph
+        // Optimization?)
+        if (pKF->getState() == Tracking::ODOMOK) continue;
+      }
+      // }
+
+      const vector<MapPoint *> vpMapPoints = pKF->GetMapPointMatches();
+      int nObs = 3;
+      const int thObs = nObs;  // can directly use const 3
+      int nRedundantObservations =
+          0;         // the number of redundant(seen also by at least 3 other KFs) close stereo MPs seen by pKF
+      int nMPs = 0;  // the number of close stereo MPs seen by pKF
+      for (size_t i = 0, iend = vpMapPoints.size(); i < iend; i++) {
+        MapPoint *pMP = vpMapPoints[i];
+        if (pMP && !pMP->isBad()) {
+          // if RGBD/Stereo
+          if (!mbMonocular) {
+            // only consider close stereo points(exclude far or monocular points)
+            if (pKF->stereoinfo_.vdepth_[i] > pKF->mThDepth || pKF->stereoinfo_.vdepth_[i] < 0) continue;
+          }
+
+          nMPs++;
+          // at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at
+          // least other 3 KFs have seen 90% MPs
+          if (pMP->Observations() > thObs) {
+            const int &scaleLevel = pKF->mvKeys[i].octave;  // Un
+            const map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
+            int nObs = 0;
+            for (map<KeyFrame *, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end();
+                 mit != mend; mit++) {
+              KeyFrame *pKFi = mit->first;
+              //"other"
+              if (pKFi == pKF) continue;
+              auto idxs = mit->second;
+              int scaleLeveli = INT_MAX;
+              for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
+                auto idx = *iter;
+                // Un
+                if (scaleLeveli > pKFi->mvKeys[idx].octave) {
+                  scaleLeveli = pKFi->mvKeys[idx].octave;
+                }
+              }
+
+              if (scaleLeveli <= scaleLevel + 1)  //"in the same(+1 for error) or finer scale"
+              {
+                nObs++;
+                if (nObs >= thObs) break;
+              }
+            }
+            if (nObs >= thObs)  // if the number of same/better observation KFs >= 3(here)
+            {
+              nRedundantObservations++;
+            }
+          }
+        }
+      }
+
+      if (nRedundantObservations > 0.9 * nMPs) {
+        if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its
+          // prev-next<=0.5 then we should move tmNthKF forward 1 KF
+          pLastNthKF = pLastNthKF->GetPrevKeyFrame();
+          tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
+        }  // must done before pKF->SetBadFlag()!
+
+        // PRINT_INFO_MUTEX(pKF->nid_ << "badflag" << endl);
+        PRINT_DEBUG_FILE("badflag kfid=" << pKF->nid_ << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+                                         << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
+                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+        pKF->SetBadFlag();
+      }
+    }
+  }
+
+  mpIMUInitiator->SetCopyInitKFs(false);
 }
 
 static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pcams_in, KeyFrame *pKF1,
@@ -584,7 +817,6 @@ void LocalMapping::CreateNewMapPoints() {
   }
   PRINT_INFO_FILE("newmpsnum=" << nnew << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 }
-
 void LocalMapping::SearchInNeighbors() {
   // Retrieve neighbor keyframes
   int nn = 10;               // RGBD/Stereo
@@ -698,302 +930,82 @@ void LocalMapping::SearchInNeighbors() {
   mpCurrentKeyFrame->UpdateConnections();
 }
 
+bool LocalMapping::SetNotStop(bool flag) {
+  unique_lock<mutex> lock(mutex_stop_);
+  if (flag && bstopped_) return false;
+
+  bnot_stop_ = flag;
+  return true;
+}
 void LocalMapping::RequestStop() {
-  unique_lock<mutex> lock(mMutexStop);
-  mbStopRequested = true;
-  unique_lock<mutex> lock2(mMutexNewKFs);
+  unique_lock<mutex> lock(mutex_stop_);
+  bstop_requested_ = true;
   mbAbortBA = true;
 }
+void LocalMapping::RequestReset(const int8_t id_cam) {
+  PRINT_INFO_MUTEX("Reseting Local Mapper..." << flush);
+  MultiThreadBase::RequestReset(id_cam);
+  PRINT_INFO_MUTEX(" done" << endl);
 
+  // Reset IMU Initialization, must after mpLocalMapper&mpLoopClosing->RequestReset()! for no updation of
+  // mpCurrentKeyFrame& no use of mbVINSInited in IMUInitialization thread
+  PRINT_INFO_MUTEX("Resetting IMU Initiator..." << flush);
+  if (mpIMUInitiator) {
+    mpIMUInitiator->RequestReset(id_cam);
+  }
+  PRINT_INFO_MUTEX("done" << endl);
+}
+bool LocalMapping::isStopped() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstopped_;
+}
+bool LocalMapping::stopRequested() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstop_requested_;
+}
 bool LocalMapping::Stop() {
-  unique_lock<mutex> lock(mMutexStop);
-  if (mbStopRequested && !mbNotStop) {
-    mbStopped = true;
-    PRINT_INFO_MUTEX("Local Mapping STOP"
-                     << endl);  // if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
+  unique_lock<mutex> lock(mutex_stop_);
+  if (bstop_requested_ && !bnot_stop_) {
+    bstopped_ = true;
+    PRINT_INFO_MUTEX("Local Mapping STOP" << endl);
+    // if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
+    PRINT_INFO_FILE("Map STOP" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     return true;
   }
 
   return false;
 }
-
-bool LocalMapping::isStopped() {
-  unique_lock<mutex> lock(mMutexStop);
-  return mbStopped;
-}
-
-bool LocalMapping::stopRequested() {
-  unique_lock<mutex> lock(mMutexStop);
-  return mbStopRequested;
-}
-
 void LocalMapping::Release() {
-  unique_lock<mutex> lock(mMutexStop);
-  unique_lock<mutex> lock2(mMutexFinish);
-  if (mbFinished) return;
-  mbStopped = false;
-  mbStopRequested = false;
+  unique_lock<mutex> lock(mutex_stop_);
+  {
+    unique_lock<mutex> lock2(mutexfinish_);
+    if (bfinish_) return;
+  }
+  bstop_requested_ = false;
+  bstopped_ = false;
   // we don't need to lock mMutexNewKFs for stopRequested() && Stop() will be called before calling release()
-  for (list<KeyFrame *>::iterator lit = mlNewKeyFrames.begin(), lend = mlNewKeyFrames.end(); lit != lend; lit++)
-    delete *lit;  //for it's originally in localization mode, so these KFs should be delete when it's deactivated without regarding the mpMap/mlpRecentAddedMapPoints, \
-    if its original state is stopped by LoopClosing, mlNewKeyFrames is already empty
-  mlNewKeyFrames.clear();
+  // for it's originally in localization mode, so these KFs should be delete when it's deactivated without
+  // regarding the mpMap/mlpRecentAddedMapPoints, if its original state is stopped by LoopClosing, mlNewKeyFrames
+  // is already empty
+  ReleaseDynamicMemory(false);
 
-  PRINT_INFO_MUTEX("Local Mapping RELEASE"
-                   << endl);  // if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
+  PRINT_INFO_MUTEX("Local Mapping RELEASE" << endl);
+  // if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
+  PRINT_INFO_FILE("Map RELEASE" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 }
-
 bool LocalMapping::AcceptKeyFrames() {
   unique_lock<mutex> lock(mMutexAccept);
   return mbAcceptKeyFrames;
 }
-
 void LocalMapping::SetAcceptKeyFrames(bool flag) {
   unique_lock<mutex> lock(mMutexAccept);
   mbAcceptKeyFrames = flag;
 }
-
-bool LocalMapping::SetNotStop(bool flag) {
-  unique_lock<mutex> lock(mMutexStop);
-
-  if (flag && mbStopped) return false;
-
-  mbNotStop = flag;
-
-  return true;
-}
-
 void LocalMapping::InterruptBA() { mbAbortBA = true; }
-
-void LocalMapping::KeyFrameCulling() {
-  // during the copying KFs' stage in IMU Initialization, don't cull any KF!
-  if (!mpIMUInitiator->SetCopyInitKFs(true)) return;
-
-  // Check redundant keyframes (only local keyframes)
-  // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
-  // in at least other 3 keyframes (in the same or finer scale)
-  // We only consider close stereo points
-  // get all 1st layer covisibility KFs as localKFs, notice no mpCurrentKeyFrame
-  vector<KeyFrame *> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
-
-  // get last Nth KF or the front KF of the local window
-  KeyFrame *pLastNthKF = mpCurrentKeyFrame;
-  double tmNthKF = -1;  // pLastNthKF==NULL then -1
-  vector<bool> vbEntered;
-  int nRestrict = 1;                                 // for not VIO mode
-  bool bSensorIMU = mpIMUInitiator->GetSensorIMU();  // false;
-  if (mnLocalWindowSize < 1 && mpIMUInitiator->GetVINSInited())
-    bSensorIMU = false;  // for pure-vision+IMU Initialization mode!
-  if (bSensorIMU) {
-    int Nlocal = mnLocalWindowSize;
-    while (--Nlocal > 0 && pLastNthKF != NULL) {  // maybe less than N KFs in pMap
-      pLastNthKF = pLastNthKF->GetPrevKeyFrame();
-    }
-    if (pLastNthKF != NULL) tmNthKF = pLastNthKF->ftimestamp_;  // N starts from 1 & notice ftimestamp_>=0
-
-    vbEntered.resize(vpLocalKeyFrames.size(), false);
-    if (mpIMUInitiator->GetVINSInited()) {
-      // notice when during IMU Initialization: we use all KFs' timespan restriction of 0.5s like JW, for MH04 has
-      // problem with 0.5/3s strategy!
-      nRestrict = 2;
-    }
-  }
-
-  // k==0 for strict restriction then k==1 do loose restriction only for outer LocalWindow KFs
-  for (int k = 0; k < nRestrict; ++k) {
-    int vi = 0;
-    // PRINT_INFO_MUTEX("LocalKFs:" << vpLocalKeyFrames.size() << endl);
-    for (vector<KeyFrame *>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend;
-         ++vit, ++vi) {
-      KeyFrame *pKF = *vit;
-      // pKF is bad check for loop closing thread setnoterase and check can speed up
-      if (pKF->nid_ == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
-
-      // timespan restriction is implemented as the VIORBSLAM paper III-B
-      double tmNext = -1;
-      if (k == 0) {
-        if (bSensorIMU) {  // restriction is only for VIO
-          assert(pKF != NULL);
-          // assert(pKF->GetPrevKeyFrame()!=NULL);
-          // solved old bug: for there exists unidirectional edge in covisibility graph, so a bad KF may still exist in
-          // other's connectedKFs
-          if (pKF->GetPrevKeyFrame() == NULL) {
-            int bkfbad = (int)pKF->isBad();
-            PRINT_INFO_MUTEX(pKF->nid_ << " " << bkfbad << endl);
-            vbEntered[vi] = true;
-            continue;
-          }
-          tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
-          if (tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 0.5)
-            continue;
-          else
-            vbEntered[vi] = true;
-
-          // if
-          // (pKF==pLastNthKF||pLastNthKF!=NULL&&pKF==pLastNthKF->GetNextKeyFrame()||pKF->GetNextKeyFrame()==mpCurrentKeyFrame)
-          // {vbEntered[vi]=true;continue;}
-        }
-      } else {  // loose restriction when k==1
-        if (vbEntered[vi]) continue;
-        assert(pKF != NULL && pKF->GetPrevKeyFrame() != NULL);
-        tmNext = pKF->GetNextKeyFrame()->ftimestamp_;
-        // this KF is in next time's local window or N+1th
-        if (tmNext > tmNthKF || tmNext - pKF->GetPrevKeyFrame()->ftimestamp_ > 3)
-          continue;  // normal restriction to perform full BA
-      }
-
-      // cannot erase last ODOMOK & first ODOMOK's parent!
-      KeyFrame *pNextKF = pKF->GetNextKeyFrame();
-      if (pNextKF == NULL) {
-        int bkfbad = (int)pKF->isBad();
-        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->nid_ << " " << bkfbad << endl);
-        continue;
-      }
-      // solved old bug
-      //  for simple(but a bit wrong) Map Reuse, we avoid segmentation fault for the last KF of the
-      //  loaded map
-      // if (pNextKF!=NULL){
-      if (pNextKF->getState() == Tracking::ODOMOK) {
-        // 2 consecutive ODOMOK KFs then delete the former one for a better quality map
-        if (pKF->getState() == Tracking::ODOMOK) {
-          // this KF in next time's local window or N+1th & its prev-next<=0.5 then we should move tmNthKF forward 1 KF
-          if (tmNext > tmNthKF && pLastNthKF != NULL) {
-            pLastNthKF = pLastNthKF->GetPrevKeyFrame();
-            tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
-          }  // must done before pKF->SetBadFlag()!
-          PRINT_INFO_MUTEX(greenSTR << "OdomKF->SetBadFlag()!" << whiteSTR << endl);
-          pKF->SetBadFlag();
-        }  // else next is OK then continue
-        continue;
-      } else {
-        // next KF is OK(we keep at least 1 ODOMOK between OK KFs, maybe u can use it for a better PoseGraph
-        // Optimization?)
-        if (pKF->getState() == Tracking::ODOMOK) continue;
-      }
-      // }
-
-      const vector<MapPoint *> vpMapPoints = pKF->GetMapPointMatches();
-      int nObs = 3;
-      const int thObs = nObs;  // can directly use const 3
-      int nRedundantObservations =
-          0;         // the number of redundant(seen also by at least 3 other KFs) close stereo MPs seen by pKF
-      int nMPs = 0;  // the number of close stereo MPs seen by pKF
-      for (size_t i = 0, iend = vpMapPoints.size(); i < iend; i++) {
-        MapPoint *pMP = vpMapPoints[i];
-        if (pMP && !pMP->isBad()) {
-          // if RGBD/Stereo
-          if (!mbMonocular) {
-            // only consider close stereo points(exclude far or monocular points)
-            if (pKF->stereoinfo_.vdepth_[i] > pKF->mThDepth || pKF->stereoinfo_.vdepth_[i] < 0) continue;
-          }
-
-          nMPs++;
-          // at least here 3 observations(3 monocular KFs, 1 stereo KF+1 stereo/monocular KF), or cannot satisfy that at
-          // least other 3 KFs have seen 90% MPs
-          if (pMP->Observations() > thObs) {
-            const int &scaleLevel = pKF->mvKeys[i].octave;  // Un
-            const map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
-            int nObs = 0;
-            for (map<KeyFrame *, set<size_t>>::const_iterator mit = observations.begin(), mend = observations.end();
-                 mit != mend; mit++) {
-              KeyFrame *pKFi = mit->first;
-              //"other"
-              if (pKFi == pKF) continue;
-              auto idxs = mit->second;
-              int scaleLeveli = INT_MAX;
-              for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-                auto idx = *iter;
-                // Un
-                if (scaleLeveli > pKFi->mvKeys[idx].octave) {
-                  scaleLeveli = pKFi->mvKeys[idx].octave;
-                }
-              }
-
-              if (scaleLeveli <= scaleLevel + 1)  //"in the same(+1 for error) or finer scale"
-              {
-                nObs++;
-                if (nObs >= thObs) break;
-              }
-            }
-            if (nObs >= thObs)  // if the number of same/better observation KFs >= 3(here)
-            {
-              nRedundantObservations++;
-            }
-          }
-        }
-      }
-
-      if (nRedundantObservations > 0.9 * nMPs) {
-        if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its
-                                                       // prev-next<=0.5 then we should move tmNthKF forward 1 KF
-          pLastNthKF = pLastNthKF->GetPrevKeyFrame();
-          tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
-        }  // must done before pKF->SetBadFlag()!
-
-        // PRINT_INFO_MUTEX(pKF->nid_ << "badflag" << endl);
-        PRINT_DEBUG_FILE("badflag kfid=" << pKF->nid_ << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
-                                         << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
-                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
-        pKF->SetBadFlag();
-      }
-    }
-  }
-
-  mpIMUInitiator->SetCopyInitKFs(false);
-}
 
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v) {
   return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
           -v.at<float>(1), v.at<float>(0), 0);
-}
-
-void LocalMapping::RequestReset() {
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    mbResetRequested = true;
-  }
-
-  while (1) {
-    {
-      unique_lock<mutex> lock2(mMutexReset);
-      if (!mbResetRequested) break;
-    }
-    usleep(3000);
-  }
-}
-
-void LocalMapping::ResetIfRequested() {
-  unique_lock<mutex> lock(mMutexReset);
-  if (mbResetRequested) {
-    mlNewKeyFrames.clear();
-    mlpRecentAddedMapPoints.clear();
-    mbResetRequested = false;
-
-    mnLastOdomKFId = 0;
-    SetInitLastCamKF(nullptr);
-  }
-}
-
-void LocalMapping::RequestFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinishRequested = true;
-}
-
-bool LocalMapping::CheckFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinishRequested;
-}
-
-void LocalMapping::SetFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinished = true;
-  unique_lock<mutex> lock2(mMutexStop);
-  mbStopped = true;
-}
-
-bool LocalMapping::isFinished() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinished;
 }
 
 }  // namespace VIEO_SLAM

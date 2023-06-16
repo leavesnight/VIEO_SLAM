@@ -170,8 +170,16 @@ class KeyFrame : public FrameBase, public MutexUsed {
   // Set/check bad flag
   bool isBad() override;  // mbBad
   // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF) in mpMap && mpKeyFrameDB;
-  // KeepTree=true is used for BadKF's recover in LoadMap()
-  void SetBadFlag(bool bKeepTree = false);
+  // mode==KeepTree is used for BadKF's recover in LoadMap()
+  // we should ensure one cycle isBad()=false safety or only SetBadFlag in the same thread where isBad() is used
+  typedef enum _BadFlagMode {
+    UpdateTree,
+    KeepTree,
+    MapNoErase = 0x1 << 1,
+    ForceErase = 0x1 << 2,
+    ProducePrior = 0x1 << 3
+  } BadFlagMode;
+  void SetBadFlag(const int8_t mode = UpdateTree);
 
   // Enable/Disable bad flag changes
   void SetNotErase();  // mbNotErase=true means it cannot be directly erased by SetBadFlag(), but can use SetErase()

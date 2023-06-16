@@ -771,7 +771,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
       // Wait until Local Mapping has effectively stopped
 
       // if LocalMapping is killed by System::Shutdown(), don't wait any more
-      while (!mpLocalMapper->isStopped() && !mpLocalMapper->isFinished()) {
+      while (!mpLocalMapper->isStopped() && !mpLocalMapper->Getfinish()) {
         usleep(1000);
       }
 

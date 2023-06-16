@@ -1386,7 +1386,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     mlFrameTimes.push_back(mCurrentFrame.ftimestamp_);
     // false if it isn't lost, when it has Tcw, it stll can be LOST for not enough inlier MapPoints
     mlbLost.push_back(mState == LOST);
-  } else {
+  } else if (!mlRelativeFramePoses.empty()) {  // for fast push ResetSmart menu seg bug
     // This can happen if tracking is lost
     mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());  // I think actually it's unused
     relative_frame_bvwbs_.push_back(relative_frame_bvwbs_.back());
@@ -1466,7 +1466,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
 
     PRINT_INFO_MUTEX("New map created with " << mpMap->MapPointsInMap() << " points" << endl);
 
-    mpLocalMapper->InsertKeyFrame(pKFini);  // add it to the local mapper KF list
+    mpLocalMapper->InsertKeyFrame(list<KeyFrame*>{pKFini});  // add it to the local mapper KF list
 
     mCurrentFrame.mpReferenceKF = pKFini;  // I think it should be put before mLastFrame=!
     mLastFrame = Frame(mCurrentFrame, true);
@@ -1625,8 +1625,7 @@ void Tracking::CreateInitialMapMonocular() {
     }
   }
 
-  mpLocalMapper->InsertKeyFrame(pKFini);
-  mpLocalMapper->InsertKeyFrame(pKFcur);
+  mpLocalMapper->InsertKeyFrame(list<KeyFrame*>{pKFini, pKFcur});
 
   mCurrentFrame.SetPose(pKFcur->GetPose());
   mnLastKeyFrameId = mCurrentFrame.nid_;
@@ -2308,7 +2307,7 @@ void Tracking::CreateNewKeyFrame(vector<cv::Mat> imgs_dense) {
   }
 
 #ifndef NO_LBA_THREAD
-  mpLocalMapper->InsertKeyFrame(pKF);
+  mpLocalMapper->InsertKeyFrame(list<KeyFrame*>{pKF});
 #endif
   PRINT_DEBUG_FILE("curf is kf" << endl, mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
 
@@ -2685,7 +2684,7 @@ bool Tracking::Relocalization() {
     if (!mbOnlyTracking && !mpIMUInitiator->mbUsePureVision) {
       auto bsensor_imu = mpIMUInitiator->GetSensorIMU(), bimu_inited = mpIMUInitiator->GetVINSInited();
       if (bsensor_imu) {
-        assert(mpIMUInitiator->GetVINSInited() && "VINS not inited? why.");
+        assert(bimu_inited && "VINS not inited? why.");
         // notice we should call RecomputeIMUBiasAndCurrentNavstate() when 20-1 frames later, see IV-E in VIORBSLAM
         // paper
         mbRelocBiasPrepare = true;
@@ -2714,12 +2713,6 @@ void Tracking::Reset() {
   // Reset Loop Closing
   PRINT_INFO_MUTEX("Reseting Loop Closing..." << flush);
   mpLoopClosing->RequestReset();
-  PRINT_INFO_MUTEX(" done" << endl);
-
-  // zzh: Reset IMU Initialization, must after mpLocalMapper&mpLoopClosing->RequestReset()! for no updation of
-  // mpCurrentKeyFrame& no use of mbVINSInited in IMUInitialization thread
-  cout << "Resetting IMU Initiator...";
-  mpIMUInitiator->RequestReset();
   PRINT_INFO_MUTEX(" done" << endl);
 
   // relocalize related

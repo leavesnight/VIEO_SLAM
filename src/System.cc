@@ -106,8 +106,8 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   size_t NKFs;
   f.read((char *)&NKFs, sizeof(NKFs));
   list<unsigned long> lRefKFParentId;  // old parent id of mpTracker->mlpReferences
-  if (!mpViewer->isFinished() && !mpLocalMapper->isFinished() && !mpLoopCloser->isFinished()/* &&
-      !mpIMUInitiator->GetFinish()*/) {
+  if (!mpViewer->isFinished() && !mpLocalMapper->Getfinish() && !mpLoopCloser->isFinished()/* &&
+      !mpIMUInitiator->Getfinish()*/) {
     mpTracker->Reset();
   } else {
     // now only suitable for loading current map
@@ -246,7 +246,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   if (bReadBadKF) {  // we delete bad KFs and correct mpTracker->mlpReferences
     for (size_t i = iFirstBad; i < NKFs; ++i) {
       // i>= NKFsInit; we need keep bad KFs' parent & Tcp unchanged for SaveTrajectoryTUM()!!!
-      vpKFs[i]->SetBadFlag(true);
+      vpKFs[i]->SetBadFlag(KeyFrame::KeepTree);
     }
     list<KeyFrame *> &lRefKF = mpTracker->mlpReferences;
     list<unsigned long>::iterator iterID = lRefKFParentId.begin();
@@ -264,8 +264,8 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
     // to avoid first frame after LoadMap() to be keyframe, causing UpdateConnections() assert bug
     mpLocalMapper->SetInitLastCamKF(vpKFs[iFirstBad - 1]);
     if (sensorType >= 2) {
-      // we don't need to init when loading a V(I)(E)O map
-      if (!mpIMUInitiator->GetFinish()) mpIMUInitiator->SetFinishRequest(true);
+      // though we don't need to init when loading a V(I)(E)O map, but user may reset when no localization mode!
+      // if (!mpIMUInitiator->Getfinish()) mpIMUInitiator->Setfinish_request(true);
       mpIMUInitiator->SetInitGBAOver(true);  // gravity & scale should already be inited
       mpIMUInitiator->SetVINSInited(true);
     }
@@ -396,6 +396,7 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSave
     char sensorType = 0;  // 0 for nothing/pure visual SLAM, 1 for encoder/VEO, 2 for IMU/VIO, 3 for encoder+IMU/VIEO
     if (mpIMUInitiator->GetSensorEnc()) ++sensorType;
     if (mpIMUInitiator->GetVINSInited()) sensorType += 2;
+    PRINT_INFO_MUTEX("MapType=" << (int)sensorType << endl);
     f.write(&sensorType, sizeof(sensorType));
     if (sensorType == 1 || sensorType == 3) {  // notice here we should always keep parameters same as before
       EncData::writeParam(f);
@@ -653,7 +654,6 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
   // Initialize the Local Mapping thread and launch
   mpLocalMapper = new LocalMapping(mpMap, mSensor == MONOCULAR, strSettingsFile);
-  mptLocalMapping = new thread(&VIEO_SLAM::LocalMapping::Run, mpLocalMapper);
 
   // Initialize the Loop Closing thread and launch
   mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor != MONOCULAR, strSettingsFile);
@@ -677,7 +677,6 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   // created by zzh
   // Initialize the IMU Initialization thread and launch
   mpIMUInitiator = new IMUInitialization(mpMap, mSensor == MONOCULAR, strSettingsFile);
-  mptIMUInitialization = new thread(&VIEO_SLAM::IMUInitialization::Run, mpIMUInitiator);
   // Set pointers between threads
   mpTracker->SetIMUInitiator(mpIMUInitiator);
   mpLocalMapper->SetIMUInitiator(mpIMUInitiator);
@@ -717,13 +716,15 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp)
   }
 
   // Check mode change
+  bool bload_map_tmp = false;
   {
     unique_lock<mutex> lock(mutex_mode_);
     if (bactivate_localization_mode_ || bsave_map_) {
       mpLocalMapper->RequestStop();
+      mpIMUInitiator->RequestStop();
 
       // Wait until Local Mapping has effectively stopped
-      while (!mpLocalMapper->isStopped()) {
+      while (!mpLocalMapper->isStopped() || !mpIMUInitiator->isStopped()) {
         usleep(1000);
       }
 
@@ -732,51 +733,63 @@ cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp)
         SaveMap(map_name_[0]);
         SaveMap(map_name_[1], true);
         bsave_map_ = false;
-        if (!bactivate_localization_mode_) mpLocalMapper->Release();
+        if (!bactivate_localization_mode_) {
+          mpIMUInitiator->Release();
+          mpLocalMapper->Release();
+        }
       }
+      if (bactivate_localization_mode_) bactivate_localization_mode_ = false;
     }
     if (bdeactivate_localization_mode_) {
       mpTracker->InformOnlyTracking(false);
+      mpIMUInitiator->Release();
       mpLocalMapper->Release();
       bdeactivate_localization_mode_ = false;
     }
-    if (bload_map_) {
-      bool blocalmap_release_tmp = false;
-      if (mpLocalMapper->isStopped()) {
-        mpLocalMapper->Release();
-        blocalmap_release_tmp = true;
-      }
-      LoadMap(map_name_[2]);
-      bload_map_ = false;
-      if (mpTracker->mbOnlyTracking) {
-        if (blocalmap_release_tmp) {
-          mpLocalMapper->RequestStop();
-          while (!mpLocalMapper->isStopped()) {
-            usleep(1000);
-          }
-        }
-        mpTracker->InformOnlyTracking(true);
-      }
+    bload_map_tmp = bload_map_;
+  }
+  // we cannot stuck viewer for Tracker Reset require it Stop()!
+  if (bload_map_tmp) {
+    bool blocalmap_release_tmp = false;
+    if (mpLocalMapper->isStopped()) {
+      mpLocalMapper->Release();
+      blocalmap_release_tmp = true;
     }
-    if (bactivate_localization_mode_) bactivate_localization_mode_ = false;
+    LoadMap(map_name_[2]);
+    if (mpTracker->mbOnlyTracking) {
+      if (blocalmap_release_tmp) {
+        mpLocalMapper->RequestStop();
+        mpIMUInitiator->RequestStop();
+        // IMUInit thread stop for VINSInited state won't be suddenly change by it after InformOnlyTracking
+        while (!mpLocalMapper->isStopped() || !mpIMUInitiator->isStopped()) {
+          usleep(1000);
+        }
+      }
+      mpTracker->InformOnlyTracking(true);
+    }
+    unique_lock<mutex> lock(mutex_mode_);
+    bload_map_ = false;
   }
 
   // Check reset
+  bool breset_tmp = false;
   {
     unique_lock<mutex> lock(mMutexReset);
-    if (mbReset) {
-      mpTracker->Reset();
-      mbReset = false;
-
-      if (breset_smart_ && !map_name_[2].empty()) {
-        if (LoadMap(map_name_[2])) {
-          if (mpViewer)
-            mpViewer->blocalization_mode_.store(true);
-          else
-            ActivateLocalizationMode();
-        }
+    breset_tmp = mbReset;
+  }
+  // we cannot stuck viewer for Tracker Reset require it Stop()!
+  if (breset_tmp) {
+    mpTracker->Reset();
+    if (breset_tmp && breset_smart_ && !map_name_[2].empty()) {
+      if (LoadMap(map_name_[2])) {
+        if (mpViewer)
+          mpViewer->blocalization_mode_.store(true);
+        else
+          ActivateLocalizationMode();
       }
     }
+    unique_lock<mutex> lock(mMutexReset);
+    mbReset = false;
   }
 
   cv::Mat Tcw = mpTracker->GrabImageStereo(ims, timestamp);
@@ -832,8 +845,8 @@ void System::ShutdownViewer() {
   }
 }
 void System::Shutdown() {
-  mpIMUInitiator->SetFinishRequest(true);  // zzh
-  mpLocalMapper->RequestFinish();
+  mpIMUInitiator->Setfinish_request(true);
+  mpLocalMapper->Setfinish_request(true);
   mpLoopCloser->RequestFinish();
   if (mpViewer) {
     mpViewer->RequestFinish();
@@ -841,8 +854,8 @@ void System::Shutdown() {
   }
 
   // Wait until all thread have effectively stopped
-  while (!mpLocalMapper->isFinished() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA() ||
-         !mpIMUInitiator->GetFinish()) {  // changed by zzh
+  while (!mpLocalMapper->Getfinish() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA() ||
+         !mpIMUInitiator->Getfinish()) {
     usleep(5000);
   }
 
