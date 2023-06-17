@@ -68,7 +68,7 @@ endif ()
 
 find_package(Pangolin REQUIRED)
 find_package(PCL REQUIRED COMPONENT common io filters)
-find_package(Cholmod REQUIRED)#added for cholmod linear solver
+#find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
@@ -91,7 +91,7 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/include/CameraModels
         ${PROJECT_SOURCE_DIR}/src/Odom
-        ${CHOLMOD_INCLUDE_DIR}
+        #${CHOLMOD_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}
         ${Pangolin_INCLUDE_DIRS}
         ${PCL_INCLUDE_DIRS}
@@ -159,7 +159,7 @@ add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
 
 target_link_libraries(${PROJECT_NAME}
         ${${PROJECT_NAME}_deps}
-        ${CHOLMOD_LIBRARIES}
+        #${CHOLMOD_LIBRARIES}
         ${OpenCV_LIBS}
         ${Pangolin_LIBRARIES}
         ${PCL_LIBRARIES}

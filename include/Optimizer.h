@@ -13,7 +13,7 @@
 #include "g2o/solvers/eigen/linear_solver_eigen.h"
 #include "g2o/core/optimization_algorithm_gauss_newton.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
+//#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/core/robust_kernel_impl.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
@@ -24,7 +24,7 @@
 #include "optimizer/g2o/g2o/solvers/linear_solver_eigen.h"  //must before linear_solver_cholmod...
 #include "optimizer/g2o/g2o/core/optimization_algorithm_gauss_newton.h"
 #include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
-#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
+//#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
 #include "optimizer/g2o/g2o/core/robust_kernel_impl.h"
 #include "optimizer/g2o/g2o/types/types_seven_dof_expmap.h"
 
