@@ -7,7 +7,7 @@
 #include <mutex>
 #include <list>
 #include <thread>
-#include <unistd.h>  // for usleep && sysconf
+#include "common/os.h"
 #include <string>
 #include "common/macro_creator.h"
 #include "common/interface.h"
@@ -39,13 +39,14 @@ typedef struct _ThreadPolicyInfo {
   pid_t tid_;       // thread id
   pthread_t ptid_;  // posix thread id
   AlgTheadType thread_type_ = THREAD_UNKNOWN;
-  int policy_;  // thread schedule strategy
+  policy_t policy_;  // thread schedule strategy
   int priority_;
   size_t affinity_mask_;
 } ThreadPolicyInfo;
 
 COMMON_API void alg_event_listener(AlgEvent *event);
 COMMON_API void SetAffinity(multithread::ThreadPolicyInfo &event_info);
+void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::string &prefix_thread);
 }  // namespace multithread
 
 class KeyFrame;

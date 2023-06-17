@@ -41,7 +41,7 @@ class ORBextractor {
 
   int inline GetLevels() { return nlevels; }
 
-  float inline GetScaleFactor() { return scaleFactor; }
+  float inline GetScaleFactor() { return (float)scaleFactor; }
 
   std::vector<float> inline GetScaleFactors() { return mvScaleFactor; }
 

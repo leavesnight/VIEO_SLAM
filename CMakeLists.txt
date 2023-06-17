@@ -7,7 +7,7 @@ set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
 set(ADD_VR_EXAMPLE 0)
-set(SET_AFFINITY_LINUX 1)
+set(SET_AFFINITY_LINUX 0)#TODO(zzh)
 set(USE_PCL 1)
 
 # default built type
@@ -18,24 +18,47 @@ message(STATUS "${PROJECT_NAME} Build type: " ${CMAKE_BUILD_TYPE})
 if (SET_AFFINITY_LINUX)
     add_compile_definitions(SET_AFFINITY_LINUX=1)
 endif ()
+# To check if c++X is supported
+include(CheckCXXCompilerFlag)
 if (${USE_G2O_NEWEST})
     message("build without march=native")
     #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")#DEBUG default is -O0
     #set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
     #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")#RELEASE default has -O3
 else ()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
-    #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
-    #set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native")
-    #set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -march=native")
+    message(STATUS "CXX Compiler=${CMAKE_CXX_COMPILER_ID}")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
+        #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
+        #set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native")
+        #set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -march=native")
+
+        # Use gnu c++17
+        CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  /W4 /Od /D_USE_MATH_DEFINES")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /Od /D_USE_MATH_DEFINES")
+
+        message(STATUS "MSVC VERS=${MSVC_VERSION}")
+        if (MSVC_VERSION VERSION_GREATER_EQUAL 1932)
+            set(COMPILER_SUPPORTS_CXX17 1)
+        endif ()
+    else ()
+        message(FATAL_ERROR "Unsupported CXX Compiler!")
+    endif ()
 endif ()
-# Use c++17
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
 if (COMPILER_SUPPORTS_CXX17)
-    set(CMAKE_CXX_STANDARD 17)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_CXX_STANDARD 17)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        set(CMAKE_CXX_STANDARD 20)
+        # please choose VS2022 in CMakeSettings.json!
+        add_compile_options("/std:c++20")
+    else ()
+        message(FATAL_ERROR "Unsupported CXX17(GNU like)!")
+    endif ()
     add_compile_definitions(COMPILEDWITHC17=1)
     set(COMPILEDWITHC17 1)
     message(STATUS "Using c++17")
@@ -61,8 +84,11 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 message(STATUS "${PROJECT_NAME} CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 
 # set(OpenCV_DIR "/usr/local/opencv320/share/OpenCV")
+# Or set it in windows environment variables config: add OpenCV_DIR term
+# set(OpenCV_DIR "C:/zzh/4Life/opencv/build/install/lib")
+message(STATUS "OpenCV_DIR=$ENV{OpenCV_DIR} OR Not ENV: ${OpenCV_DIR}")
 if (${USE_OPENCV_NEWEST})
-    find_package(OpenCV 4.5 QUIET)
+    find_package(OpenCV 4.5 REQUIRED)
 else ()
     find_package(OpenCV 3.2 QUIET)
     if (NOT OpenCV_FOUND)
@@ -75,13 +101,18 @@ endif ()
 message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
 find_package(Pangolin REQUIRED)
-#find_package(Cholmod REQUIRED)#added for cholmod linear solver
+message(STATUS "Pangolin_INCLUDE_DIRS=${Pangolin_INCLUDE_DIRS}; LIBS=${Pangolin_LIBRARIES}; ${Pangolin_VERSION}")
 
+# set(Eigen3_DIR "C:/zzh/4Life/eigen/build/x64/Release/Eigen3/share/eigen3/cmake")
+message(STATUS "Eigen3_DIR=$ENV{Eigen3_DIR} OR Not ENV: ${Eigen3_DIR}")
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
     # Find Sophus, we found only newest master branch code could be directly compiled with eigen 3.3.7
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        set(Sophus_INCLUDE_DIR "C:/zzh/4Life/Sophus/build/x64/Sophus/include")
+    endif ()
     find_package(Sophus REQUIRED)
     message(STATUS "Sophus_INCLUDE_DIR=${Sophus_INCLUDE_DIR}; LIBS=${Sophus_LIBRARIES}; Ver=${Sophus_VERSION}")
 else ()
@@ -91,6 +122,8 @@ message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}")
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}")
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+
+#find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
 include_directories(
         ${PROJECT_SOURCE_DIR}

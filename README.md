@@ -200,21 +200,151 @@ If you use VIEOS2 (Stereo or RGB-D) in an academic work, please cite:
      }
 
 # 2. Prerequisites
-We have tested the library in **Ubuntu 20.04**, but it should be easy to compile in other platforms. A powerful computer (e.g. i7) will ensure real-time performance and provide more stable and accurate results.
+We have tested the library in **Ubuntu 20.04**, but it should be easy to compile in other platforms.
+A powerful computer (e.g. i7) will ensure real-time performance and provide more stable and accurate results.
 
 ## C++11 or C++0x Compiler
 We use the new thread and chrono functionalities of C++11.
 
-## Pangolin+Sophus
-We use [Pangolin](https://github.com/stevenlovegrove/Pangolin) for visualization and user interface. Dowload and install instructions can be found at: https://github.com/stevenlovegrove/Pangolin. **Tested with commit id 86eb4975fc4f.**
+## Pangolin
+We use [Pangolin](https://github.com/stevenlovegrove/Pangolin) for visualization and user interface.
+Dowload and install instructions can be found at: https://github.com/stevenlovegrove/Pangolin.
+**Tested with commit id 86eb4975fc4f.**
 
-We use [Sophus](https://github.com/strasdat/Sophus) for more compact translation and rotation operation. **Tested with commit id 780cd0fce405.**
+Build it from source (ensure you installed cmake before):
+1. linux:
+   ```
+   // 1. download the source code
+   git clone git@github.com:stevenlovegrove/Pangolin.git
+   // PS: you may need to add your ssh key (.pub) to git website
+   cd Pangolin
+   git reset --hard 86eb4975fc4f
+   // 2. compile
+   mkdir build
+   cd build
+   cmake ..
+   make -j8
+   sudo make install
+   ```
+2. windows:
+   1. download the source code (by git bash)
+   ```
+   git clone git@github.com:stevenlovegrove/Pangolin.git
+   cd Pangolin
+   git reset --hard 86eb4975fc4f
+   ```
+   2. then use installed windows CMake's cmake-gui to compile it:
+      1. source code: C:\zzh\4Life\Pangolin
+         build the binaries: C:/zzh/4Life/Pangolin/build
+      2. press Configure button (choose installed VS2022)
+      PS: Pangolin requires cmake-gui.exe run as Administrator mode!
+      3. precc Generate button -> press Open Project
+      4. Select Release -> Build/Build Solution
+      PS: pangolin/ModelViewer subprojects may enter error, we right click each
+      and choose Properties, pick c++17 and then build it again
 
 ## OpenCV
-We use [OpenCV](http://opencv.org) to manipulate images and features. Dowload and install instructions can be found at: http://opencv.org. **Required at leat 2.4.3. Tested with OpenCV 4.5/3.2.0**.
+We use [OpenCV](http://opencv.org) to manipulate images and features.
+Dowload and install instructions can be found at: http://opencv.org.
+**Required at least 2.4.3. Tested with OpenCV 4.5/3.2.0**.
+
+Refer to the official install guide: https://docs.opencv.org/4.x/df/d65/tutorial_table_of_content_introduction.html
+
+Or Build it from source (ensure you installed cmake before):
+1. linux:
+   ```
+   // 1. download the source code
+   // if you wanna to use 3.2.0, u'd better use our compile-fixed version: https://github.com/leavesnight/opencv/tree/320
+   git clone git@github.com:opencv/opencv.git
+   cd Pangolin
+   git reset --hard 4.5.0
+   // 2. compile is the same as before
+   ```
+2. windows:
+   1. download the source code (the same as linux)
+   2. then use cmake-gui to compile:
+      1. source: C:\zzh\4Life\opencv; binaries: C:\zzh\4Life\opencv\build
+      2. Configure -> Generate -> Open Project
+      3. Release -> Build Solution
+      4. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
+      5. add OpenCV_DIR=C:/zzh/4Life/opencv/build/install/lib to envrionment variables
 
 ## Eigen3
-Required by g2o (see below). Download and install instructions can be found at: http://eigen.tuxfamily.org. **Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10**.
+Required by our project and g2o (see below). Test shows it's faster than opencv cv::Mat.
+Download and install instructions can be found at: http://eigen.tuxfamily.org.
+**Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10**.
+
+Refer to the official install guide: https://eigen.tuxfamily.org/dox-3.3/GettingStarted.html
+https://gitlab.com/libeigen/eigen/-/releases
+
+Or Build it from source (ensure you installed cmake before):
+1. linux:
+   ```
+   // 1. download the source code
+   git clone git@gitlab.com:libeigen/eigen.git
+   cd eigen
+   git reset --hard 3.3.7
+   // 2. compile is the same as before
+   ```
+2. windows:
+   1. download the source code (the same as linux)
+   2. then use cmake-gui to compile:
+      1. source: C:\zzh\4Life\eigen; binaries: C:\zzh\4Life\eigen\build
+      2. Configure -> Generate( -> Open Project
+      3. Release -> Build Solution
+      PS: some subprojects may enter internal compile error, we right click each
+      and choose Properties/C++/Optimization, pick /Od and then build it again,
+      but maybe there's a better solution, you can provide it to me through email~)
+      4. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
+      5. Add Eigen3_DIR=C:/zzh/4Life/eigen/build/x64/Release/Eigen3/share/eigen3/cmake to environment variables,
+         can be found by our changed FindEigen3.cmake when you
+         move C:\Program Files (x86)\Eigen3 to C:\zzh\4Life\eigen\build\x64\Release\Eigen3
+
+## Ceres (optional)
+For Sophus can depend on ceres, we provide the ceres install process and version here (linux/windows git bash):
+1. linux: refer to the offical install guide: http://ceres-solver.org/installation.html
+2. windows:
+   1. download the ceres source code
+   ```
+   git clone https://ceres-solver.googlesource.com/ceres-solver
+   cd ceres-solver/
+   rm -r BUILD
+   git clone git@github.com:google/glog.git
+   ```
+   2. then use installed windows CMake's cmake-gui to config it:
+      1. dependency glog compile by installed VS2022
+         1. source: C:/zzh/4Life/ceres-solver/glog; binaries: C:/zzh/4Life/ceres-solver/glog/build
+         2. Configure -> ... (the same as before)
+      2. ceres compile:
+         1. source: C:/zzh/4Life/ceres-solver; binaries: C:/zzh/4Life/ceres-solver/build
+         2. Configure -> config glog_DIR: C:\zzh\4Life\ceres-solver\glog\build
+         3. Configure -> ... (the same as before)
+
+## Sophus
+We use [Sophus](https://github.com/strasdat/Sophus) for more compact translation and rotation operation.
+**Tested with commit id 780cd0fce405.**
+
+Then Build it from source:
+1. linux:
+   ```
+   // 1. download the source code
+   git clone git@github.com:strasdat/Sophus.git
+   cd Sophus
+   git reset --hard 780cd0fce405
+   // 2. compile is the same as before
+   ```
+2. windows:
+   1. download the source code (the same as linux)
+   2. then use cmake-gui to compile:
+      1. source: C:\zzh\4Life\Sophus; binaries: C:\zzh\4Life\Sophus\build
+      2. Configure -> config EIGEN3_INCLUDE_DIR: C:\zzh\4Life\eigen
+      (-> config Ceres_DIR: C:\zzh\4Life\ceres-solver\build)
+      3. Configure -> ... (the same as before)
+      3. Configure -> Generate -> Open Project
+      4. Release -> Build Solution
+      5. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
+      6. move C:\Program Files (x86)\Sophus to C:\zzh\4Life\Sophus\build\x64\Sophus & change CMakeList.txt:
+         `set(Sophus_INCLUDE_DIR "C:/zzh/4Life/Sophus/build/x64/Sophus/include")`
 
 ## DBoW2 (Included in loop folder)
 We use modified versions of the [DBoW2](https://github.com/dorian3d/DBoW2) library to perform place recognition
@@ -224,14 +354,39 @@ We use modified versions of the [g2o](https://github.com/RainerKuemmerle/g2o) li
 
 But we can choose newest g2o by set(USE_G2O_NEWEST 1) in CMakeLists.txt
 
-## cholmod
-ubuntu: sudo apt-get install libsuitesparse-dev
-
-## PCL (optional)
+## PCL
 We use [pcl](https://github.com/PointCloudLibrary/pcl) for RGBD mode. **Tested with 1.10.0/1.9.0**.
 
+PS: Not required when not build rgbd_tum，please change the code by yourself
+
+Refer to the official install guide: https://pointclouds.org/downloads/
+1. linux: simply follow the guide
+2. windows: press [Release](https://github.com/PointCloudLibrary/pcl/releases) and find 1.10.0,
+then download Assets/PCL-1.10.0-AllInOne-msvc2019-win64.exe and install it
+
+   PS: It's recommended to pick adding path to environment variables
+
+Or Build it from source (ensure you installed cmake before):
+1. linux:
+   ```
+   git clone git@github.com:PointCloudLibrary/pcl.git
+   cd pcl
+   git reset --hard 1.10.0
+   mkdir build
+   cd build
+   cmake ..
+   make -j8
+   sudo make install
+   ```
+2. windows: **unTested**
+
+## cholmod (optional, now unused)
+ubuntu: sudo apt-get install libsuitesparse-dev
+
 ## ROS (optional)
-We provide some examples to process the live input of a monocular, stereo or RGB-D camera using [ROS](ros.org). Building these examples is optional. In case you want to use ROS, a version Hydro or newer is needed. **Tested with Neotic.**
+We provide some examples to process the live input of a monocular, stereo or RGB-D camera using [ROS](ros.org).
+Building these examples is optional. In case you want to use ROS, a version Hydro or newer is needed.
+**Tested with Neotic.**
 
 # 3. Building VIEO_SLAM library and examples
 

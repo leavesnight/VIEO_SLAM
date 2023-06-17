@@ -5,7 +5,7 @@
 #include <limits.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/features2d/features2d.hpp>
-#include <stdint-gcc.h>
+#include <stdint.h>
 #include "ORBmatcher.h"
 #include "loop/DBoW2/DBoW2/FeatureVector.h"
 #include "Pinhole.h"

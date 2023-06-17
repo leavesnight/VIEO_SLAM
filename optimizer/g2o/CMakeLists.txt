@@ -12,10 +12,13 @@ message(STATUS "${PROJECT_NAME} parent project=" ${PARENT_PROJECT_NAME_STR})
 # see http://eigen.tuxfamily.org/bz/show_bug.cgi?id=83
 if (MSVC90)
     add_definitions(-DEIGEN_DONT_ALIGN_STATICALLY=1)
-    message(STATUS "Disabling memory alignment for MSVC8")
+    message(FATAL_ERROR "Disabling memory alignment for MSVC8, if u wanna compile by it, change FATAL_ERROR to STATUS by yourself")
 endif (MSVC90)
 # Detect OS and define macros appropriately
-IF (UNIX)
+if (WIN32)
+    add_definitions(-DWINDOWS)
+    message(STATUS "Compiling on Windows")
+elseif (UNIX)
     ADD_DEFINITIONS(-DUNIX)
     MESSAGE(STATUS "Compiling on Unix")
 ENDIF (UNIX)
@@ -50,11 +53,20 @@ else ()
     message(STATUS "${PROJECT_NAME} Using c++17")
 endif ()
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}")
-# Compiler specific options for gcc
-# generally activate warnings for all modes(DEBUG/RELEASE/...), but can be closed by FLAGS_DEBUG/...
-set(g2o_CXX_FLAGS "${g2o_CXX_FLAGS} -Wall -W")
-# add_compile_definitions(__AVX__) # if -march=native here can pass compile!
-set(g2o_C_FLAGS "${g2o_C_FLAGS} -Wall -W")
+# Compiler specific options for g2o
+set(g2o_CXX_COMPILER "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER}")
+message(STATUS "${PROJECT_NAME} CXX Compiler= ${${PROJECT_NAME}_CXX_COMPILER}")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # generally activate warnings for all modes(DEBUG/RELEASE/...), but can be closed by FLAGS_DEBUG/...
+    set(g2o_CXX_FLAGS "${g2o_CXX_FLAGS} -Wall -W")
+    # add_compile_definitions(__AVX__) # if -march=native here can pass compile!
+    set(g2o_C_FLAGS "${g2o_C_FLAGS} -Wall -W")
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    set(g2o_CXX_FLAGS "${g2o_CXX_FLAGS} /Wall /w")
+    set(g2o_C_FLAGS "${g2o_C_FLAGS} /Wall /w")
+else ()
+    message(FATAL_ERROR "Unsupported CXX Compiler!")
+endif ()
 # Eigen library parallelise itself, though, presumably due to performance issues
 # OPENMP is experimental. We experienced some slowdown with it
 FIND_PACKAGE(OpenMP)
@@ -107,8 +119,6 @@ ENDIF (EIGEN3_FOUND)
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${g2o_EIGEN3_INCLUDE}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 
 # Generate config.h
-set(g2o_CXX_COMPILER "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER}")
-message(STATUS "${PROJECT_NAME} CXX COMPILER= ${${PROJECT_NAME}_CXX_COMPILER}")
 configure_file(config.h.in ${g2o_SOURCE_DIR}/config.h)
 
 # Set up the top-level include directories

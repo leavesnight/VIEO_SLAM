@@ -7,6 +7,8 @@
 #include "multithreadbase.h"
 #include "common/mlog/log.h"
 
+using std::endl;
+
 namespace VIEO_SLAM {
 namespace multithread {
 void alg_event_listener(AlgEvent *event) {
@@ -14,7 +16,6 @@ void alg_event_listener(AlgEvent *event) {
     assert(0 && "Wrong usage of alg_event_listener");
     return;
   }
-  using std::endl;
   using std::hex;
   using std::max;
   using std::min;
@@ -28,7 +29,7 @@ void alg_event_listener(AlgEvent *event) {
         assert(0 && "Wrong event->data of alg_event_listener");
       }
       auto tid = pparams->tid_;
-      int err_no;
+      err_t err_no;
       string prefix_thread = to_string(pparams->thread_type_) + ",tid=" + to_string(tid);
 #if defined(SET_AFFINITY_LINUX)
       cpu_set_t cpuset;
@@ -53,22 +54,12 @@ void alg_event_listener(AlgEvent *event) {
           prefix_thread << ": set affinity=0x" << sstr_out_in.str() << ",real=0x" << sstr_out.str() << endl,
           mlog::vieo_slam_debug_path, "alg_event.txt");
 #endif
-      sched_param param;
-      param.sched_priority = pparams->priority_;
-      // To get root priority
-      err_no = sched_setscheduler(tid, pparams->policy_, &param);
+      SetThreadPriority(pparams, err_no, prefix_thread);
       if (err_no) {
         perror(prefix_thread.c_str());
         // PRINT_ERR_MUTEX(errno << endl);
         return;
       }
-      err_no = sched_getparam(tid, &param);
-      assert(!err_no);
-      PRINT_INFO_FILE_MUTEX("set th_name=" << (int)pparams->thread_type_ << ",id(t/pt)=" << pparams->tid_ << "/"
-                                           << pparams->ptid_ << ",policy=" << pparams->policy_
-                                           << ",real=" << sched_getscheduler(tid) << ",pri=" << pparams->priority_
-                                           << ",real=" << param.sched_priority << endl,
-                            mlog::vieo_slam_debug_path, "alg_event.txt");
     } break;
     case DELAY_ODOM:
     case SKIP_IMG:
@@ -91,9 +82,58 @@ void SetAffinity(multithread::ThreadPolicyInfo &event_info) {
   event.data_ = &event_info;
   alg_event_listener(&event);
 }
+#ifdef _MSC_VER
+void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::string &prefix_thread) {
+  // To get root priority in windows?
+  if (::SetPriorityClass(pparams->ptid_, pparams->policy_) && ::SetThreadPriority(pparams->ptid_, pparams->priority_)) {
+    err_no = 0;
+  } else {
+    err_no = GetLastError();
+  }
+  if (err_no) {
+    perror(prefix_thread.c_str());
+    return;
+  }
+  // assert(!err_no);
+  PRINT_INFO_FILE_MUTEX("set th_name=" << (int)pparams->thread_type_ << ",id(t/pt)=" << pparams->tid_ << "/"
+                                       << pparams->ptid_ << ",policy=" << pparams->policy_
+                                       << ",real=" << GetPriorityClass(pparams->ptid_) << ",pri=" << pparams->priority_
+                                       << ",real=" << GetThreadPriority(pparams->ptid_) << endl,
+                        mlog::vieo_slam_debug_path, "alg_event.txt");
+}
+#else
+void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::string &prefix_thread) {
+  sched_param param;
+  param.sched_priority = pparams->priority_;
+  // To get root priority
+  err_no = sched_setscheduler(tid, pparams->policy_, &param);
+  if (err_no) {
+    perror(prefix_thread.c_str());
+    return;
+  }
+  err_no = sched_getparam(tid, &param);
+  assert(!err_no);
+  PRINT_INFO_FILE_MUTEX("set th_name=" << (int)pparams->thread_type_ << ",id(t/pt)=" << pparams->tid_ << "/"
+                                       << pparams->ptid_ << ",policy=" << pparams->policy_
+                                       << ",real=" << sched_getscheduler(tid) << ",pri=" << pparams->priority_
+                                       << ",real=" << param.sched_priority << endl,
+                        mlog::vieo_slam_debug_path, "alg_event.txt");
+}
+#endif
 
 }  // namespace multithread
 
+#ifdef _MSC_VER
+void MultiThreadBase::SetThreadPolicy(const std::string &settings_path, const std::string &thread_type) {
+  cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
+  // bind to assigned core
+  auto node_tmp = fsettings[thread_type + ".processor_ids"];
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  size_t num_cores = sysinfo.dwNumberOfProcessors;
+  PRINT_INFO_MUTEX("Number of CPUs:" << num_cores << " TODO" << endl);
+}
+#else
 void MultiThreadBase::SetThreadPolicy(const std::string &settings_path, const std::string &thread_type) {
   cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
   // bind to assigned core
@@ -108,13 +148,14 @@ void MultiThreadBase::SetThreadPolicy(const std::string &settings_path, const st
     PRINT_INFO_FILE_MUTEX("th_name=" << (int)event_info_.thread_type_
                                      << ",SCHED_FIFO, priority_min/max_rr=" << sched_get_priority_min(SCHED_RR) << "/"
                                      << priority_max_rr << ",min/max_fifo=" << sched_get_priority_min(SCHED_FIFO) << "/"
-                                     << sched_get_priority_max(SCHED_FIFO) << std::endl,
+                                     << sched_get_priority_max(SCHED_FIFO) << endl,
                           mlog::vieo_slam_debug_path, "alg_event.txt");
     event_info_.policy_ = SCHED_FIFO;
     event_info_.priority_ -= priority_max_rr;
   } else
     event_info_.policy_ = SCHED_RR;
 }
+#endif
 MultiThreadBase::~MultiThreadBase() {
   if (pthread_) {
     Setfinish_request(true);

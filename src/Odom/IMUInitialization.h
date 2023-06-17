@@ -4,7 +4,6 @@
 #include <string>
 #include <ctime>
 #include <opencv2/opencv.hpp>
-#include <unistd.h>
 #include "OdomPreIntegrator.h"
 #include "common/multithread/multithreadbase.h"
 

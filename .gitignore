@@ -3,6 +3,8 @@ lib/
 bin/
 cmake-build-*/
 .idea/
+.vs/
+CMakeSettings.json
 
 Examples/Monocular/mono_euroc
 Examples/Monocular/mono_kitti
