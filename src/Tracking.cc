@@ -902,15 +902,15 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
     mImGrays[i] = ims[i];
     if (mImGrays[i].channels() == 3) {
       if (mbRGB) {
-        cvtColor(mImGrays[i], mImGrays[i], CV_RGB2GRAY);
+        cvtColor(mImGrays[i], mImGrays[i], cv::COLOR_RGB2GRAY);
       } else {
-        cvtColor(mImGrays[i], mImGrays[i], CV_BGR2GRAY);
+        cvtColor(mImGrays[i], mImGrays[i], cv::COLOR_BGR2GRAY);
       }
     } else if (mImGrays[i].channels() == 4) {
       if (mbRGB) {
-        cvtColor(mImGrays[i], mImGrays[i], CV_RGBA2GRAY);
+        cvtColor(mImGrays[i], mImGrays[i], cv::COLOR_RGBA2GRAY);
       } else {
-        cvtColor(mImGrays[i], mImGrays[i], CV_BGRA2GRAY);
+        cvtColor(mImGrays[i], mImGrays[i], cv::COLOR_BGRA2GRAY);
       }
     } else if (mImGrays[i].type() == CV_16UC1) {
       assert(mImGrays[i].channels() == 1 && mImGrays[i].elemSize() == 2);
