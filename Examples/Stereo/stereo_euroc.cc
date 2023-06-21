@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true, map_sparse_name);
-  g_pSLAM = &SLAM;  // zzh
+  g_pSLAM = &SLAM;
 
   const int nImages = vstrImageLeft.size();
 

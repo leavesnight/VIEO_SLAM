@@ -814,7 +814,7 @@ Tracking::Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer,
       break;
     }
   }
-  if (mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
+  if (mpFrameDrawer && mpCameras.size() > 1) mpFrameDrawer->showallimages_ = true;
   PRINT_INFO_MUTEX("Cam size = " << mpCameras.size() << endl);
   CLEAR_INFO_FILE("start debug:", mlog::vieo_slam_debug_path, "debug.txt");
   CLEAR_INFO_FILE("start tracking debug:", mlog::vieo_slam_debug_path, "tracking_thread_debug.txt");
@@ -890,8 +890,7 @@ cv::Mat Tracking::GrabImageStereo(const vector<cv::Mat>& ims, const double& time
   int n_cams = ims.size();
   cv::Mat img_depth_;
   if (System::RGBD == mSensor) {
-    // n_cams = 1;
-    mpFrameDrawer->showallimages_ = true;
+    if (mpFrameDrawer) mpFrameDrawer->showallimages_ = true;
     // no clone here for cvtColor and convertTo will both reallocate memory for Mat
     img_depth_ = ims[1];
     if ((fabs(mDepthMapFactor - 1.0f) > 1e-5) || img_depth_.type() != CV_32F)
@@ -999,7 +998,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     else
       MonocularInitialization();
 
-    mpFrameDrawer->Update(this);
+    if (mpFrameDrawer) mpFrameDrawer->Update(this);
 
     if (mState != OK) return;
   } else {
@@ -1257,9 +1256,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
 #endif
 
     // Update drawer
-#ifndef MUTE_VIEWER
-    mpFrameDrawer->Update(this);
-#endif
+    if (mpFrameDrawer) mpFrameDrawer->Update(this);
 
     // If tracking were good, check if we insert a keyframe
     if (bOK) {
@@ -1274,9 +1271,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
         // cout<<redSTR"Error in mVelocity=cv::Mat()"<<whiteSTR<<endl;
       }
 
-#ifndef MUTE_VIEWER
-      mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
-#endif
+      if (mpMapDrawer) mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
       // Clean VO matches, related to Localization mode
       const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1323,9 +1318,7 @@ void Tracking::Track(vector<cv::Mat> imgs_dense) {
     } else if (mState == ODOMOK) {  // if it's lost in Camera mode we use Odom mode
       // not necessary to update motion model for mVelocity is already got through odom data
 
-#ifndef MUTE_VIEWER
-      mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
-#endif
+      if (mpMapDrawer) mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
       // Clean VO matches, related to Localization mode
       const auto& curfmps = mCurrentFrame.GetMapPointMatches();
@@ -1480,9 +1473,7 @@ void Tracking::StereoInitialization(vector<cv::Mat> imgs_dense) {
 
     mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 
-#ifndef MUTE_VIEWER
-    mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
-#endif
+    if (mpMapDrawer) mpMapDrawer->SetCurrentCameraPose(mCurrentFrame.GetTcwRef());
 
     mState = OK;
   }
@@ -1647,9 +1638,7 @@ void Tracking::CreateInitialMapMonocular() {
 
   mpMap->SetReferenceMapPoints(mvpLocalMapPoints);
 
-#ifndef MUTE_VIEWER
-  mpMapDrawer->SetCurrentCameraPose(pKFcur->GetPose());
-#endif
+  if (mpMapDrawer) mpMapDrawer->SetCurrentCameraPose(pKFcur->GetPose());
 
   mpMap->mvpKeyFrameOrigins.push_back(pKFini);
 

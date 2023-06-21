@@ -85,7 +85,7 @@ void Viewer::Run() {
   while (1) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
+    if (mpMapDrawer) mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
 
     if (menuFollowCamera && bFollow) {
       s_cam.Follow(Twc);
@@ -122,14 +122,17 @@ void Viewer::Run() {
 
     d_cam.Activate(s_cam);
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    mpMapDrawer->DrawCurrentCamera(Twc);
-    if (menuShowKeyFrames || menuShowGraph) mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);
-    if (menuShowPoints) mpMapDrawer->DrawMapPoints();
+    if (mpMapDrawer) {
+      mpMapDrawer->DrawCurrentCamera(Twc);
+      if (menuShowKeyFrames || menuShowGraph) mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);
+      if (menuShowPoints) mpMapDrawer->DrawMapPoints();
+    }
 
     pangolin::FinishFrame();
 
     if (max_cams_num) {
       cv::Mat toShow;
+      assert(mpFrameDrawer);
       cv::Mat im = mpFrameDrawer->DrawFrame(0);
       if (mpFrameDrawer->showallimages_) {
         int n_cams = mpFrameDrawer->n_cams_;

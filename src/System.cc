@@ -106,7 +106,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   size_t NKFs;
   f.read((char *)&NKFs, sizeof(NKFs));
   list<unsigned long> lRefKFParentId;  // old parent id of mpTracker->mlpReferences
-  if (!mpViewer->isFinished() && !mpLocalMapper->Getfinish() && !mpLoopCloser->isFinished()/* &&
+  if ((!mpViewer || !mpViewer->isFinished()) && !mpLocalMapper->Getfinish() && !mpLoopCloser->isFinished()/* &&
       !mpIMUInitiator->Getfinish()*/) {
     mpTracker->Reset();
   } else {
@@ -593,7 +593,7 @@ int System::mkdir_p(string foldername, int mode) {
 
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer,
                const string &map_sparse_name)
-    : mSensor(sensor), mpViewer(static_cast<Viewer *>(NULL)), mbReset(false) {
+    : mSensor(sensor) {
   // Output welcome message
   PRINT_INFO_MUTEX(endl
                    << "VIEO_SLAM Copyright (C) 2016-2018 Zhanghao Zhu, University of Tokyo." << endl
@@ -644,8 +644,14 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mpMap = new Map();
 
   // Create Drawers. These are used by the Viewer
-  mpFrameDrawer = new FrameDrawer(mpMap);
-  mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+  auto node_tmp = fsSettings["Viewer.MaxCamsNum"];
+  if (node_tmp.empty() || (int)node_tmp) {
+    mpFrameDrawer = new FrameDrawer(mpMap);
+  }
+  node_tmp = fsSettings["Viewer.MapDrawer"];
+  if (node_tmp.empty() || (int)node_tmp) {
+    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+  }
 
   // Initialize the Tracking thread
   //(it will live in the main thread of execution, the one that called this constructor)
@@ -660,7 +666,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
   mptLoopClosing = new thread(&VIEO_SLAM::LoopClosing::Run, mpLoopCloser);
 
   // Initialize the Viewer thread and launch
-  if (bUseViewer) {
+  if (bUseViewer && (mpFrameDrawer || mpMapDrawer)) {
     mpViewer = new Viewer(this, mpFrameDrawer, mpMapDrawer, mpTracker, strSettingsFile);
     mptViewer = new thread(&Viewer::Run, mpViewer);
     mpTracker->SetViewer(mpViewer);
@@ -848,10 +854,7 @@ void System::Shutdown() {
   mpIMUInitiator->Setfinish_request(true);
   mpLocalMapper->Setfinish_request(true);
   mpLoopCloser->RequestFinish();
-  if (mpViewer) {
-    mpViewer->RequestFinish();
-    while (!mpViewer->isFinished()) usleep(5000);
-  }
+  ShutdownViewer();
 
   // Wait until all thread have effectively stopped
   while (!mpLocalMapper->Getfinish() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA() ||

@@ -159,10 +159,10 @@ class System {
   LoopClosing* mpLoopCloser;
 
   // The viewer draws the map and the current camera pose. It uses Pangolin.
-  Viewer* mpViewer;
+  Viewer* mpViewer = nullptr;
 
-  FrameDrawer* mpFrameDrawer;
-  MapDrawer* mpMapDrawer;
+  FrameDrawer* mpFrameDrawer = nullptr;
+  MapDrawer* mpMapDrawer = nullptr;
 
   // System threads: Loop Closing(will create a new GBA thread), Viewer.
   // The Tracking thread "lives" in the main execution thread that creates the System object.
@@ -171,7 +171,7 @@ class System {
 
   // Reset flag
   std::mutex mMutexReset;
-  bool mbReset;
+  bool mbReset = false;
   bool breset_smart_ = false;
 
   // Change mode flags
