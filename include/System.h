@@ -166,7 +166,6 @@ class System {
 
   // System threads: Loop Closing(will create a new GBA thread), Viewer.
   // The Tracking thread "lives" in the main execution thread that creates the System object.
-  std::thread* mptLoopClosing;
   std::thread* mptViewer;
 
   // Reset flag

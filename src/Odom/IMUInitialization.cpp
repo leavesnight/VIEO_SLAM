@@ -74,6 +74,7 @@ IMUInitialization::IMUInitialization(Map *pMap, const bool bMonocular, const str
     mdFinalTime = fnTime[2];
   }
 
+  SetThreadPolicy(strSettingPath, "BE");
   pthread_ = new thread(&IMUInitialization::Run, this);
 }
 
@@ -100,6 +101,10 @@ void IMUInitialization::ResetIfRequested() {
 }
 
 void IMUInitialization::Run() {
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  SetAffinity();
+#endif
   PRINT_INFO_FILE(greenSTR << "start IMU_Init Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
                   "imu_init_thread_debug.txt");
 

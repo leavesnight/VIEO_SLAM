@@ -106,7 +106,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   size_t NKFs;
   f.read((char *)&NKFs, sizeof(NKFs));
   list<unsigned long> lRefKFParentId;  // old parent id of mpTracker->mlpReferences
-  if ((!mpViewer || !mpViewer->isFinished()) && !mpLocalMapper->Getfinish() && !mpLoopCloser->isFinished()/* &&
+  if ((!mpViewer || !mpViewer->isFinished()) && !mpLocalMapper->Getfinish() && !mpLoopCloser->Getfinish()/* &&
       !mpIMUInitiator->Getfinish()*/) {
     mpTracker->Reset();
   } else {
@@ -602,15 +602,14 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
                    << "This is free software, and you are welcome to redistribute it" << endl
                    << "under certain conditions. See LICENSE.txt." << endl
                    << endl);
-
   PRINT_INFO_MUTEX("Input sensor was set to: ");
-
   if (mSensor == MONOCULAR)
     PRINT_INFO_MUTEX("Monocular" << endl);
   else if (mSensor == STEREO)
     PRINT_INFO_MUTEX("Stereo" << endl);
   else if (mSensor == RGBD)
     PRINT_INFO_MUTEX("RGB-D" << endl);
+  CLEAR_INFO_FILE("start recording alg_event log:" << endl, mlog::vieo_slam_debug_path, "alg_event.txt");
 
   // Check settings file
   // cv::FileStorage
@@ -619,10 +618,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     PRINT_ERR_MUTEX("Failed to open settings file at: " << strSettingsFile << endl);
     exit(-1);
   }
-
   // Load ORB Vocabulary
   PRINT_INFO_MUTEX(endl << "Loading ORB Vocabulary. This could take a while..." << endl);
-
   mpVocabulary = new ORBVocabulary();
   bool bVocLoad = false;
   if (strVocFile.rfind(".txt") != string::npos) {
@@ -663,7 +660,6 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
   // Initialize the Loop Closing thread and launch
   mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor != MONOCULAR, strSettingsFile);
-  mptLoopClosing = new thread(&VIEO_SLAM::LoopClosing::Run, mpLoopCloser);
 
   // Initialize the Viewer thread and launch
   if (bUseViewer && (mpFrameDrawer || mpMapDrawer)) {
@@ -698,6 +694,32 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         ActivateLocalizationMode();
     }
   }
+
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  {
+    multithread::ThreadPolicyInfo event_info;
+    const string thread_type = "FE";
+    auto node_tmp = fsSettings[thread_type + ".processor_ids"];
+    size_t num_cores = sysconf(_SC_NPROCESSORS_CONF);
+    event_info.affinity_mask_ = node_tmp.empty() ? ((size_t)(0x1 << num_cores) - 1) : (size_t)(int)node_tmp;
+    node_tmp = fsSettings[thread_type + ".priority"];
+    event_info.priority_ = node_tmp.empty() ? 48 : (size_t)(int)node_tmp;
+    event_info.thread_type_ = multithread::THREAD_FE;
+    int priority_max_rr = sched_get_priority_max(SCHED_RR);
+    if (event_info.priority_ > priority_max_rr) {
+      PRINT_INFO_FILE_MUTEX("th_name=" << (int)event_info.thread_type_
+                                       << ",SCHED_FIFO, priority_min/max_rr=" << sched_get_priority_min(SCHED_RR) << "/"
+                                       << priority_max_rr << ",min/max_fifo=" << sched_get_priority_min(SCHED_FIFO)
+                                       << "/" << sched_get_priority_max(SCHED_FIFO) << std::endl,
+                            VIEO_SLAM::mlog::vieo_slam_debug_path, "alg_event.txt");
+      event_info.policy_ = SCHED_FIFO;
+      event_info.priority_ -= priority_max_rr;
+    } else
+      event_info.policy_ = SCHED_RR;
+    multithread::SetAffinity(event_info);
+  }
+#endif
 }
 
 cv::Mat System::TrackStereo(const vector<cv::Mat> &ims, const double &timestamp) {
@@ -853,11 +875,11 @@ void System::ShutdownViewer() {
 void System::Shutdown() {
   mpIMUInitiator->Setfinish_request(true);
   mpLocalMapper->Setfinish_request(true);
-  mpLoopCloser->RequestFinish();
+  mpLoopCloser->Setfinish_request(true);
   ShutdownViewer();
 
   // Wait until all thread have effectively stopped
-  while (!mpLocalMapper->Getfinish() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA() ||
+  while (!mpLocalMapper->Getfinish() || !mpLoopCloser->Getfinish() || mpLoopCloser->isRunningGBA() ||
          !mpIMUInitiator->Getfinish()) {
     usleep(5000);
   }

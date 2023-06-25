@@ -52,12 +52,16 @@ else
   echo "Unsupported Datasets!"
 fi
 
+#RUN_ADMIN=sudo
+RUN_BIN=./stereo_euroc
 if [[ $CAMTYPE == "StereoVIO" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "MonocularVIO" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
+  RUN_BIN=./mono_euroc
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Stereo" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Monocular" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
+  RUN_BIN=./mono_euroc
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
 fi

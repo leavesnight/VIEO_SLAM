@@ -30,15 +30,12 @@ void LoopClosing::CreateGBA() {
 
 LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, const bool bFixScale,
                          const string& strSettingPath)
-    : mbResetRequested(false),
-      mbFinishRequested(false),
-      mbFinished(true),
-      mpMap(pMap),
+    : mpMap(pMap),
       mpKeyFrameDB(pDB),
       mpORBVocabulary(pVoc),
       mpMatchedKF(NULL),
       mLastLoopKFid(0),
-      mbRunningGBA(false),  // mbFinishedGBA(true),
+      mbRunningGBA(false),
       mbStopGBA(false),
       mpThreadGBA(NULL),
       mbFixScale(bFixScale),
@@ -81,16 +78,25 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
     th_covisibility_consistency_[1] = 1;
   else
     th_covisibility_consistency_[1] = (int)fnIter[7];
-  // created by zzh
-
   th_covisibility_consistency_[2] = th_covisibility_consistency_[0];
+
+  event_info_.thread_type_ = multithread::THREAD_BE_GBA;
+  SetThreadPolicy(strSettingPath, "BE");
+  pthread_ = new thread(&LoopClosing::Run, this);
 }
 
 void LoopClosing::SetLocalMapper(LocalMapping* pLocalMapper) { mpLocalMapper = pLocalMapper; }
 
 void LoopClosing::Run() {
-  mbFinished = false;
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  SetAffinity();
+#endif
+  PRINT_INFO_FILE(greenSTR << "start GBA Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                  "imu_init_thread_debug.txt");
 
+  sleep_time_ = 5000;
+  bfinish_ = false;
   while (1) {
     // Check if there are keyframes in the queue
     if (CheckNewKeyFrames()) {
@@ -124,10 +130,8 @@ void LoopClosing::Run() {
     }
 
     ResetIfRequested();
-
-    if (CheckFinish()) break;
-
-    usleep(5000);  // notice 3ms in LocalMapping thread
+    if (Getfinish_request()) break;
+    usleep(sleep_time_);  // notice 3ms in LocalMapping thread
   }
 
   SetFinish();
@@ -658,7 +662,6 @@ void LoopClosing::CorrectLoop() {
 
   // Launch a new thread to perform Global Bundle Adjustment
   mbRunningGBA = true;
-  // mbFinishedGBA = false;
   mbStopGBA = false;
   mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, mpCurrentKF->nid_);
 
@@ -695,31 +698,15 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose& CorrectedPosesMap) {
   }
 }
 
-void LoopClosing::RequestReset() {
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    mbResetRequested = true;
-  }
-
-  while (1) {
-    {
-      unique_lock<mutex> lock2(mMutexReset);
-      if (!mbResetRequested) break;
-    }
-    usleep(5000);
-  }
-}
-
 void LoopClosing::ResetIfRequested() {
-  unique_lock<mutex> lock(mMutexReset);
-  if (mbResetRequested) {
-    mlpLoopKeyFrameQueue.clear();
-    mLastLoopKFid = 0;
-    mbResetRequested = false;
+  if (!Getreset()) return;
+  mlpLoopKeyFrameQueue.clear();
+  mLastLoopKFid = 0;
 
-    mnLastOdomKFId = 0;
-    th_covisibility_consistency_[2] = th_covisibility_consistency_[0];  // added by zzh
-  }
+  mnLastOdomKFId = 0;
+  th_covisibility_consistency_[2] = th_covisibility_consistency_[0];
+
+  Setreset(false);
 }
 
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF here is mpCurrentKF
@@ -879,29 +866,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
            << endl;  // test time used
     }
 
-    // mbFinishedGBA = true;
     mbRunningGBA = false;
   }
-}
-
-void LoopClosing::RequestFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinishRequested = true;
-}
-
-bool LoopClosing::CheckFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinishRequested;
-}
-
-void LoopClosing::SetFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinished = true;
-}
-
-bool LoopClosing::isFinished() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinished;
 }
 
 }  // namespace VIEO_SLAM

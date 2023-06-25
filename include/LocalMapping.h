@@ -8,7 +8,7 @@
 #include "Map.h"
 #include "LoopClosing.h"
 #include "Tracking.h"
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 #include "common/macro_creator.h"
 #include "common/mlog/log.h"
 
@@ -97,7 +97,7 @@ class LocalMapping : public MultiThreadBase {
   bool mbMonocular;
 
  public:
-  LocalMapping(Map* pMap, const bool bMonocular, const string& strSettingPath);  // should use bool here
+  LocalMapping(Map* pMap, bool bMonocular, const string& strSettingPath);  // should use bool here
   ~LocalMapping() override;
 
   void SetLoopCloser(LoopClosing* pLoopCloser);
@@ -131,7 +131,7 @@ class LocalMapping : public MultiThreadBase {
 
   // mlNewKeyFrames.push_back(pKF) and mbAbortBA=true(stop localBA), if use ,const char state=2: we cannot use
   // Traking::OK/eTrackingState here for Tracking.h and LocalMapping.h include each other
-  void InsertKeyFrame(const list<KeyFrame *> &pkfs) {
+  void InsertKeyFrame(const list<KeyFrame*>& pkfs) {
     mbAbortBA = true;  // true will stop localBA
     unique_lock<mutex> lock(mutex_newkfs_);
     lnewkeyframes_.insert(lnewkeyframes_.end(), pkfs.begin(), pkfs.end());

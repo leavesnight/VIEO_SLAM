@@ -44,6 +44,13 @@ GBA.initIterations: 15
 GBA.finalIterations: 20
 GBA.threshMatches : 10
 GBA.threshInliers : 10
+# thread binding core/processor related; ODOM means odom threads, FE means frontend, BE means backends(LBA+GBA)
+# priority 1~99, num larger: prority higher, >99 means SCHED_FIFO with priority-99 else SCHED_RR
+ODOM.priority: 148
+FE.processor_ids: 0x03
+FE.priority: 48
+BE.processor_ids: 0x02
+BE.priority: 47
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
@@ -51,7 +58,7 @@ GBA.threshInliers : 10
 
 Camera.type: "Radtan"
 
-# Camera calibration and distortion parameters (OpenCV) 
+# Camera calibration and distortion parameters (OpenCV)
 Camera.fx: 458.654
 Camera.fy: 457.296
 Camera.cx: 367.215
@@ -84,7 +91,7 @@ Camera2.Trc: !!opencv-matrix
 Camera.width: 752
 Camera.height: 480
 
-# Camera frames per second 
+# Camera frames per second
 Camera.fps: 20.0
 
 # stereo baseline times fx
@@ -103,16 +110,16 @@ ThDepth: 35
 # ORB Extractor: Number of features per image
 ORBextractor.nFeatures: 375
 
-# ORB Extractor: Scale factor between levels in the scale pyramid 	
+# ORB Extractor: Scale factor between levels in the scale pyramid
 ORBextractor.scaleFactor: 2.
 
-# ORB Extractor: Number of levels in the scale pyramid	
+# ORB Extractor: Number of levels in the scale pyramid
 ORBextractor.nLevels: 4
 
 # ORB Extractor: Fast threshold
 # Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
 # Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST
-# You can lower these values if your images have low contrast			
+# You can lower these values if your images have low contrast
 ORBextractor.iniThFAST: 20
 ORBextractor.minThFAST: 7
 

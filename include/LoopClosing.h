@@ -31,7 +31,7 @@ class Tracking;
 class LocalMapping;
 class KeyFrameDatabase;
 
-class LoopClosing {
+class LoopClosing : public MultiThreadBase {
  public:
   unsigned long mnLastOdomKFId;        // if >0 use loose loop detection for encoder error correction
   int mnIterations, mnInitIterations;  // number of Iterations in Full BA / GBA
@@ -65,8 +65,6 @@ class LoopClosing {
 
   void InsertKeyFrame(KeyFrame* pKF);  // mlpLoopKeyFrameQueue.push_back(pKF)(pKF->nid_!=0)
 
-  void RequestReset();
-
   // This function will run in a separate thread
   // GBA thread, call Optimizer::GBA, propagate the GBA optimized Pose and Pos to update all KFs' Pose and MPs' Pos
   // (including the new ones created in Tracking/LocalMapping which is running during Optimizer::GBA), notice during the
@@ -77,10 +75,6 @@ class LoopClosing {
     unique_lock<std::mutex> lock(mMutexGBA);
     return mbRunningGBA;
   }
-
-  void RequestFinish();
-
-  bool isFinished();  // mbFinished
 
   // for we use g2o::Sim3(its data member has Eigen::Quaterniond), this macro is used for memory alignment/overloaded
   // operator new
@@ -119,14 +113,6 @@ class LoopClosing {
   void CorrectLoop();
 
   void ResetIfRequested();  // blocking(5ms refreshing) mode
-  bool mbResetRequested;
-  std::mutex mMutexReset;
-
-  bool CheckFinish();  // mbFinishRequested
-  void SetFinish();
-  bool mbFinishRequested;
-  bool mbFinished;
-  std::mutex mMutexFinish;
 
   Map* mpMap;
 
@@ -164,7 +150,6 @@ class LoopClosing {
 
   // Variables related to Global Bundle Adjustment
   bool mbRunningGBA;
-  // bool mbFinishedGBA;//unused
   bool mbStopGBA;
   std::mutex mMutexGBA;      // used in GBA thread
   std::thread* mpThreadGBA;  // used in CorrectLoop()

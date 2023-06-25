@@ -5,12 +5,16 @@ set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
 set(ADD_VR_EXAMPLE 0)
+set(SET_AFFINITY_LINUX 1)
 
 # default built type
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif ()
 message(STATUS "${PROJECT_NAME} Build type: " ${CMAKE_BUILD_TYPE})
+if (SET_AFFINITY_LINUX)
+    add_compile_definitions(SET_AFFINITY_LINUX=1)
+endif ()
 if (${USE_G2O_NEWEST})
     message("build without march=native")
     #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")#DEBUG default is -O0

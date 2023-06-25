@@ -31,6 +31,8 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
     th_far_pts_ = (float)node_tmp;
   }
 
+  event_info_.thread_type_ = multithread::THREAD_BE_LBA;
+  SetThreadPolicy(strSettingPath, "BE");
   pthread_ = new thread(&LocalMapping::Run, this);
 }
 LocalMapping::~LocalMapping() {
@@ -52,10 +54,13 @@ LocalMapping::~LocalMapping() {
 void LocalMapping::SetLoopCloser(LoopClosing *pLoopCloser) { mpLoopCloser = pLoopCloser; }
 
 void LocalMapping::Run() {
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  SetAffinity();
+#endif
   PRINT_INFO_FILE(greenSTR << "Start LBA Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 
-  unsigned int sleep_time = 3000;
   bfinish_ = false;
   while (1) {
     // Tracking will see that Local Mapping is busy
@@ -167,7 +172,7 @@ void LocalMapping::Run() {
 
     ResetIfRequested();
     if (Getfinish_request()) break;
-    usleep(3000);
+    usleep(sleep_time_);
   }
 
   SetFinish();

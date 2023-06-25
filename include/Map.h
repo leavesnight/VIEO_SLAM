@@ -8,7 +8,7 @@
 #include "MapPoint.h"
 #include "KeyFrame.h"
 #include <set>
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 
 namespace VIEO_SLAM {
 

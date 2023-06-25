@@ -6,7 +6,7 @@
 #define KEYFRAME_H
 
 #include "FrameBase.h"
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 #include "MapPoint.h"
 #include "KeyFrameDatabase.h"
 

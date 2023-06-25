@@ -6,7 +6,7 @@
 #include <opencv2/opencv.hpp>
 #include <unistd.h>
 #include "OdomPreIntegrator.h"
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 
 namespace VIEO_SLAM {
 
@@ -100,7 +100,7 @@ class IMUInitialization : public MultiThreadBase {  // designed for multi thread
  public:
   bool mbUsePureVision;  // for pure-vision+IMU Initialization mode!
 
-  IMUInitialization(Map *pMap, const bool bMonocular, const string &strSettingPath);
+  IMUInitialization(Map *pMap, bool bMonocular, const string &strSettingPath);
   ~IMUInitialization() override {
     // we have to stop thread firstly then ~() this class, then ~base class!
     if (pthread_) {
