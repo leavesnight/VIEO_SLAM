@@ -6,6 +6,7 @@ set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
 set(ADD_VR_EXAMPLE 0)
 set(SET_AFFINITY_LINUX 1)
+set(USE_PCL 1)
 
 # default built type
 if (NOT CMAKE_BUILD_TYPE)
@@ -69,19 +70,22 @@ else ()
         endif ()
     endif ()
 endif ()
+message(STATUS "OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
 find_package(Pangolin REQUIRED)
-find_package(PCL REQUIRED COMPONENT common io filters)
+if (${USE_PCL})
+    find_package(PCL REQUIRED COMPONENT common io filters)
+    add_compile_definitions(USE_PCL=1)
+endif ()
 #find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
+find_package(Eigen3 3.3.7 MODULE REQUIRED)
+message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
     # Find Sophus, we found only newest master branch code could be directly compiled with eigen 3.3.7
     find_package(Sophus REQUIRED)
     message(STATUS "Sophus_INCLUDE_DIR=${Sophus_INCLUDE_DIR}; LIBS=${Sophus_LIBRARIES}; Ver=${Sophus_VERSION}")
-
-    message(STATUS "OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
-    message(STATUS "EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 else ()
     message(FATAL_ERROR "Sophus not found.")
 endif ()
@@ -99,11 +103,12 @@ include_directories(
         ${OpenCV_INCLUDE_DIRS}
         ${Pangolin_INCLUDE_DIRS}
         ${PCL_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${G2O_INCLUDE_DIR}
 )
 add_definitions(${PCL_DEFINITIONS})
-message(STATUS "${PROJECT_NAME} PCL definitions=" ${PCL_DEFINITIONS})
+message(STATUS "${PROJECT_NAME} PCL definitions=${PCL_DEFINITIONS}, include=${PCL_INCLUDE_DIRS}")
 
 add_subdirectory(common)
 add_subdirectory(loop/DBoW2)
@@ -167,6 +172,7 @@ target_link_libraries(${PROJECT_NAME}
         ${OpenCV_LIBS}
         ${Pangolin_LIBRARIES}
         ${PCL_LIBRARIES}
+        ${EIGEN3_LIBS}
         ${Sophus_LIBRARIES}
         ${G2O_LIBRARIES}
         )

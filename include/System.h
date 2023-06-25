@@ -39,7 +39,9 @@ class System {
   // Local Mapper. It manages the local map and performs local bundle adjustment.
   IMUInitialization* mpIMUInitiator;
 
+#ifdef USE_PCL
   void SaveMapPCL(const string& filename);
+#endif
 
  public:
   enum eOdom { ENCODER = 0, IMU, BOTH };

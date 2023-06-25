@@ -4,6 +4,7 @@
 
 #include <thread>
 #include <iomanip>
+#ifdef USE_PCL
 // PCL
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -13,7 +14,7 @@
 #include <pcl/filters/voxel_grid.h>
 //#include <pcl/filters/passthrough.h>//use the z direction filed filter
 #include <pcl/filters/statistical_outlier_removal.h>
-#include <opencv2/core/eigen.hpp>
+#endif
 #include <pangolin/pangolin.h>
 #include "Optimizer.h"
 #include "System.h"
@@ -275,6 +276,7 @@ bool System::LoadMap(const string &filename, bool bPCL, bool bReadBadKF) {
   f.close();
   return true;
 }
+#ifdef USE_PCL
 void System::SaveMapPCL(const string &filename) {
   if (RGBD != mSensor) {
     PRINT_INFO_MUTEX("Unsupported sensor to " << __FUNCTION__ << endl);
@@ -310,8 +312,7 @@ void System::SaveMapPCL(const string &filename) {
     // " " << t.at<float>(2)
     //<< " " << q[0] << " " << q[1] << " " << q[2] << " " << q[3] << endl;
     cv::Mat cvTwc = pKF->GetPoseInverse();
-    Eigen::Matrix3d r;
-    cv::cv2eigen(cvTwc.colRange(0, 3).rowRange(0, 3), r);
+    Eigen::Matrix3d r = Converter::toMatrix3d(cvTwc.colRange(0, 3).rowRange(0, 3));
     Eigen::Isometry3d *Twc = new Eigen::Isometry3d(r);
     (*Twc)(0, 3) = cvTwc.at<float>(0, 3);
     (*Twc)(1, 3) = cvTwc.at<float>(1, 3);
@@ -380,6 +381,7 @@ void System::SaveMapPCL(const string &filename) {
 
   PRINT_INFO_MUTEX(endl << "Map saved!" << endl);
 }
+#endif
 // maybe can be rewritten in Tracking.cc
 void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSaveBadKF) {
   if (filename.empty()) return;
@@ -525,7 +527,9 @@ void System::SaveMap(const string &filename, bool bPCL, bool bUseTbc, bool bSave
     return;
   }
 
+#ifdef USE_PCL
   SaveMapPCL(filename);
+#endif
   return;
 }
 #include <sys/stat.h>
