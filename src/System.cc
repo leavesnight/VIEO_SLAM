@@ -4,6 +4,7 @@
 
 #include <thread>
 #include <iomanip>
+#include <pangolin/pangolin.h>
 #ifdef USE_PCL
 // PCL
 #include <pcl/io/pcd_io.h>
@@ -15,7 +16,6 @@
 //#include <pcl/filters/passthrough.h>//use the z direction filed filter
 #include <pcl/filters/statistical_outlier_removal.h>
 #endif
-#include <pangolin/pangolin.h>
 #include "Optimizer.h"
 #include "System.h"
 #include "Converter.h"
