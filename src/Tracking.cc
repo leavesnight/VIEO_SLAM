@@ -5,7 +5,6 @@
 #include <iostream>
 #include <mutex>
 #include <opencv2/core/core.hpp>
-#include <opencv2/features2d/features2d.hpp>
 #include "Tracking.h"
 #include "radtan.h"
 #include "KannalaBrandt8.h"

@@ -5,29 +5,29 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
 
-#include "IMUInitialization.h"
-// created by zzh
-
 #include <string>
 #include <thread>
+#include <mutex>
 #include <opencv2/core/core.hpp>
-#include "Tracking.h"
-#include "FrameDrawer.h"
-#include "MapDrawer.h"
-#include "Map.h"
-#include "LocalMapping.h"
-#include "LoopClosing.h"
-#include "KeyFrameDatabase.h"
-#include "ORBVocabulary.h"
-#include "Viewer.h"
-#include "common/mlog/log.h"
+#include "loop/DBoW2/DBoW2/BowVector.h"
+#include "loop/DBoW2/DBoW2/FeatureVector.h"
+#include "loop/DBoW2/DBoW2/FORB.h"
+
+namespace DBoW2 {
+template <class TDescriptor, class F>
+/// Generic Vocabulary
+class TemplatedVocabulary;
+}
 
 namespace VIEO_SLAM {
-class IMUInitialization;  // zzh
-
+class IMUInitialization;
 class Viewer;
 class FrameDrawer;
 class Map;
+class MapPoint;
+class MapDrawer;
+class KeyFrameDatabase;
+typedef DBoW2::TemplatedVocabulary<DBoW2::FORB::TDescriptor, DBoW2::FORB> ORBVocabulary;
 class Tracking;
 class LocalMapping;
 class LoopClosing;
@@ -39,11 +39,11 @@ class System {
   // Local Mapper. It manages the local map and performs local bundle adjustment.
   IMUInitialization* mpIMUInitiator;
 
-#ifdef USE_PCL
-  void SaveMapPCL(const string& filename);
-#endif
-
  public:
+  using string = std::string;
+  template <typename _Tp>
+  using vector = std::vector<_Tp>;
+
   enum eOdom { ENCODER = 0, IMU, BOTH };
 
   // Process the given (IMU/encoder)odometry data. mode==0:Encoder data 2 vl,vr; 1:qIMU data 4 qxyzw; 2:Both 6

@@ -3,7 +3,6 @@ include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 rosbuild_init()
 
 set(USE_G2O_NEWEST 0)
-set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
 
 IF (NOT ROS_BUILD_TYPE)
@@ -42,21 +41,10 @@ else ()
         endif ()
     endif ()
 endif ()
+message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
-find_package(Pangolin REQUIRED)
-find_package(PCL REQUIRED COMPONENT common io filters)
-
-if (${USE_SOPHUS_NEWEST})
-    add_definitions(-DUSE_SOPHUS_NEWEST)
-    # Find Sophus, we found only newest master branch code could be directly compiled with eigen 3.3.7
-    find_package(Sophus REQUIRED)
-    message(STATUS "Sophus_INCLUDE_DIR=${Sophus_INCLUDE_DIR}; LIBS=${Sophus_LIBRARIES}; Ver=${Sophus_VERSION}")
-
-    message(STATUS "OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
-    message(STATUS "EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
-else ()
-    message(FATAL_ERROR "Sophus not found.")
-endif ()
+find_package(Eigen3 3.3.7 MODULE REQUIRED)
+message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 #find g2o here for Eigen>3.2.10
 if (${USE_G2O_NEWEST})
     add_definitions(-DUSE_G2O_NEWEST)
@@ -72,21 +60,15 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/../../../include/CameraModels
         ${PROJECT_SOURCE_DIR}/../../../src/Odom
         ${OpenCV_INCLUDE_DIRS}
-        ${Pangolin_INCLUDE_DIRS}
-        ${PCL_INCLUDE_DIRS}
-        ${Sophus_INCLUDE_DIR}
+        ${EIGEN3_INCLUDE_DIR}
         ${G2O_INCLUDE_DIR}
 )
-add_definitions(${PCL_DEFINITIONS})
 
 set(LIBS
         ${PROJECT_SOURCE_DIR}/../../../lib/libVIEO_SLAM.so
         ${OpenCV_LIBS}
-        ${Pangolin_LIBRARIES}
-        ${PCL_LIBRARIES}
-        ${Sophus_LIBRARIES}
+        ${EIGEN3_LIBS}
         ${G2O_LIBRARIES}
-        -lboost_system
         )
 
 # Node for stereo(-inertial)/rgbd(-inertial) camera

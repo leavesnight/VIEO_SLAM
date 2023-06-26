@@ -14,8 +14,13 @@
 #include <sensor_msgs/Imu.h>
 
 #include <opencv2/core/core.hpp>
-
-#include "include/System.h"
+#include <opencv2/calib3d.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include "System.h"
+#include "common/multithread/multithreadbase.h"
+#include "common/mlog/log.h"
+#include "common/eigen_utils.h"
 
 using namespace std;
 

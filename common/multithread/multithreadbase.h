@@ -26,7 +26,15 @@ typedef struct _AlgEvent {
   AlgEventType event_type_;
   void *data_;
 } AlgEvent;
-enum AlgTheadType : uint8_t { THREAD_UNKNOWN, THREAD_FE, THREAD_BE, THREAD_ODOM, THREAD_BE_GBA, THREAD_BE_LBA };
+enum AlgTheadType : uint8_t {
+  THREAD_UNKNOWN,
+  THREAD_FE,
+  THREAD_BE,
+  THREAD_ODOM,
+  THREAD_BE_GBA,
+  THREAD_BE_LBA,
+  THREAD_ODOM_Enc
+};
 typedef struct _ThreadPolicyInfo {
   pid_t tid_;       // thread id
   pthread_t ptid_;  // posix thread id

@@ -70,13 +70,9 @@ else ()
         endif ()
     endif ()
 endif ()
-message(STATUS "OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
+message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
 find_package(Pangolin REQUIRED)
-if (${USE_PCL})
-    find_package(PCL REQUIRED COMPONENT common io filters)
-    add_compile_definitions(USE_PCL=1)
-endif ()
 #find_package(Cholmod REQUIRED)#added for cholmod linear solver
 
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
@@ -102,13 +98,10 @@ include_directories(
         #${CHOLMOD_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}
         ${Pangolin_INCLUDE_DIRS}
-        ${PCL_INCLUDE_DIRS}
         ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${G2O_INCLUDE_DIR}
 )
-add_definitions(${PCL_DEFINITIONS})
-message(STATUS "${PROJECT_NAME} PCL definitions=${PCL_DEFINITIONS}, include=${PCL_INCLUDE_DIRS}")
 
 add_subdirectory(common)
 add_subdirectory(loop/DBoW2)
@@ -132,8 +125,16 @@ else ()
             g2o
             )
 endif ()
+if (${USE_PCL})
+    add_compile_definitions(USE_PCL=1)
+    add_subdirectory(map)
 
-add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
+    LIST(APPEND ${PROJECT_NAME}_deps
+            ${PROJECT_NAME}_map
+            )
+endif ()
+
+LIST(APPEND ${PROJECT_NAME}_SRCS
         src/System.cc
         src/Tracking.cc
         src/LocalMapping.cc
@@ -158,20 +159,22 @@ add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp
         src/Odom/IMUInitialization.cpp
-
         src/Odom/g2otypes.cpp
 
         src/CameraModels/GeometricCamera.cpp
         src/CameraModels/Pinhole.cpp
         src/CameraModels/KannalaBrandt8.cpp
-        src/CameraModels/radtan.cpp)
+        src/CameraModels/radtan.cpp
+        )
 
+add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
+        ${${PROJECT_NAME}_SRCS}
+        )
 target_link_libraries(${PROJECT_NAME}
         ${${PROJECT_NAME}_deps}
         #${CHOLMOD_LIBRARIES}
         ${OpenCV_LIBS}
         ${Pangolin_LIBRARIES}
-        ${PCL_LIBRARIES}
         ${EIGEN3_LIBS}
         ${Sophus_LIBRARIES}
         ${G2O_LIBRARIES}
