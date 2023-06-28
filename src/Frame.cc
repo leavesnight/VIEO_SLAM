@@ -623,7 +623,8 @@ void Frame::ComputeStereoFishEyeMatches(const float th_far_pts) {
 
   int nMatches = 0;
   int descMatches = 0;
-  // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos))
+  // for theta << 1 here, approximately dmax=b/sqrt(2*(1-thresh_cos)) else
+  // dmax=b/[2sqrt((1-thresh_cos)/(1+thresh_cos))], if thresh_cos is cos(fov), it's dmin
   assert(!mpCameras.empty());
   Eigen::Matrix3d K = mpCameras[0]->toK();
   float f_bar = (K(0, 0) + K(1, 1)) / 2.;
