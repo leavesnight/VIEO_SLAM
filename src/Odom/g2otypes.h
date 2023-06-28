@@ -137,10 +137,11 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   }
   virtual MatrixXijd getHessianXij(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
-      if (_hessianRowMajor) {
 #ifdef USE_G2O_NEWEST
+      if (_hessianRowMajor[0]) {
         return MatrixXjid(std::get<0>(_hessianTupleTransposed)).transpose();
 #else
+      if (_hessianRowMajor) {
         return MatrixXijd(_hessianTransposed.transpose());
 #endif
       } else {
@@ -162,10 +163,11 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   }
   virtual MatrixXjid getHessianXji(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
-      if (_hessianRowMajor) {
 #ifdef USE_G2O_NEWEST
+      if (_hessianRowMajor[0]) {
         return MatrixXjid(std::get<0>(_hessianTupleTransposed));
 #else
+      if (_hessianRowMajor) {
         return MatrixXjid(_hessianTransposed);
 #endif
       } else {

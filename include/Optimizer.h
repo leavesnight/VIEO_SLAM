@@ -218,10 +218,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
   g2o::SparseOptimizer optimizer;
 #ifdef USE_G2O_NEWEST
+  // descending/optimization strategy is still LM
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
       unique_ptr<g2o::BlockSolverX>(new g2o::BlockSolverX(unique_ptr<g2o::BlockSolverX::LinearSolverType>(
-          new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>()))));  // descending/optimization strategy is
-                                                                                  // still LM
+          new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>()))));
 #else
   // 9*1 is Log(R),t,v/P/pvR, 6*1 bgi,bai/bi/Bias, (3*1 is location of landmark,) 3 types of
   // vertices so using BlockSolverX, though here 9_6 is also OK for unary edge in BA

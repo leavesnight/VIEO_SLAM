@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(VIEO_SLAM)
 
+# if 1 please: echo "export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib" > ~/.bashrc
+# else may cannot find g2o soft linked .so
 set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
