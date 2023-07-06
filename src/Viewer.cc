@@ -134,7 +134,7 @@ void Viewer::Run() {
       cv::Mat toShow;
       assert(mpFrameDrawer);
       cv::Mat im = mpFrameDrawer->DrawFrame(0);
-      if (mpFrameDrawer->showallimages_) {
+      if (mpFrameDrawer->showallimages_ && !im.empty()) {
         int n_cams = mpFrameDrawer->n_cams_;
         if (-1 != max_cams_num && max_cams_num < mpFrameDrawer->n_cams_) n_cams = max_cams_num;
         if (1 <= n_cams) {

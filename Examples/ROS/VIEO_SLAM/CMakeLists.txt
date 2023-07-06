@@ -66,6 +66,7 @@ include_directories(
 
 set(LIBS
         ${PROJECT_SOURCE_DIR}/../../../lib/libVIEO_SLAM.so
+        ${PROJECT_SOURCE_DIR}/../../../lib/libVIEO_SLAM_common.so
         ${OpenCV_LIBS}
         ${EIGEN3_LIBS}
         ${G2O_LIBRARIES}

@@ -35,6 +35,7 @@ cv::Mat FrameDrawer::DrawFrame(int cami) {
     state = mState;
     if (mState == Tracking::SYSTEM_NOT_READY) mState = Tracking::NO_IMAGES_YET;
 
+    if (mIms[cami].empty()) return cv::Mat();
     mIms[cami].copyTo(im);
 
     if (mState == Tracking::NOT_INITIALIZED) {
