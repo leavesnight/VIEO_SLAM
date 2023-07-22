@@ -39,14 +39,14 @@ extern COMMON_API std::mutex gmutexOUTPUT;
 // macro is invalid for namespace, but put here for Timer definition
 #define PRINT_INFO_BASE(msg, level, foldername, filename)              \
   do {                                                                 \
-    if (VIEO_SLAM::mlog::PRINT_LEVEL >= level) {                       \
+    if constexpr (VIEO_SLAM::mlog::PRINT_LEVEL >= level) {             \
       auto foldername_str = std::string(foldername);                   \
       if (!foldername_str.empty()) {                                   \
         std::string debug_file = foldername_str + filename;            \
         std::ofstream fout(debug_file, std::ios::out | std::ios::app); \
         fout << msg;                                                   \
       } else {                                                         \
-        if (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)               \
+        if constexpr (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)     \
           std::cerr << msg;                                            \
         else                                                           \
           std::cout << msg;                                            \
@@ -55,7 +55,7 @@ extern COMMON_API std::mutex gmutexOUTPUT;
   } while (0)
 #define PRINT_INFO_MUTEX_BASE(msg, level, foldername, filename)           \
   do {                                                                    \
-    if (VIEO_SLAM::mlog::PRINT_LEVEL >= level) {                          \
+    if constexpr (VIEO_SLAM::mlog::PRINT_LEVEL >= level) {                \
       auto foldername_str = std::string(foldername);                      \
       if (!foldername_str.empty()) {                                      \
         std::unique_lock<std::mutex> lock(VIEO_SLAM::mlog::gmutexOUTPUT); \
@@ -63,7 +63,7 @@ extern COMMON_API std::mutex gmutexOUTPUT;
         std::ofstream fout(debug_file, std::ios::out | std::ios::app);    \
         fout << msg;                                                      \
       } else {                                                            \
-        if (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)                  \
+        if constexpr (VIEO_SLAM::mlog::PRINT_LEVEL_ERROR == level)        \
           std::cerr << msg;                                               \
         else                                                              \
           std::cout << msg;                                               \
