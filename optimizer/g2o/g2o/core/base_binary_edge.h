@@ -54,9 +54,11 @@ class BaseBinaryEdge : public BaseEdge<D, E> {
   typedef typename BaseEdge<D, E>::ErrorVector ErrorVector;
   typedef typename BaseEdge<D, E>::InformationType InformationType;
 
-  typedef Eigen::Map<Matrix<double, Di, Dj>, Matrix<double, Di, Dj>::Flags & AlignedBit ? Aligned : Unaligned>
+  typedef Eigen::Map<Matrix<double, Di, Dj>,
+                     Matrix<double, Di, Dj>::Flags & Eigen::PacketAccessBit ? Eigen::Aligned16 : Eigen::Unaligned>
       HessianBlockType;
-  typedef Eigen::Map<Matrix<double, Dj, Di>, Matrix<double, Dj, Di>::Flags & AlignedBit ? Aligned : Unaligned>
+  typedef Eigen::Map<Matrix<double, Dj, Di>,
+                     Matrix<double, Dj, Di>::Flags & Eigen::PacketAccessBit ? Eigen::Aligned16 : Eigen::Unaligned>
       HessianBlockTransposedType;
 
   BaseBinaryEdge()

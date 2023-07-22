@@ -51,34 +51,34 @@ using namespace Eigen;
 
 typedef Matrix<double, 6, 6> Matrix6d;
 
-
 /**
  * \brief SE3 Vertex parameterized internally with a transformation matrix
  and externally with its exponential map
  */
-class  VertexSE3Expmap : public BaseVertex<6, SE3Quat>{
-public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW//used for memory alignment when user-defined class/struct has Eigen::Matrix<>.../Eigen::class/struct as data member
+class VertexSE3Expmap : public BaseVertex<6, SE3Quat> {
+ public:
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // used for memory alignment when user-defined class/struct has
+                                   // Eigen::Matrix<>.../Eigen::class/struct as data member
 
-  VertexSE3Expmap();
+                                   VertexSE3Expmap();
 
   bool read(std::istream& is);
 
   bool write(std::ostream& os) const;
 
-  virtual void setToOriginImpl() {//initial value(here is pose(Li algebra))
-    _estimate = SE3Quat();//_estimate is 7*1(quaternion::Identity,0)
+  virtual void setToOriginImpl() {  // initial value(here is pose(Li algebra))
+    _estimate = SE3Quat();          //_estimate is 7*1(quaternion::Identity,0)
   }
 
-  virtual void oplusImpl(const double* update_)  {//update little value(here use left disturbance model Tnew=deltaT*Told)
-    Eigen::Map<const Vector6d> update(update_);//directly use this array pointer as the inner data
-    setEstimate(SE3Quat::exp(update)*estimate());//exp return 7*1(quaternion(R),t/J*p); Tnew=deltaT*Told
+  virtual void oplusImpl(
+      const double* update_) {  // update little value(here use left disturbance model Tnew=deltaT*Told)
+    Eigen::Map<const Vector6d> update(update_);      // directly use this array pointer as the inner data
+    setEstimate(SE3Quat::exp(update) * estimate());  // exp return 7*1(quaternion(R),t/J*p); Tnew=deltaT*Told
   }
 };
 
-
-class  EdgeSE3ProjectXYZ: public  BaseBinaryEdge<2, Vector2d, VertexSBAPointXYZ, VertexSE3Expmap>{
-public:
+class EdgeSE3ProjectXYZ : public BaseBinaryEdge<2, Vector2d, VertexSBAPointXYZ, VertexSE3Expmap> {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   EdgeSE3ProjectXYZ();
@@ -87,30 +87,28 @@ public:
 
   bool write(std::ostream& os) const;
 
-  void computeError()  {
+  void computeError() {
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[1]);
     const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
     Vector2d obs(_measurement);
-    _error = obs-cam_project(v1->estimate().map(v2->estimate()));//e=[u;v]_obs-[u;v](ξ,Xw)=zj-h(ksi,Pj)
+    _error = obs - cam_project(v1->estimate().map(v2->estimate()));  // e=[u;v]_obs-[u;v](ξ,Xw)=zj-h(ksi,Pj)
   }
 
   bool isDepthPositive() {
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[1]);
     const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
-    return (v1->estimate().map(v2->estimate()))(2)>0.0;//return MP's Zc>0
+    return (v1->estimate().map(v2->estimate()))(2) > 0.0;  // return MP's Zc>0
   }
-    
 
   virtual void linearizeOplus();
 
-  Vector2d cam_project(const Vector3d & trans_xyz) const;//return [u;v], =K*Xc'(0:1)
+  Vector2d cam_project(const Vector3d& trans_xyz) const;  // return [u;v], =K*Xc'(0:1)
 
   double fx, fy, cx, cy;
 };
 
-
-class  EdgeStereoSE3ProjectXYZ: public  BaseBinaryEdge<3, Vector3d, VertexSBAPointXYZ, VertexSE3Expmap>{
-public:
+class EdgeStereoSE3ProjectXYZ : public BaseBinaryEdge<3, Vector3d, VertexSBAPointXYZ, VertexSE3Expmap> {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   EdgeStereoSE3ProjectXYZ();
@@ -119,60 +117,55 @@ public:
 
   bool write(std::ostream& os) const;
 
-  void computeError()  {
+  void computeError() {
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[1]);
     const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
     Vector3d obs(_measurement);
-    _error = obs - cam_project(v1->estimate().map(v2->estimate()),bf);//e=zj-h(ksi,Pj)
+    _error = obs - cam_project(v1->estimate().map(v2->estimate()), (float)bf);  // e=zj-h(ksi,Pj)
   }
 
   bool isDepthPositive() {
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[1]);
     const VertexSBAPointXYZ* v2 = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
-    return (v1->estimate().map(v2->estimate()))(2)>0.0;
+    return (v1->estimate().map(v2->estimate()))(2) > 0.0;
   }
-
 
   virtual void linearizeOplus();
 
-  Vector3d cam_project(const Vector3d & trans_xyz, const float &bf) const;//return [ul;v;ur]
+  Vector3d cam_project(const Vector3d& trans_xyz, const float& bf) const;  // return [ul;v;ur]
 
   double fx, fy, cx, cy, bf;
 };
 
-
-class  EdgeStereoSE3ProjectXYZOnlyPose: public  BaseUnaryEdge<3, Vector3d, VertexSE3Expmap>{
-public:
+class EdgeStereoSE3ProjectXYZOnlyPose : public BaseUnaryEdge<3, Vector3d, VertexSE3Expmap> {
+ public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  EdgeStereoSE3ProjectXYZOnlyPose(){}
+  EdgeStereoSE3ProjectXYZOnlyPose() {}
 
   bool read(std::istream& is);
 
   bool write(std::ostream& os) const;
 
-  void computeError()  {
+  void computeError() {
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
     Vector3d obs(_measurement);
     _error = obs - cam_project(v1->estimate().map(Xw));
   }
 
-  bool isDepthPositive() {//unused in motion-only BA
+  bool isDepthPositive() {  // unused in motion-only BA
     const VertexSE3Expmap* v1 = static_cast<const VertexSE3Expmap*>(_vertices[0]);
-    return (v1->estimate().map(Xw))(2)>0.0;
+    return (v1->estimate().map(Xw))(2) > 0.0;
   }
-
 
   virtual void linearizeOplus();
 
-  Vector3d cam_project(const Vector3d & trans_xyz) const;
+  Vector3d cam_project(const Vector3d& trans_xyz) const;
 
   Vector3d Xw;
   double fx, fy, cx, cy, bf;
 };
 
-
-
-} // end namespace
+}  // namespace g2o
 
 #endif
