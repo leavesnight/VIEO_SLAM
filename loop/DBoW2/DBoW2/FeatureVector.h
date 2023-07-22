@@ -45,7 +45,11 @@ class FeatureVector : public std::map<NodeId, std::vector<unsigned int> > {
    */
   friend std::ostream &operator<<(std::ostream &out, const FeatureVector &v);
 
-  // added by zzh:
+  // For possible serialize
+  /**
+   * Serialize of reading words
+   * @param is input stream with n_id0, n0, n0_val0, n0_val1..., n0_valn0-1, n_id1... order
+   */
   typedef std::vector<unsigned int> TypeSec;
   inline void read(std::istream &is) {
     unsigned int idFeat;
@@ -62,6 +66,10 @@ class FeatureVector : public std::map<NodeId, std::vector<unsigned int> > {
       }
     }
   }
+  /**
+   * Serialize of writing words
+   * @param os output stream with n_id0, n0, n0_val0, n0_val1..., n0_valn0-1, n_id1... order
+   */
   inline void write(std::ostream &os) const {
     size_type nsize = size();
     os.write((char *)&nsize, sizeof(nsize));
@@ -70,8 +78,8 @@ class FeatureVector : public std::map<NodeId, std::vector<unsigned int> > {
       const TypeSec &vec = iter->second;
       size_t vecSize = vec.size();
       os.write((char *)&vecSize, sizeof(vecSize));
-      for (TypeSec::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-        os.write((char *)&(*iter), sizeof(*iter));
+      for (TypeSec::const_iterator iter2 = vec.begin(); iter2 != vec.end(); ++iter2) {
+        os.write((char *)&(*iter2), sizeof(*iter2));
       }
     }
   }

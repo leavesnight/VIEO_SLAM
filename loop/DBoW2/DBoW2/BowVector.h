@@ -89,7 +89,11 @@ class BowVector : public std::map<WordId, WordValue> {
    */
   void saveM(const std::string &filename, size_t W) const;
 
-  // added by zzh:
+  // For possible serialize
+  /**
+   * Serialize of reading words
+   * @param is input stream with w_id0, w_val0, w_id1... order
+   */
   inline void read(std::istream &is) {
     WordId wId;
     WordValue wVal;
@@ -101,6 +105,10 @@ class BowVector : public std::map<WordId, WordValue> {
       addWeight(wId, wVal);
     }
   }
+  /**
+   * Serialize of writing words
+   * @param os output stream with w_id0, w_val0, w_id1... order
+   */
   inline void write(std::ostream &os) const {
     size_type nsize = size();
     os.write((char *)&nsize, sizeof(nsize));

@@ -1306,7 +1306,8 @@ bool TemplatedVocabulary<TDescriptor, F>::loadFromBinaryFile(const std::string &
   m_nodes.resize(1);
   m_nodes[0].id = 0;
   // now use L1,L1_NORM,TF_IDF; parent_node_id isleaf 32*8Udescriptor weight
-  char buf[size_node];
+  vector<char> vbuf(size_node);
+  char *buf = vbuf.data();
   while (!f.eof()) {
     f.read(buf, size_node);
     int nid = m_nodes.size();
