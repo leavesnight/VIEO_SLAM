@@ -21,7 +21,8 @@
 
 #include "optimizer/g2o/g2o/core/block_solver.h"
 #include "optimizer/g2o/g2o/core/optimization_algorithm_levenberg.h"
-#include "optimizer/g2o/g2o/solvers/linear_solver_eigen.h"  //must before linear_solver_cholmod...
+// must before linear_solver_cholmod...
+#include "optimizer/g2o/g2o/solvers/linear_solver_eigen.h"
 #include "optimizer/g2o/g2o/core/optimization_algorithm_gauss_newton.h"
 #include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
 //#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
@@ -146,7 +147,7 @@ void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *
       cov_inv.template block<9, 9>(0, 0) = eNSPVR->getHessian(0, robust);
       cov_inv.template block<9, 6>(0, 9) = eNSPVR->getHessianij(0, 2, exact_mode);
       // eNSPVR->getHessianij(2, 0, exact_mode);  //
-      cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).template transpose();
+      cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).transpose();
       cov_inv.template block<6, 6>(9, 9) = eNSPVR->getHessian(2, robust);
     } else
       cov_inv.setZero();
@@ -188,7 +189,7 @@ void Optimizer::FillCovInv(g2o::EdgeNavStatePVR *eNSPVR, g2o::EdgeNavStateBias *
     // fix old bug in VIORBSLAM2 old code! now H can correlate PVR with Bias, useful in hard scene!
     cov_inv.template block<9, 6>(0, 9) += eNSPrior->getHessianXij(exact_mode);
     // +=eNSPrior->getHessianXji(exact_mode);  //
-    cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).template transpose();
+    cov_inv.template block<6, 9>(9, 0) = cov_inv.template block<9, 6>(0, 9).transpose();
   } else {
     cov_inv.template block<6, 6>(9, 9) = eNSBias->getHessianXji(exact_mode);
   }

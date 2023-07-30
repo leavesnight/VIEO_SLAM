@@ -94,17 +94,17 @@ extern COMMON_API std::mutex gmutexOUTPUT;
     }                                                     \
   } while (0)
 
-// colorful cout related
+// colorful cout related, \e not work on git bash of windows
 #define redSTR "\033[31m"
 #define brightredSTR "\033[31;1m"
-#define greenSTR "\e[32m"
-#define brightgreenSTR "\e[32;1m"
-#define blueSTR "\e[34m"
-#define brightblueSTR "\e[34;1m"
-#define yellowSTR "\e[33;1m"
-#define brownSTR "\e[33m"
-#define azureSTR "\e[36;1m"
-#define whiteSTR "\e[0m"
+#define greenSTR "\033[32m"
+#define brightgreenSTR "\033[32;1m"
+#define blueSTR "\033[34m"
+#define brightblueSTR "\033[34;1m"
+#define yellowSTR "\033[33;1m"
+#define brownSTR "\033[33m"
+#define azureSTR "\033[36;1m"
+#define whiteSTR "\033[0m"
 
 class Timer {
   using clock = std::chrono::steady_clock;

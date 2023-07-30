@@ -6,6 +6,7 @@ cmake-build-*/
 .vs/
 CMakeSettings.json
 
+Examples/*/Release
 Examples/Monocular/mono_euroc
 Examples/Monocular/mono_kitti
 Examples/Monocular/mono_tum

@@ -349,23 +349,20 @@ void MapPoint::ComputeDistinctiveDescriptors() {
 
   // Compute distances between them
   const size_t N = vDescriptors.size();
-
-  float Distances[N][N];
+  vector<vector<float>> vvdist_tmp(N, vector<float>(N));
   for (size_t i = 0; i < N; i++) {
-    Distances[i][i] = 0;
+    vvdist_tmp[i][i] = 0;
     for (size_t j = i + 1; j < N; j++) {
-      int distij = ORBmatcher::DescriptorDistance(
-          vDescriptors[i], vDescriptors[j]);  // the hamming distance of the 256 bit descriptor(at the fastest way)
-      Distances[i][j] = distij;
-      Distances[j][i] = distij;
+      // the hamming distance of the 256 bit descriptor(at the fastest way)
+      int distij = ORBmatcher::DescriptorDistance(vDescriptors[i], vDescriptors[j]);
+      vvdist_tmp[j][i] = vvdist_tmp[i][j] = distij;
     }
   }
-
   // Take the descriptor with least median distance to the rest
   int BestMedian = INT_MAX;
   int BestIdx = 0;
   for (size_t i = 0; i < N; i++) {
-    vector<int> vDists(Distances[i], Distances[i] + N);
+    vector<int> vDists(vvdist_tmp[i].data(), vvdist_tmp[i].data() + N);
     sort(vDists.begin(), vDists.end());
     int median = vDists[0.5 * (N - 1)];
 
@@ -374,7 +371,6 @@ void MapPoint::ComputeDistinctiveDescriptors() {
       BestIdx = i;
     }
   }
-
   {
     unique_lock<mutex> lock(mMutexFeatures);
     mDescriptor = vDescriptors[BestIdx].clone();

@@ -10,6 +10,15 @@ set(ADD_VR_EXAMPLE 0)
 set(SET_AFFINITY_LINUX 0)#TODO(zzh)
 set(USE_PCL 1)
 
+# Detect OS and define macros appropriately
+if (WIN32)
+    add_definitions(-DWINDOWS)
+    message(STATUS "Compiling on Windows")
+elseif (UNIX)
+    ADD_DEFINITIONS(-DUNIX)
+    MESSAGE(STATUS "Compiling on Unix")
+ENDIF (UNIX)
+
 # default built type
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -37,8 +46,8 @@ else ()
         # Use gnu c++17
         CHECK_CXX_COMPILER_FLAG("-std=c++17" COMPILER_SUPPORTS_CXX17)
     elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  /W4 /Od /D_USE_MATH_DEFINES")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /Od /D_USE_MATH_DEFINES")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  /W4 /Od /D_USE_MATH_DEFINES /bigobj")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /Od /D_USE_MATH_DEFINES /bigobj")
 
         message(STATUS "MSVC VERS=${MSVC_VERSION}")
         if (MSVC_VERSION VERSION_GREATER_EQUAL 1932)
@@ -103,9 +112,10 @@ message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS
 find_package(Pangolin REQUIRED)
 message(STATUS "Pangolin_INCLUDE_DIRS=${Pangolin_INCLUDE_DIRS}; LIBS=${Pangolin_LIBRARIES}; ${Pangolin_VERSION}")
 
-# set(Eigen3_DIR "C:/zzh/4Life/eigen/build/x64/Release/Eigen3/share/eigen3/cmake")
+# set(ENV{Eigen3_DIR} "C:/zzh/4Life/eigen/build/x64/Release/Eigen3/share/eigen3/cmake")
 message(STATUS "Eigen3_DIR=$ENV{Eigen3_DIR} OR Not ENV: ${Eigen3_DIR}")
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
+#set(EIGEN3_INCLUDE_DIR "C:/zzh/4Life/eigen")
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
@@ -214,9 +224,11 @@ target_link_libraries(${PROJECT_NAME}
         ${Sophus_LIBRARIES}
         ${G2O_LIBRARIES}
         )
+if (WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE COMPILE_LIB_VIEO_SLAM)
+endif ()
 
 # Build examples
-
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/RGB-D)
 
 add_executable(rgbd_tum

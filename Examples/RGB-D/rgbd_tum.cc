@@ -322,7 +322,7 @@ int main(int argc, char **argv) {
   if (SLAM.MapChanged()) {
     cout << "Map is changing!Please enter s to stop!" << endl;
     while (cin.get() != 's') {
-      sleep(1);
+      usleep((__useconds_t)1e6);
     }
   }
   // zzh over

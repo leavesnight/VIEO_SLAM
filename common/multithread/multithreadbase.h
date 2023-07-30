@@ -13,7 +13,7 @@
 #include "common/interface.h"
 
 namespace VIEO_SLAM {
-class MutexUsed {
+class COMMON_API MutexUsed {
  public:
   template <typename _Mutex>
   using unique_lock = std::unique_lock<_Mutex>;
@@ -50,7 +50,7 @@ void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::stri
 }  // namespace multithread
 
 class KeyFrame;
-class MultiThreadBase : public MutexUsed {
+class COMMON_API MultiThreadBase : public MutexUsed {
  public:
   template <typename _Tp>
   using list = std::list<_Tp>;

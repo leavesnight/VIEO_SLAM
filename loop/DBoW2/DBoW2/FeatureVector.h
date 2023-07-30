@@ -11,9 +11,6 @@
 #define __D_T_FEATURE_VECTOR__
 
 #include "BowVector.h"
-#include <map>
-#include <vector>
-#include <iostream>
 
 namespace DBoW2 {
 

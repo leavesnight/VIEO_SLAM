@@ -13,18 +13,15 @@
 #include <opencv2/core/core.hpp>
 #include <vector>
 #include <string>
-
 #include "FClass.h"
 
 namespace DBoW2 {
 
 /// Functions to manipulate ORB descriptors
-class FORB: protected FClass
-{
-public:
-
+class DBoW2_API FORB : protected FClass {
+ public:
   /// Descriptor type
-  typedef cv::Mat TDescriptor; // CV_8U
+  typedef cv::Mat TDescriptor;  // CV_8U
   /// Pointer to a single descriptor
   typedef const TDescriptor *pDescriptor;
   /// Descriptor length (in bytes)
@@ -35,8 +32,7 @@ public:
    * @param descriptors
    * @param mean mean descriptor
    */
-  static void meanValue(const std::vector<pDescriptor> &descriptors,
-    TDescriptor &mean);
+  static void meanValue(const std::vector<pDescriptor> &descriptors, TDescriptor &mean);
 
   /**
    * Calculates the distance between two descriptors
@@ -59,7 +55,7 @@ public:
    * @param s string version (8bits 8bits ...) can be shorter than 32*8U
    */
   static void fromString(TDescriptor &a, const std::string &s);
-  static void fromArray(TDescriptor &a,const char* arr);
+  static void fromArray(TDescriptor &a, const char *arr);
 
   /**
    * Returns a mat with the descriptors in float format
@@ -67,14 +63,11 @@ public:
    * @param mat (out) NxL 32F matrix
    */
   static void toMat32F(const std::vector<TDescriptor> &descriptors,
-    cv::Mat &mat);//allow descriptors be empty
+                       cv::Mat &mat);  // allow descriptors be empty
 
-  static void toMat8U(const std::vector<TDescriptor> &descriptors,
-    cv::Mat &mat);
-
+  static void toMat8U(const std::vector<TDescriptor> &descriptors, cv::Mat &mat);
 };
 
-} // namespace DBoW2
+}  // namespace DBoW2
 
 #endif
-

@@ -82,7 +82,7 @@ void SetAffinity(multithread::ThreadPolicyInfo &event_info) {
   event.data_ = &event_info;
   alg_event_listener(&event);
 }
-#ifdef _MSC_VER
+#ifdef WINDOWS
 void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::string &prefix_thread) {
   // To get root priority in windows?
   if (::SetPriorityClass(pparams->ptid_, pparams->policy_) && ::SetThreadPriority(pparams->ptid_, pparams->priority_)) {
@@ -123,7 +123,7 @@ void SetThreadPriority(ThreadPolicyInfo *pparams, err_t &err_no, const std::stri
 
 }  // namespace multithread
 
-#ifdef _MSC_VER
+#ifdef WINDOWS
 void MultiThreadBase::SetThreadPolicy(const std::string &settings_path, const std::string &thread_type) {
   cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
   // bind to assigned core

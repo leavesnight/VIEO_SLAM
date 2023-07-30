@@ -6,9 +6,10 @@
 
 #include <iostream>
 #include <opencv2/core/core.hpp>
+#include "common/interface.h"
 
 namespace VIEO_SLAM {
-class Serialize {
+class COMMON_API Serialize {
  public:
   template <typename _Tp>
   using vector = std::vector<_Tp>;
@@ -86,8 +87,8 @@ bool Serialize::readEigMat(istream &is, T &mat) {
 
 // speicalize
 template <>
-bool Serialize::writeVec(ostream &os, const vector<bool> &vec);
+COMMON_API bool Serialize::writeVec(ostream &os, const vector<bool> &vec);
 template <>
-bool Serialize::readVec(istream &is, vector<bool> &vec);
+COMMON_API bool Serialize::readVec(istream &is, vector<bool> &vec);
 
 }  // namespace VIEO_SLAM

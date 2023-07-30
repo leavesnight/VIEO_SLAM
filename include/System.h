@@ -12,6 +12,7 @@
 #include "loop/DBoW2/DBoW2/BowVector.h"
 #include "loop/DBoW2/DBoW2/FeatureVector.h"
 #include "loop/DBoW2/DBoW2/FORB.h"
+#include "interface.h"
 
 namespace DBoW2 {
 template <class TDescriptor, class F>
@@ -32,7 +33,7 @@ class Tracking;
 class LocalMapping;
 class LoopClosing;
 
-class System {
+class VIEO_SLAM_API System {
   // used to make pcl
   cv::FileStorage fsSettings;
 

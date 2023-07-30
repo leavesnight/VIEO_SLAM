@@ -4,8 +4,12 @@
 
 #pragma once
 
-#ifdef _MSC_VER
+#ifdef WINDOWS
+#if defined(COMPILE_LIB_COMMON)
 #define COMMON_API __declspec(dllexport)
+#else
+#define COMMON_API __declspec(dllimport)
+#endif
 #else
 #define COMMON_API __attribute__((visibility("default")))
 #endif

@@ -279,7 +279,7 @@ class VertexNavState : public BaseVertex<D, NavStated> {
   void setToOriginImpl() { this->_estimate = NavStated(); }  // virtual
   void oplusImpl(const double* update_) {
     Eigen::Map<const Matrix<double, D, 1>> update(update_);
-    this->_estimate.template IncSmall(update);
+    this->_estimate.IncSmall(update);
   }  // virtual
 };
 

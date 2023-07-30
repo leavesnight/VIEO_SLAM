@@ -17,7 +17,7 @@ Now this project is improved by zzh, based on ORBSLAM2 && ORBSLAM3
    3. undistorted RGBD(max 1 cam) + (IMU/Encoder) mode: RGBD V(I)(E)O is implemented like our [VIEOS2](https://github.com/leavesnight/ORB_SLAM2)
    4. distorted Stereo(max 4 cams) + (IMU/Encoder) mode: dStereo V(I)(E)O is implemented like [ORBSLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) and our VIEOS2
    5. distorted RGBD(max 1 cam) + (IMU/Encoder) mode: dRGBD V(I)(E)O is implemented like dStereo VIEO
-      
+   
 4. We named the total system as VIEO_SLAM, where O should finally means the other odometers instead of ORB descriptor. 
    We hope to provide a general visual tightly-coupled with any odometer SLAM system in the end.
 
@@ -115,12 +115,16 @@ PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm
     ./mono_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml ~/dataset/EuRoC/V202medium/mav0/cam0/data ./EuRoC_TimeStamps/V202.txt ~/dataset/EuRoC/V202medium/mav0/imu0/data.csv 
     ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml  ~/dataset/EuRoC/V103difficult/mav0/cam0/data ~/dataset/EuRoC/V103difficult/mav0/cam1/data ./EuRoC_TimeStamps/V103.txt ~/dataset/EuRoC/V103difficult/mav0/imu0/data.csv
    ```
-   ORBSLAM2:(you can also use ./EuRoC.yaml with Tbc is default I)
+   windows:
+   ```
+   ./stereo_euroc.exe /c/zzh/4Life/VIEO_SLAM/Vocabulary/ORBvoc.bin /c/zzh/4Life/VIEO_SLAM/Examples/Stereo/EuRoC/EuRoC_VIO_dist_fast.yaml /d/zzh/2Work/Master/Master_Final/dataset/EuRoC/MH05difficult/mav0/cam0/data/ /d/zzh/2Work/Master/Master_Final/dataset/EuRoC/MH05difficult/mav0/cam1/data/ /c/zzh/4Life/VIEO_SLAM/Examples/Stereo/EuRoC/EuRoC_TimeStamps/MH05.txt /d/zzh/2Work/Master/Master_Final/dataset/EuRoC/MH05difficult/mav0/imu0/data.csv
+   ```
+   VO:(you can also use ./EuRoC.yaml with Tbc is default I)
    ```
     ./mono_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml ~/dataset/EuRoC/V202medium/mav0/cam0/data ./EuRoC_TimeStamps/V202.txt 
     ./stereo_euroc ../../Vocabulary/ORBvoc.bin ./EuRoC_VIO.yaml  ~/dataset/EuRoC/V203difficult/mav0/cam0/data ~/dataset/EuRoC/V203difficult/mav0/cam1/data ./EuRoC_TimeStamps/V203.txt
    ```
-   VEORBSLAM2 or VIEORBSLAM2: (you may refer to the kinect2_qhd.yaml, later we may publish our dataset containing encoders & IMU data)
+   VEO or VIEO: (you may refer to the kinect2_qhd.yaml, later we may publish our dataset containing encoders & IMU data)
    ```
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/EncSensor.txt
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt(path to IMU data file) 9(number of IMU data: (Accelerator,Magnetic,Gyroscope) for our dataset) 0(RGBD SLAM) $OURFILE/EncSensor.txt(path to encoder data file)
@@ -221,10 +225,8 @@ Build it from source (ensure you installed cmake before):
    git reset --hard 86eb4975fc4f
    // 2. compile
    mkdir build
-   cd build
-   cmake ..
-   make -j8
-   sudo make install
+   cd build && cmake ..
+   make -j8 && sudo make install -j8
    ```
 2. windows:
    1. download the source code (by git bash)
@@ -234,19 +236,24 @@ Build it from source (ensure you installed cmake before):
    git reset --hard 86eb4975fc4f
    ```
    2. then use installed windows CMake's cmake-gui to compile it:
-      1. source code: C:\zzh\4Life\Pangolin
+      1. source code: C:/zzh/4Life/Pangolin
          build the binaries: C:/zzh/4Life/Pangolin/build
-      2. press Configure button (choose installed VS2022)
-      PS: Pangolin requires cmake-gui.exe run as Administrator mode!
-      3. precc Generate button -> press Open Project
+      2. Run cmake-gui as Administrator -> press Configure button (choose installed VS2022)
+      PS: if no admin, doxygen may not able to be found!
+      -> check BUILD_SHARED_LIBS
+      -> config CMAKE_INSTALL_PREFIX: C:/zzh/4Life/Pangolin/build/x64/Release/Pangolin
+      3. Configure -> press Generate button -> press Open Project
       4. Select Release -> Build/Build Solution
-      PS: pangolin/ModelViewer subprojects may enter error, we right click each
+      PS: pangolin/ModelViewer subprojects may enter error, we right click ALL_BUILD and each FAILED one
       and choose Properties, pick c++17 and then build it again
+      Still 3 failed but pangolin.lib&dll ready!
+      5. Add C:\zzh\4Life\Pangolin\build\src\Release to environment variable PATH
+      Add %OPENNI2_REDIST64% or C:\Program Files\OpenNI2\Redist or C:\Program Files\OpenNI2\Tools to environment variable PATH
 
 ## OpenCV
 We use [OpenCV](http://opencv.org) to manipulate images and features.
 Dowload and install instructions can be found at: http://opencv.org.
-**Required at least 2.4.3. Tested with OpenCV 4.5/3.2.0**.
+**Required at least 2.4.3. Tested with OpenCV 4.5/3.2.0; OpenCV 4.5(Windows)**.
 
 Refer to the official install guide: https://docs.opencv.org/4.x/df/d65/tutorial_table_of_content_introduction.html
 
@@ -256,7 +263,7 @@ Or Build it from source (ensure you installed cmake before):
    // 1. download the source code
    // if you wanna to use 3.2.0, u'd better use our compile-fixed version: https://github.com/leavesnight/opencv/tree/320
    git clone git@github.com:opencv/opencv.git
-   cd Pangolin
+   cd opencv
    git reset --hard 4.5.0
    // 2. compile is the same as before
    ```
@@ -267,12 +274,13 @@ Or Build it from source (ensure you installed cmake before):
       2. Configure -> Generate -> Open Project
       3. Release -> Build Solution
       4. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
-      5. add OpenCV_DIR=C:/zzh/4Life/opencv/build/install/lib to envrionment variables
+      5. Add OpenCV_DIR=C:/zzh/4Life/opencv/build/install/lib to envrionment variables
+      6. Add C:\zzh\4Life\opencv\build\install\bin to environment variable PATH
 
 ## Eigen3
 Required by our project and g2o (see below). Test shows it's faster than opencv cv::Mat.
 Download and install instructions can be found at: http://eigen.tuxfamily.org.
-**Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10**.
+**Required at least 3.1.0. Tested with Eigen 3.3.7/3.2.10; Eigen 3.4(Windows)**.
 
 Refer to the official install guide: https://eigen.tuxfamily.org/dox-3.3/GettingStarted.html
 https://gitlab.com/libeigen/eigen/-/releases
@@ -287,20 +295,23 @@ Or Build it from source (ensure you installed cmake before):
    // 2. compile is the same as before
    ```
 2. windows:
-   1. download the source code (the same as linux)
+   1. download the source code (the same as linux except origin/3.4 instead of 3.3.7)
    2. then use cmake-gui to compile:
       1. source: C:\zzh\4Life\eigen; binaries: C:\zzh\4Life\eigen\build
-      2. Configure -> Generate( -> Open Project
+      2. Configure
+      -> config CMAKE_INSTALL_PREFIX: C:/zzh/4Life/eigen/build/x64/Release/Eigen3
+      -> Configure -> Generate( -> Open Project
       3. Release -> Build Solution
       PS: some subprojects may enter internal compile error, we right click each
       and choose Properties/C++/Optimization, pick /Od and then build it again,
       but maybe there's a better solution, you can provide it to me through email~)
-      4. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
+      4. Choose INSTALL subproject -> Build Solution
       5. Add Eigen3_DIR=C:/zzh/4Life/eigen/build/x64/Release/Eigen3/share/eigen3/cmake to environment variables,
-         can be found by our changed FindEigen3.cmake when you
-         move C:\Program Files (x86)\Eigen3 to C:\zzh\4Life\eigen\build\x64\Release\Eigen3
+         can be found by our changed FindEigen3.cmake
+      PS: for some windows may still compile error, please use set(EIGEN3_INCLUDE_DIR "C:/zzh/4Life/eigen")
+      after find_package(Eigen3 3.3.7 MODULE REQUIRED)
 
-## Ceres (optional)
+## Ceres (optional, now unused)
 For Sophus can depend on ceres, we provide the ceres install process and version here (linux/windows git bash):
 1. linux: refer to the offical install guide: http://ceres-solver.org/installation.html
 2. windows:
@@ -338,13 +349,12 @@ Then Build it from source:
    2. then use cmake-gui to compile:
       1. source: C:\zzh\4Life\Sophus; binaries: C:\zzh\4Life\Sophus\build
       2. Configure -> config EIGEN3_INCLUDE_DIR: C:\zzh\4Life\eigen
+      -> config CMAKE_INSTALL_PREFIX: C:/zzh/4Life/Sophus/build/x64/Sophus
       (-> config Ceres_DIR: C:\zzh\4Life\ceres-solver\build)
-      3. Configure -> ... (the same as before)
       3. Configure -> Generate -> Open Project
       4. Release -> Build Solution
-      5. Run VS2022 as Administrator, then choose INSTALL subproject -> Build Solution
-      6. move C:\Program Files (x86)\Sophus to C:\zzh\4Life\Sophus\build\x64\Sophus & change CMakeList.txt:
-         `set(Sophus_INCLUDE_DIR "C:/zzh/4Life/Sophus/build/x64/Sophus/include")`
+      5. Choose INSTALL subproject -> Build Solution
+      6. Change CMakeList.txt: `set(Sophus_INCLUDE_DIR "C:/zzh/4Life/Sophus/build/x64/Sophus/include")`
 
 ## DBoW2 (Included in loop folder)
 We use modified versions of the [DBoW2](https://github.com/dorian3d/DBoW2) library to perform place recognition
@@ -361,22 +371,27 @@ PS: Not required when not build rgbd_tum，please change the code by yourself
 
 Refer to the official install guide: https://pointclouds.org/downloads/
 1. linux: simply follow the guide
-2. windows: press [Release](https://github.com/PointCloudLibrary/pcl/releases) and find 1.10.0,
-then download Assets/PCL-1.10.0-AllInOne-msvc2019-win64.exe and install it
+2. windows:
+   1. press [Release](https://github.com/PointCloudLibrary/pcl/releases) and find 1.10.0,
+   then download Assets/PCL-1.10.0-AllInOne-msvc2019-win64.exe and install it
+   2. change C:\zzh\4Life\pcl\build_all_in_one\PCL 1.10.0\3rdParty\Boost\include\boost-1_72\boost\signals2\detail\auto_buffer.hpp:
+   //typedef typename Allocator::pointer              allocator_pointer;
+   using allocator_pointer = std::allocator_traits<std::allocator<T>>::pointer; // for c++20 compile
 
-   PS: It's recommended to pick adding path to environment variables
+   PS: It's recommended to pick adding path to environment variables, our final result is PCL_ROOT=
+   C:\zzh\4Life\pcl\build_all_in_one\PCL 1.10.0
 
 Or Build it from source (ensure you installed cmake before):
 1. linux:
    ```
+   // 1. download the source code
    git clone git@github.com:PointCloudLibrary/pcl.git
    cd pcl
    git reset --hard 1.10.0
+   // 2. compile by forcing Release
    mkdir build
-   cd build
-   cmake ..
-   make -j8
-   sudo make install
+   cd build && cmake .. -DCMAKE_BUILD_TYPE=Release
+   make -j8 && sudo make install
    ```
 2. windows: **unTested**
 
@@ -395,14 +410,22 @@ Clone the repository:
 git clone https://github.com/leavesnight/VIEO_SLAM.git VIEO_SLAM
 ```
 
-We provide a script `build.sh` to build the submodule libraries and *VIEO_SLAM*. Please make sure you have installed all required dependencies (see section 2). Execute:
-```
-cd VIEO_SLAM
-chmod +x build.sh
-./build.sh
-```
+Please make sure you have installed all required dependencies (see section 2).
+
+1. linux: We provide a script `build.sh` to build the submodule libraries and *VIEO_SLAM*.
+
+   Execute:
+   ```
+   cd VIEO_SLAM
+   chmod +x build.sh
+   ./build.sh
+   ```
 
 This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono_tum**, **mono_kitti**, **rgbd_tum**, **stereo_kitti**, **mono_euroc** and **stereo_euroc** in *Examples* folder.
+
+2. windows: We use CMakeSettings.json of Visual Studio 2022 to compile and link this code.
+   1. Select x64-Release -> Build/Build All
+   2. Add C:\zzh\4Life\VIEO_SLAM\bin\Release to environment variable PATH
 
 # 4. Monocular Examples
 
@@ -486,14 +509,14 @@ This will create **libVIEO_SLAM.so**  at *lib* folder and the executables **mono
   ```
   export ROS_PACKAGE_PATH=${ROS_PACKAGE_PATH}:PATH/VIEO_SLAM/Examples/ROS
   ```
-  
+
 2. Execute `build_ros.sh` script:
 
   ```
   chmod +x build_ros.sh
   ./build_ros.sh
   ```
-  
+
 ### Running Stereo_Inertial Node
 For a stereo/RGB-D input from topic config `Camera.topic` and `Camera.topic2` + IMU data input from `IMU.topic`(refering to a non-existent topic can run VO),
 run node VIEO_SLAM/Stereo_Inertial.
@@ -504,24 +527,24 @@ PS: If you **provide rectification matrices** (see Examples/Stereo/EuRoC.yaml ex
   ```
   rosrun VIEO_SLAM Stereo_Inertial PATH_TO_VOCABULARY PATH_TO_SETTINGS_FILE IF_ONLINE_CLACHE SPARSE_MAP_NAME
   ```
-  
+
 **Example**: Download a rosbag (e.g. V1_01_easy.bag) from the EuRoC dataset (http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets). Open 3 tabs on the terminal and run the following command at each tab:
   ```
   roscore
   ```
-  
+
   ```
   rosrun VIEO_SLAM Stereo_Inertial Vocabulary/ORBvoc.bin Examples/Stereo/EuRoC.yaml false
   ```
-  
+
   ```
   rosbag play --pause V1_01_easy.bag /cam0/image_raw:=/camera/left/image_raw /cam1/image_raw:=/camera/right/image_raw
   ```
-  
+
 Once VIEO_SLAM has loaded the vocabulary and Sensor topic has data, system will run. Enjoy it!.
 
 Note: a powerful computer is required to run the most exigent sequences of these datasets.
-  
+
 # 8. Processing your own sequences
 You will need to create a settings file with the calibration of your camera. See the settings file provided for the TUM and KITTI datasets for monocular, stereo and RGB-D cameras.
 We use the calibration model of OpenCV. See the examples to learn how to create a program that makes use of the VIEO_SLAM library and how to pass images to the SLAM system.

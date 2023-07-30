@@ -27,6 +27,8 @@ if (NOT root_project_name)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
     endif ()
+else ()
+    set(PROJECT_LIB_NAME_PREFIX ${PARENT_PROJECT_NAME}_)
 endif ()
 if (NOT COMPILEDWITHC17)
     include(CheckCXXCompilerFlag)
@@ -60,6 +62,19 @@ message(STATUS "${PROJECT_NAME} lib out=" ${${root_project_name}_LIBRARY_OUTPUT_
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 message(STATUS "${PROJECT_NAME} CMAKE_MODULE_PATH=${CMAKE_MODULE_PATH}")
 
+if (${USE_OPENCV_NEWEST})
+    find_package(OpenCV 4.5 QUIET)
+else ()
+    find_package(OpenCV 3.2 QUIET)
+    if (NOT OpenCV_FOUND)
+        find_package(OpenCV 2.4.3 QUIET)
+        if (NOT OpenCV_FOUND)
+            message(FATAL_ERROR "OpenCV > 2.4.3 not found.")
+        endif ()
+    endif ()
+endif ()
+message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
+
 find_package(Eigen3 3.3.7 MODULE REQUIRED)
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
@@ -79,14 +94,34 @@ if (NOT ${PCL_FFLOAT_STORE} EQUAL -1)
     message(FATAL_ERROR "Please remove -ffloat-store for speed 30% improve! Now pclcompileoptions=${PCL_COMPILE_OPTIONS},${PCL_FFLOAT_STORE}")
 endif ()
 
-LIST(APPEND deps
+LIST(APPEND ${PROJECT_NAME}_DEPS
+        ${OpenCV_LIBS}
         ${EIGEN3_LIBS}
         ${Sophus_LIBRARIES}
         ${PCL_LIBRARIES}
+        ${PROJECT_LIB_NAME_PREFIX}common
+        DBoW2
         )
 
 LIST(APPEND ${PROJECT_NAME}_SRCS
         pcl/map_sl.cpp
+        ../src/Converter.cc
+        ../src/Map.cc
+        ../src/KeyFrame.cc
+        ../src/MapPoint.cc
+        ../src/FrameBase.cpp
+        ../src/Frame.cc
+        ../src/KeyFrameDatabase.cc
+        ../src/ORBmatcher.cc
+        ../src/ORBextractor.cc
+
+        ../src/Odom/OdomData.cpp
+        ../src/Odom/OdomPreIntegrator.cpp
+        
+        ../src/CameraModels/GeometricCamera.cpp
+        ../src/CameraModels/Pinhole.cpp
+        ../src/CameraModels/KannalaBrandt8.cpp
+        ../src/CameraModels/radtan.cpp
         )
 
 message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})
@@ -94,12 +129,14 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/../
         ${PROJECT_SOURCE_DIR}/../include
         ${PROJECT_SOURCE_DIR}/../src/Odom
+        ${OpenCV_INCLUDE_DIRS}
         ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${PCL_INCLUDE_DIRS}
 )
 
 # Create library
+set(PROJECT_LIB_NAME ${PROJECT_LIB_NAME_PREFIX}${PROJECT_NAME})
 message(STATUS "pjn=" ${PARENT_PROJECT_NAME}_${PROJECT_NAME})
-add_library(${PARENT_PROJECT_NAME}_${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE} ${${PROJECT_NAME}_SRCS})
-target_link_libraries(${PARENT_PROJECT_NAME}_${PROJECT_NAME} ${deps})
+add_library(${PROJECT_LIB_NAME} ${${PROJECT_NAME}_LIB_TYPE} ${${PROJECT_NAME}_SRCS})
+target_link_libraries(${PROJECT_LIB_NAME} ${${PROJECT_NAME}_DEPS})

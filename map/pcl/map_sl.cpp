@@ -6,6 +6,10 @@
 #include "System.h"
 #include "KeyFrame.h"
 #include "common/mlog/log.h"
+#ifdef WINDOWS
+// for boost(used by pcl) compile problem on windows
+#define BOOST_USE_WINDOWS_H
+#endif
 // PCL
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>

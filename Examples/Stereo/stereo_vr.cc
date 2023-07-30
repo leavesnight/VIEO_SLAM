@@ -349,10 +349,10 @@ int main(int argc, char **argv) {
     PRINT_INFO_MUTEX("Map is changing!Please enter s to stop!" << endl);
 #ifdef DEBUG_STRATEGY
     while (cin.get() != 's') {
-      sleep(1);
+      usleep((__useconds_t)1e6);
     }
 #endif
-    sleep(5);
+    usleep((__useconds_t)5e6);
   }
   // zzh over
 
