@@ -3,7 +3,12 @@ CAMTYPE="StereoVIO"
 if [[ $1 != ""  ]]; then
     CAMTYPE=$1
 fi
+OutputFileNameFiles=""
+if [[ $2 != ""  ]]; then
+    OutputFileNameFiles=$2
+fi
 
+EuRoCFolderRel=EuRoC
 SHELLNAME="./SetEuRoCVIO_Once.sh"
 
 curPath=$(dirname $(readlink -f "$0"))
@@ -75,27 +80,24 @@ if [[ $CAMTYPE == "Monocular"  ]]; then
 fi
 
 EUROCFILE=V101easy
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=V102medium
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=V103difficult
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=V201easy
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=V202medium
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=V203difficult
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=MH01easy
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=MH02easy
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=MH03medium
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=MH04difficult
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=MH05difficult
-source $SHELLNAME $EUROCFILE $SUBFILE $printMore
-
-exit
-
+source $SHELLNAME $EUROCFILE $SUBFILE $printMore $EuRoCFolderRel $OutputFileNameFiles

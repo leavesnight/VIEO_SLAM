@@ -1,7 +1,8 @@
 #!/bin/bash
-EuRoCFolderRel=EuRoC
 EUROCFILE="MH05difficult"
 SUBFILE="StereoVIO"
+EuRoCFolderRel=EuRoC
+OutputFileNamePrint=""
 if [[ $1 != "" ]]; then
   EUROCFILE=$1
 fi
@@ -19,6 +20,9 @@ fi
 if [[ $4 != "" ]]; then
   EuRoCFolderRel=$4
 fi
+if [[ $5 != "" ]]; then
+  OutputFileNamePrint=$5
+fi
 
 DstFolder=~/dataset/$EuRoCFolderRel/$EUROCFILE/orbslam2/$SUBFILE/
 function printInfo() {
@@ -35,4 +39,8 @@ function printInfo() {
   fi
 }
 
-printInfo
+if [[ $OutputFileNamePrint == "" ]]; then
+  printInfo
+else
+  printInfo >> $OutputFileNamePrint
+fi

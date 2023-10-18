@@ -20,5 +20,6 @@ KeyFrameTrajectory*.txt
 CameraTrajectory*.txt
 Vocabulary/ORBvoc.txt
 debug.txt
+evaluate_ntimes_EuRoC.txt
 *.bin
 *.pcd

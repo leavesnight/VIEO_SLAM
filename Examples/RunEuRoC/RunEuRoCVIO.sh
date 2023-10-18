@@ -53,6 +53,9 @@ else
 fi
 
 #RUN_ADMIN=sudo
+#this sudo [VAR=value] is for USE_ROS_RVIZ=1
+#RUN_ADMIN="sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/ros/neotic/lib "
+#RUN_ADMIN="sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/ros2_foxy/install "
 RUN_BIN=./stereo_euroc
 if [[ $CAMTYPE == "StereoVIO" ]]; then
   ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"

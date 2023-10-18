@@ -3,13 +3,18 @@ CAMTYPE="StereoVIO"
 if [[ $1 != "" ]]; then
   CAMTYPE=$1
 fi
+OutputFileNameFiles=""
+if [[ $2 != ""  ]]; then
+    OutputFileNameFiles=$2
+fi
+
+EuRoCFolderRel=TUM
 SHELLNAME="./SetEuRoCVIO_Once.sh"
 
 curPath=$(dirname $(readlink -f "$0"))
 echo curPath_Files=$curPath
 cd $curPath
 
-EuRoCFolderRel=TUM
 ConfigFileRelBase=TUM_512_VIO
 ConfigFileRel=${ConfigFileRelBase}
 
@@ -122,60 +127,58 @@ if [[ $CAMTYPE == "Monocular" ]]; then
 fi
 
 EUROCFILE=dataset-corridor1_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-corridor2_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-corridor3_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-corridor4_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-corridor5_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale1_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale2_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale3_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale4_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale5_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-magistrale6_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors1_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors2_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors3_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors4_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors5_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors6_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors7_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-outdoors8_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room1_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room2_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room3_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room4_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room5_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-room6_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-slides1_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-slides2_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
 EUROCFILE=dataset-slides3_512_16
-source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel
-
-exit
+source $SHELLNAME $EUROCFILE $SUBFILE "$printMore" $EuRoCFolderRel $OutputFileNameFiles
