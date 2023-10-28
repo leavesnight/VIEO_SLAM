@@ -24,7 +24,10 @@ if [[ $5 != "" ]]; then
   TrajectoryFileName=$5
 fi
 
-DstGTFolder=~/dataset/$EuRoCFolderRel/$EUROCFILE
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
+
+DstGTFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE
 DstFolder=$DstGTFolder/vieo_slam/$SUBFILE/
 Evaluator=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate.py
 EvaluatorS=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate_scale.py

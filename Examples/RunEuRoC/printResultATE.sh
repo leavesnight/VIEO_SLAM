@@ -24,7 +24,10 @@ if [[ $5 != "" ]]; then
   OutputFileNamePrint=$5
 fi
 
-DstFolder=~/dataset/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
+
+DstFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
 function printInfo() {
   echo "dataset_name=$EUROCFILE"
   echo "result_ate.txt="
