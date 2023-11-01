@@ -152,7 +152,7 @@ cv::Mat Sim3Solver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInli
   nInliers = 0;
 
   if (N < mRansacMinInliers) {
-    std::cout << "bNoMore by N: " << N << std::endl;
+    // std::cout << "bNoMore by N: " << N << std::endl;
     bNoMore = true;
     return cv::Mat();
   }

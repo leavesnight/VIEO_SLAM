@@ -130,11 +130,11 @@ void ORBmatcher::SearchByProjectionBase(const vector<MapPoint *> &vpMapPoints1, 
         if (pbf) {
           // chi2 check
           // stereo feature points(have depth data)
-          if (pKF->stereoinfo_.vuright_[idx] >= 0) {
+          const float &kpr = pKF->stereoinfo_.vuright_[idx];
+          if (kpr >= 0) {
             // Check reprojection error in stereo
             const float &kpx = kp.pt.x;
             const float &kpy = kp.pt.y;
-            const float &kpr = pKF->stereoinfo_.vuright_[idx];
             const float ex = u - kpx;  // ref-rectiying
             const float ey = v - kpy;
             const float ur = u - (*pbf) * invz;

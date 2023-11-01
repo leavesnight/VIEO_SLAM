@@ -94,6 +94,8 @@ void LocalMapping::Run() {
                           << whiteSTR << endl,
                       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
+      // position before the func. using it is very very very important!!!
+      mbAbortBA = false;
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
         // Find more matches in neighbor keyframes and fuse point duplications
@@ -103,9 +105,9 @@ void LocalMapping::Run() {
                             << whiteSTR << endl,
                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
-#endif
-
+#else
       mbAbortBA = false;
+#endif
 
       // if the newKFs list is idle and not requested stop by LoopClosing/localization mode
       if ((!CheckNewKeyFrames()) && !stopRequested()) {
@@ -361,22 +363,19 @@ void LocalMapping::MapPointCulling() {
     MapPoint *pMP = *lit;
     if (pMP->isBad()) {
       lit = mlpRecentAddedMapPoints.erase(lit);  // already bad MPs don't need to be culled any more
-    } else if (pMP->GetFoundRatio() <
-               0.25f)  // if only 1/4 visibles(matched by TrackWithMM()/TrackRefKF()/mCurrentFrame.isInFrustum(local
-    // MPs)) can be regarded as inliers(found)
-    {
+    } else if (pMP->GetFoundRatio() < 0.25f) {
+      // if only 1/4 visibles(matched by TrackWithMM()/TrackRefKF()/mCurrentFrame.isInFrustum(local
+      //  MPs)) can be regarded as inliers(found)
       pMP->SetBadFlag();
       lit = mlpRecentAddedMapPoints.erase(lit);
-    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 2 &&
-               pMP->Observations() <= cnThObs)  // long age(>=2 frames) new unimportant(<=3 monocular KFs observation)
-    // MapPoints are discarded as bad ones
-    {
+    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 2 && pMP->Observations() <= cnThObs) {
+      // long age(>=2 frames) new unimportant(<=3 monocular KFs observation) MapPoints are discarded as bad ones
       pMP->SetBadFlag();  // firstly cannot be consecutively(3KFs) observed far MPs will be deleted
       lit = mlpRecentAddedMapPoints.erase(lit);
-    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >=
-               3)  // too long ago(>=3 frames) new MapPoints are not processed/culled any more
+    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 3) {
+      // too long ago(>=3 frames) new MapPoints are not processed/culled any more
       lit = mlpRecentAddedMapPoints.erase(lit);
-    else
+    } else
       lit++;
   }
 }
@@ -853,7 +852,9 @@ void LocalMapping::SearchInNeighbors() {
     }
 #define ORB3_STRATEGY
 #ifdef ORB3_STRATEGY
-    if (mbAbortBA) return;
+    if (mbAbortBA) {
+      return;  // break;
+    }
 #endif
   }
 
@@ -901,10 +902,10 @@ void LocalMapping::SearchInNeighbors() {
     for (vector<MapPoint *>::iterator vitMP = vpMapPointsKFi.begin(), vendMP = vpMapPointsKFi.end(); vitMP != vendMP;
          vitMP++) {
       MapPoint *pMP = *vitMP;
-      if (!pMP)  // avoid no corresponding/empty MapPoints
-        continue;
-      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->nid_)  // avoid bad,duplications
-        continue;
+      // avoid no corresponding/empty MapPoints
+      if (!pMP) continue;
+      // avoid bad,duplications
+      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->nid_) continue;
       pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->nid_;
       vpFuseCandidates.push_back(pMP);
     }

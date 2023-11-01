@@ -158,7 +158,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   if (mObservations.end() != iter) {
     indexes = iter->second;
   }
-  CV_Assert(indexes.end() == indexes.find(idx));
+  assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
   PRINT_DEBUG_FILE_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
@@ -354,8 +354,8 @@ void MapPoint::ComputeDistinctiveDescriptors() {
   for (size_t i = 0; i < N; i++) {
     Distances[i][i] = 0;
     for (size_t j = i + 1; j < N; j++) {
-      int distij = ORBmatcher::DescriptorDistance(
-          vDescriptors[i], vDescriptors[j]);  // the hamming distance of the 256 bit descriptor(at the fastest way)
+      // the hamming distance of the 256 bit descriptor(at the fastest way)
+      int distij = ORBmatcher::DescriptorDistance(vDescriptors[i], vDescriptors[j]);
       Distances[i][j] = distij;
       Distances[j][i] = distij;
     }
