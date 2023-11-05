@@ -41,7 +41,14 @@ IMU.SleepTime: 1.0
 # normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
 GBA.iterations: 10
 GBA.initIterations: 15
-GBA.finalIterations: 20
+GBA.finalIterations: 0 #20
+# thread binding core/processor related; ODOM means odom threads, FE means frontend, BE means backends(LBA+GBA)
+# priority 1~99, num larger: prority higher, >99 means SCHED_FIFO with priority-99 else SCHED_RR
+#ODOM.priority: 148
+#FE.processor_ids: 0x03
+#FE.priority: 48
+#BE.processor_ids: 0x02
+#BE.priority: 47
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!
