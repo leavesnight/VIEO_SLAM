@@ -4,14 +4,15 @@
 
 #include <Eigen/StdVector>
 #include <mutex>
+#include "Optimizer.h"
+#include "optimizer/optimizer_ba/g2o_graph_operator.h"
+#include "FrameBase_impl.h"
+#include "Converter.h"
 #ifdef USE_G2O_NEWEST
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #else
 #include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
 #endif
-#include "Optimizer.h"
-#include "Converter.h"
-#include "FrameBase_impl.h"
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {  // changed a lot refering to the JingWang's code
@@ -108,7 +109,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   }
   PRINT_INFO_FILE(blueSTR "Enter OLBA..." << pKF->nid_ << ", size of localKFs=" << lLocalKeyFrames.size()
                                           << "fixedkfs = " << lFixedCameras.size() << ", mps=" << lLocalMapPoints.size()
-                                          << ",blarge=" << (int)bLarge << whiteSTR << endl,
+                                          << ",blarge=" << (int)bLarge
+                                          << /*",curkf ns=" << pKF->GetNavState() <<*/ whiteSTR << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Setup optimizer
@@ -351,18 +353,18 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   const int nExpectedSize = (lLocalKeyFrames.size() + lFixedCameras.size()) * lLocalMapPoints.size();  // max edges'
                                                                                                        // size
 
-  typedef struct _BaseEdgeMono {
-    g2o::EdgeReprojectPR* pedge;
+  typedef struct _BaseEdgeVisual {
+    g2o::OptimizableGraph::Edge* pedge;
     size_t idx;
-  } BaseEdgeMono;
-  vector<BaseEdgeMono> vpEdgesMono;
+  } BaseEdgeVisual;
+  vector<BaseEdgeVisual> vpEdgesMono;
   vpEdgesMono.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFMono;
   vpEdgeKFMono.reserve(nExpectedSize);
   vector<MapPoint*> vpMapPointEdgeMono;
   vpMapPointEdgeMono.reserve(nExpectedSize);
 
-  vector<g2o::EdgeReprojectPRStereo*> vpEdgesStereo;
+  vector<BaseEdgeVisual> vpEdgesStereo;
   vpEdgesStereo.reserve(nExpectedSize);
   vector<KeyFrame*> vpEdgeKFStereo;
   vpEdgeKFStereo.reserve(nExpectedSize);
@@ -443,15 +445,31 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             }
 
             optimizer.addEdge(e);
-            vpEdgesMono.push_back(BaseEdgeMono());
-            BaseEdgeMono& pbaseedgemono = vpEdgesMono.back();
-            pbaseedgemono.pedge = e;
-            pbaseedgemono.idx = idx;
+            vpEdgesMono.push_back(BaseEdgeVisual());
+            auto& baseedgemono = vpEdgesMono.back();
+            baseedgemono.pedge = e;
+            baseedgemono.idx = idx;
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
-          } else                                // Stereo observation
-          {
-            g2o::EdgeReprojectPRStereo* e = new g2o::EdgeReprojectPRStereo();
+
+            // e->computeError();
+            // if (e->chi2() > 100 * 5.991) {
+            //   auto pr = dynamic_cast<g2o::VertexNavStatePR*>(optimizer.vertex(idx_pr_kfi))->estimate();
+            //   Vector3d p3d = pr.vTcw_[cam_idx].R_ * vpt->estimate() + pr.vTcw_[cam_idx].p_;
+            //   Eigen::Vector2f p2d;
+            //   cameras_tmp[cam_idx]->Project(p3d, &p2d);
+            //   PRINT_INFO_FILE(
+            //       "evis=" << e->chi2() << ",kftm=" << fixed << setprecision(9) << pKFi->ftimestamp_ << ",kfinsw="
+            //               << skfs_sw.count(pKFi) << ",mp=" << pmp << ",id=" << maxKFid << "+" << pmp->mnId << "+1"
+            //               << ",idx=" << idx << "pos=" << vpt->estimate().transpose()
+            //               << ",kfi pr=" << pr.Twb_.p_.transpose() << "," << pr.rwb_.log().transpose()
+            //               << ",cam_idx=" << cam_idx << ",cP=" << p3d.transpose() << ",p2d=" << p2d.transpose()
+            //               << ",obs=" << obs.transpose() << ",isdepthpos=" << (int)e->isDepthPositive() << endl,
+            //       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+            // }
+          } else {
+            // Stereo observation
+            auto* e = new g2o::EdgeReprojectPRStereo();
 
             e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
             e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->nid_ * 3)));
@@ -482,7 +500,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             }
 
             optimizer.addEdge(e);
-            vpEdgesStereo.push_back(e);
+            vpEdgesStereo.push_back(BaseEdgeVisual());
+            auto& baseedgestereo = vpEdgesStereo.back();
+            baseedgestereo.pedge = e;
+            baseedgestereo.idx = idx;
             vpEdgeKFStereo.push_back(pKFi);
             vpMapPointEdgeStereo.push_back(pMP);
           }
@@ -500,6 +521,13 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       return;
     }
   //#endif
+
+  // to avoid distort plane of radtan model may have very large Project error due to large x/z or y/z,
+  //  whose chi2 may > 1e12 on MH02easy, may ruin LBA result but err_end is ok then ruin the SLAM System
+  //  rat_vis_check = 100 is from observation of normal err/err_end range
+  constexpr float rat_vis_check = 100.f;
+  g2o::GraphOperator::Chi2LargeSetLevel(optimizer, vpEdgesMono, 2, rat_vis_check, false);
+  g2o::GraphOperator::Chi2LargeSetLevel(optimizer, vpEdgesStereo, 3, rat_vis_check, false);
 
   optimizer.initializeOptimization();
   // ref from ORB3
@@ -540,7 +568,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   PRINT_INFO_FILE("curlambda=" << solver->currentLambda() << ",", mlog::vieo_slam_debug_path,
                   "localmapping_thread_debug.txt");
 #endif
-  optimizer.optimize(optit[0]);  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+  // maybe stopped by *_forceStopFlag(mbAbortBA) in some step/iteration
+  optimizer.optimize(optit[0]);
 #ifdef FIND_LAMBDA_AVG
   static double lambda_avg = 0;
   static unsigned long num_lambda = 0;
@@ -557,10 +586,12 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
       bDoMore = false;
 #endif
 
+  // PRINT_INFO_FILE("num_iters=" << num_iters << ",bdomore=" << (int)bDoMore << endl, mlog::vieo_slam_debug_path,
+  //                "localmapping_thread_debug.txt");
   if (bDoMore) {
     // Check inlier observations
     for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-      g2o::EdgeReprojectPR* e = vpEdgesMono[i].pedge;
+      auto* e = vpEdgesMono[i].pedge;
       MapPoint* pMP = vpMapPointEdgeMono[i];
       // ref from ORB3
       bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
@@ -569,20 +600,21 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
         continue;
 
       // if chi2 error too big(5% wrong) or Zc<=0 then outlier
-      if (e->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e->isDepthPositive()) {
+      if (e->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) ||
+          !dynamic_cast<g2o::EdgeReprojectPR*>(e)->isDepthPositive()) {
         e->setLevel(1);
       }
 
       e->setRobustKernel(0);  // cancel RobustKernel
     }
     for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-      g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
+      auto* e = vpEdgesStereo[i].pedge;
       MapPoint* pMP = vpMapPointEdgeStereo[i];
 
       if (pMP->isBad()) continue;
 
-      if (e->chi2() > 7.815 || !e->isDepthPositive())  // chi2(0.05,3)
-      {
+      // chi2(0.05,3)
+      if (e->chi2() > 7.815 || !dynamic_cast<g2o::EdgeReprojectPRStereo*>(e)->isDepthPositive()) {
         e->setLevel(1);
       }
 
@@ -633,7 +665,7 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Check inlier observations
   size_t num_pts_good_bef = 0;
   for (size_t i = 0, iend = vpEdgesMono.size(); i < iend; i++) {
-    const BaseEdgeMono& e = vpEdgesMono[i];
+    const auto& e = vpEdgesMono[i];
     MapPoint* pMP = vpMapPointEdgeMono[i];
     // ref from ORB3
     bool bClose = pMP->GetTrackInfoRef().track_depth_ < thresh_depth_close;
@@ -641,19 +673,20 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     if (pMP->isBad()) continue;
 
     ++num_pts_good_bef;
-    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) || !e.pedge->isDepthPositive()) {
+    if (e.pedge->chi2() > (bClose ? 1.5 * chi2Mono : chi2Mono) ||
+        !dynamic_cast<g2o::EdgeReprojectPR*>(e.pedge)->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFMono[i];
       vToErase.emplace_back(pKFi, pMP, e.idx);  // ready to erase outliers of pKFi && pMP in monocular edges
     }
   }
   for (size_t i = 0, iend = vpEdgesStereo.size(); i < iend; i++) {
-    g2o::EdgeReprojectPRStereo* e = vpEdgesStereo[i];
+    const auto& e = vpEdgesStereo[i];
     MapPoint* pMP = vpMapPointEdgeStereo[i];
 
     if (pMP->isBad()) continue;
 
     ++num_pts_good_bef;
-    if (e->chi2() > 7.815 || !e->isDepthPositive()) {
+    if (e.pedge->chi2() > 7.815 || !dynamic_cast<g2o::EdgeReprojectPRStereo*>(e.pedge)->isDepthPositive()) {
       KeyFrame* pKFi = vpEdgeKFStereo[i];
       vToErase.emplace_back(pKFi, pMP, -1);  // ready to erase outliers of pKFi && pMP in stereo edges
     }
@@ -683,6 +716,8 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
   // Recover optimized data
 
   // Keyframes update(Pose Tbw&Tcw...)
+  // to warn ns opt. change when erase too much mps(old MH02 fly bug related to this phenomenon), normally < 0.05
+  const bool bprint_ns_change = (float)vToErase.size() / num_pts_good_bef > 0.5;
   for (list<KeyFrame*>::iterator lit = lLocalKeyFrames.begin(), lend = lLocalKeyFrames.end(); lit != lend; ++lit) {
     KeyFrame* pKFi = *lit;
     int idKF = 3 * pKFi->nid_;
@@ -694,8 +729,24 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     const NavState& optBiasns = vNSBias->estimate();
     ns_recov.mdbg = optBiasns.mdbg;
     ns_recov.mdba = optBiasns.mdba;  // don't need to update const bi_bar
-    pKFi->SetNavState(ns_recov);     // it has already called the UpdatePoseFromNS();
+    if (bprint_ns_change) {
+      // PRINT_INFO_FILE(
+      //    "before lba opt. kf[" << fixed << setprecision(9) << pKFi->ftimestamp_ << "] ns=" << pKFi->GetNavState(),
+      //    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+      // PRINT_INFO_FILE(",after lba ns=" << ns_recov << endl, mlog::vieo_slam_debug_path,
+      //                "localmapping_thread_debug.txt");
+    }
+    pKFi->SetNavState(ns_recov);  // it has already called the UpdatePoseFromNS();
   }
+  // Matrix15calc H_curkf = Matrix15calc::Zero();
+  //{
+  //  auto ids_x_tmp = g2o::GraphOperator::GetIdsX(pKF->nid_, num_block_x, max_id_pr);
+  //  H_curkf.block<6, 6>(0, 0) = dynamic_cast<const g2o::VertexNavStatePR*>(optimizer.vertex(ids_x_tmp[0]))->A();
+  //  H_curkf.block<3, 3>(6, 6) = dynamic_cast<const g2o::VertexNavStateV*>(optimizer.vertex(ids_x_tmp[1]))->A();
+  //  H_curkf.block<6, 6>(9, 9) = dynamic_cast<const g2o::VertexNavStateBias*>(optimizer.vertex(ids_x_tmp[2]))->A();
+  //}
+  // PRINT_INFO_FILE("after lba opt. curkf ns=" << pKF->GetNavState() << ",Hnorm=" << H_curkf.norm() << endl,
+  //                mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
   // Points update(Position, normal), no need to update descriptor for unchanging pMP->mObservations except for the ones
   // having outliers' edges?

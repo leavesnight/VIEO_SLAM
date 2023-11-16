@@ -458,6 +458,7 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
     if (++depth >= depth_thresh) break;
   }
   if (!pMP || pMP->isBad()) return;
+//  if (depth) PRINT_INFO_FILE("depth=" << depth << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 #endif
 
   // If there is already a MapPoint replace otherwise add new measurement
@@ -465,15 +466,26 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   if (pMPinKF) {
     if (!pMPinKF->isBad()) {
       // if pMP in pKF is better then discard pMP and use pMPinKF instead
-      if (pMPinKF->Observations() > pMP->Observations())
+      if (pMPinKF->Observations() > pMP->Observations()) {
+        // PRINT_INFO_FILE(
+        //    "replace " << pMP << " by " << pMPinKF << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << endl,
+        //    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pMP->Replace(pMPinKF);
-      else  // else replace pMPinKF with pMP
+      } else {
+        // else replace pMPinKF with pMP
+        // PRINT_INFO_FILE(
+        //    "replace " << pMPinKF << " by " << pMP << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << endl,
+        //    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pMPinKF->Replace(pMP);
+      }
     }     // TODO: maybe when it's bad, can fuse it as well, just add?
   } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
   {
     pMP->AddObservation(this, idx);
-    PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    // PRINT_INFO_FILE("addmp3 " << pMP << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << ",idx=" << idx <<
+    // endl,
+    //                 mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+    // PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt")
     AddMapPoint(pMP, idx);
   }
 }
