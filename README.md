@@ -45,21 +45,21 @@ Features Number Per Image 1200(default)->375(with full ba);
 XXX_distXXX.yaml(default)--XXX.yaml(undist as ref)**
 ```
 (With FBA)
-V101 0.019|0.037 ->0.018/?|0.036/? 1--0.019|0.036
-V102 0.023|0.018 ->0.021/?|0.012/? 1--0.023|0.018
-V103 0.039|0.023 ->0.038/?|0.017/? 1--0.040|0.021
-V201 0.014|0.014 ->0.019/?|0.017/? 1--0.030|0.030
-V202 0.016|0.014 ->0.012/?|0.009/? 1--0.014|0.011
-V203 0.017|0.016 ->0.020/?|0.015/? 1--0.026|0.024
-MH01 0.060|0.016 ->0.062/?|0.011/? 1--0.069|0.024
-MH02 0.047|0.015 ->0.052/?|0.016/? 1--0.051|0.017
-MH03 0.078|0.025 ->0.081/?|0.026/? 1--0.076|0.024
-MH04 0.081|0.044 ->0.086/?|0.058/? 1--0.093|0.054
-MH05 0.100|0.039 ->0.137/?|0.080/? 1--0.117|0.057
+V101 0.019/?|0.037/? 1->0.018/?|0.036/? 1--0.019/?|0.036/? 1
+V102 0.023/?|0.018/? 1->0.021/?|0.012/? 1--0.023/?|0.018/? 1
+V103 0.039/?|0.023/? 1->0.038/?|0.017/? 1--0.040/?|0.021/? 1
+V201 0.014/?|0.014/? 1->0.019/?|0.017/? 1--0.030/?|0.030/? 1
+V202 0.016/?|0.014/? 1->0.012/?|0.009/? 1--0.014/?|0.011/? 1
+V203 0.017/?|0.016/? 1->0.020/?|0.015/? 1--0.026/?|0.024/? 1
+MH01 0.060/?|0.016/? 1->0.062/?|0.011/? 1--0.069/?|0.024/? 1
+MH02 0.047/?|0.015/? 1->0.052/?|0.016/? 1--0.051/?|0.017/? 1
+MH03 0.078/?|0.025/? 1->0.081/?|0.026/? 1--0.076/?|0.024/? 1
+MH04 0.081/?|0.044/? 1->0.086/?|0.058/? 1--0.093/?|0.054/? 1
+MH05 0.100/?|0.039/? 1->0.137/?|0.080/? 1--0.117/?|0.057/? 1
 Final MH05 mean time cost per frame of frontend(ms): 41.X -> 20.X -- 30.X
 PS:2024/6/27;
 Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i7-12700H(futrue on i9-14900HX);
-+ meaning accuracy up(>=5mm)/ times cost down(>=1ms) compared with before
++ meaning accuracy up(both median diff>=5mm)/ times cost down(>=1ms) compared with before
 ```
 
 ### TUM_VI Dataset
@@ -69,38 +69,37 @@ Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i7-12700H(futrue on i9-14900HX
 **ATE Random tests (1|2|...) StereoVIO Res(m);feat num 1000(default)->375:**
 
 ```
-corridor1   0.031-->0.032
-corridor2   0.024+->0.068
-corridor3   0.016 ->0.044
-corridor4   0.261-->0.214
-corridor5   0.040-->0.097
-magistrale1 0.107-->0.818
-magistrale2 1.134-->2.114
-magistrale3 1.437-->1.422
-magistrale4 0.194 ->1.430
-magistrale5 0.643+->1.696
-magistrale6 0.198+->3.531
-outdoors1   8.752+->21.74
-outdoors2   4.319-->8.438
-outdoors3   2.373+->32.84
-outdoors4   2.805+->14.84
-outdoors5   5.017+->18.42
-outdoors6   15.13-->23.07
-outdoors7   1.338+->5.894
-outdoors8   3.533-->7.606
-room1       0.010 ->0.010
-room2       0.010 ->0.009
-room3       0.009 ->0.009
-room4       0.006 ->0.008
-room5       0.010 ->0.007
-room6       0.008 ->0.007
-slides1     0.126+->0.304
-slides2     0.418-->0.875
-slides3     0.413+->0.818
-Final slides3(current parallel, future single) mean time cost per frame of frontend(ms): ~46 ->21 --31
+corridor1   0.031/? 1->0.032
+corridor2   0.024/? 1->0.068
+corridor3   0.016/? 1->0.044
+corridor4   0.261/? 1->0.214
+corridor5   0.040/? 1->0.097
+magistrale1 0.107/? 1->0.818
+magistrale2 1.134/? 1->2.114
+magistrale3 1.437/? 1->1.422
+magistrale4 0.194/? 1->1.430
+magistrale5 0.643/? 1->1.696
+magistrale6 0.198/? 1->3.531
+outdoors1   8.752/? 1->21.74
+outdoors2   4.319/? 1->8.438
+outdoors3   2.373/? 1->32.84
+outdoors4   2.805/? 1->14.84
+outdoors5   5.017/? 1->18.42
+outdoors6   15.13/? 1->23.07
+outdoors7   1.338/? 1->5.894
+outdoors8   3.533/? 1->7.606
+room1       0.010/? 1->0.010
+room2       0.010/? 1->0.009
+room3       0.009/? 1->0.009
+room4       0.006/? 1->0.008
+room5       0.010/? 1->0.007
+room6       0.008/? 1->0.007
+slides1     0.126/? 1->0.304
+slides2     0.418/? 1->0.875
+slides3     0.413/? 1->0.818
+Final slides3(current parallel, future single) mean time cost per frame of frontend(ms): ~46 ->21
 PS:2024/6/27;
 Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 3 TUM_VI) On i7-12700H;
-+ meaning accuracy up(>=5mm) compared with before
 ```
 
 ## Usage

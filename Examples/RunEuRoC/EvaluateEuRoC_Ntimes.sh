@@ -26,11 +26,12 @@ for ((i = 0; i < $N_times; ++i)); do
   fi
 done
 
-# get only necessary info files; you may need to install gawk: "sudo apt-get install gawk"
-cat $OutputFileName | grep -A16 "dataset_name=" | sed "/--/d" | sed -E "N;N;N;N;N;N;N;N;N;N;N;N;N;N;N;N;s/dataset_name=(.*)\nresult.*rmse (.*) m\n.*mean.*max (.*) m\nresult.*rmse (.*) m\n.*mean.*max (.*) m/\1 \2 \4 \3 \5/" | awk -F' ' '{printf "%s %f %f %f %f\n",$1,$2,$3,$4,$5}' >$OutputFileNameResult
-# print README.txt used evaluation results
-cat $OutputFileNameResult | awk -F' ' '{printf "%s %f %f %f %f ",$1,$2,$3,$4,$5}' |
-  awk -v N_times=$N_times -F' ' '
+if [[ $BenchmarkName == "EuRoC" ]]; then
+  # get only necessary info files; you may need to install gawk: "sudo apt-get install gawk"
+  cat $OutputFileName | grep -A16 "dataset_name=" | sed "/--/d" | sed -E "N;N;N;N;N;N;N;N;N;N;N;N;N;N;N;N;s/dataset_name=(.*)\nresult.*rmse (.*) m\n.*mean.*max (.*) m\nresult.*rmse (.*) m\n.*mean.*max (.*) m/\1 \2 \4 \3 \5/" | awk -F' ' '{printf "%s %f %f %f %f\n",$1,$2,$3,$4,$5}' >$OutputFileNameResult
+  # print README.txt used evaluation results
+  cat $OutputFileNameResult | awk -F' ' '{printf "%s %f %f %f %f ",$1,$2,$3,$4,$5}' |
+    awk -v N_times=$N_times -F' ' '
   {
    M=5;
    N=NF/M/N_times;
@@ -79,5 +80,46 @@ cat $OutputFileNameResult | awk -F' ' '{printf "%s %f %f %f %f ",$1,$2,$3,$4,$5}
     }
    }
   }'
+else
+  cat $OutputFileName | grep -A8 "dataset_name=" | sed "/--/d" | sed -E "N;N;N;N;N;N;N;N;s/dataset_name=(.*)\nresult.*rmse (.*) m\n.*mean.*max (.*) m/\1 \2 \3/" | awk -F' ' '{printf "%s %f %f\n",$1,$2,$3}' >$OutputFileNameResult
+  cat $OutputFileNameResult | awk -F' ' '{printf "%s %f %f ",$1,$2,$3}' |
+    awk -v N_times=$N_times -F' ' '
+  {
+   M=3;
+   N=NF/M/N_times;
+   printf "Total %u scenes in this dataset\n", N;
+   #process each dataset total N=28 in TUM_VI
+   for (i=2;i<=N*M;i+=M) {
+    num=0;num2=0;
+    sum=0;sum2=0;
+    {
+     for (j=i;j<=NF;j+=N*M) {
+      sum+=$j;sum2+=$(j+1);
+      a[++num]=$j;a2[++num2]=$(j+1);
+     }
+    }
+    #{for (itmp=1;itmp<=num;++itmp) {printf "%u:%f ",itmp,a[itmp]}}{printf "\n"}
+    asort(a);
+    #after asort, itmp start from 1! can not use (itmp in a) for it may be non-key-order
+    #{for (itmp=1;itmp<=num;++itmp) {printf "%u:%f ",itmp,a[itmp]}}{print "\n"}
+    asort(a2);
+    {
+     #after asort, itmp start from 1
+     num_div2=int(num/2);num2_div2=int(num2/2);
+     if (num%2==0) {
+      median=(a[num_div2]+a[num_div2+1])/2;
+     } else {
+      median=a[num_div2+1]
+     }
+     if (num2%2==0) {
+      median2=(a2[num2_div2]+a2[num2_div2+1])/2;
+     } else {
+      median2=a2[num2_div2+1]
+     }
+     printf "%-30s %10.6f/%-10.6f max:%10.6f/%-10.6f --%f %u \n",$(i-1),sum/num,median,sum2/num2,median2,$i,num
+    }
+   }
+  }'
+fi
 
 exit
