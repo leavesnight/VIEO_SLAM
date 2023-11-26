@@ -29,10 +29,14 @@ DstFolder=~/dataset/
 
 DstGTFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE
 DstFolder=$DstGTFolder/vieo_slam/$SUBFILE/
-Evaluator=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate.py
-EvaluatorS=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate_scale.py
+
 curPath=$(dirname $(readlink -f "$0"))
 echo curPath_Evaluate_Collect=$curPath
+CollectFolder=${curPath}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
+#cp -r $CollectFolder/* ${DstFolder}
+
+Evaluator=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate.py
+EvaluatorS=~/zzh/rgbd_benchmark_tools/src/rgbd_benchmark_tools/evaluate_ate_scale.py
 # to avoid parallal running empty txt problem, we cd to dst folder! so no cp file from evaluator folder to dst folder later
 cd ${DstFolder}/
 if [[ $EuRoCFolderRel == EuRoC ]]; then
@@ -52,6 +56,5 @@ python2 $Evaluator ${DstGTFolder}/groundtruth.txt ${DstFolder}/${TrajectoryFileN
 python2 $EvaluatorS ${DstGTFolder}/groundtruth.txt ${DstFolder}/${TrajectoryFileName}.txt --verbose --offset $OFFSET --plot PLOT_GT >result_ate_GT.txt
 #cp ./result_ate_GT.txt ./PLOT_GT.png ${DstFolder}
 
-CollectFolder=${curPath}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
 mkdir -p "$CollectFolder"
 cp -r ${DstFolder}/* $CollectFolder

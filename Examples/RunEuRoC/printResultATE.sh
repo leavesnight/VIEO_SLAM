@@ -26,12 +26,14 @@ fi
 
 #DstFolder=/media/sf_0Downloads/dataset/
 DstFolder=~/dataset/
+#DstFolder=./
 
 DstFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
 function printInfo() {
   echo "dataset_name=$EUROCFILE"
   echo "result_ate.txt="
   cat ${DstFolder}/result_ate.txt
+#  cat ${DstFolder}/result_ate_NO.txt
   if [[ $print_gt != 0 ]]; then
     echo "result_ate_GT.txt="
     cat ${DstFolder}/result_ate_GT.txt
@@ -39,6 +41,7 @@ function printInfo() {
   if [[ $print_est != 0 ]]; then
     echo "result_ate_Est.txt="
     cat ${DstFolder}/result_ate_Est.txt
+#    cat ${DstFolder}/result_ate_NO_Est.txt
   fi
 }
 

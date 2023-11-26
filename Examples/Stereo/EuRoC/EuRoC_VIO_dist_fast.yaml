@@ -44,6 +44,7 @@ GBA.initIterations: 15
 GBA.finalIterations: 20
 GBA.threshMatches : 10
 GBA.threshInliers : 10
+#GBA.NoLoopClosing: 1 #0
 # thread binding core/processor related; ODOM means odom threads, FE means frontend, BE means backends(LBA+GBA)
 # priority 1~99, num larger: prority higher, >99 means SCHED_FIFO with priority-99 else SCHED_RR
 #ODOM.priority: 148
