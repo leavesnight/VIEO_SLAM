@@ -178,7 +178,7 @@ fi
 
 #"" for shell param analysis will use IFS="\t\n" and next param will be advanced if use $this else use "$this"
 printMore=""
-if [[ $BenchmarkName == "EuRoC" && ${CAMTYPE:0:6} == "Stereo" ]]; then
+if [[ $BenchmarkName == "EuRoC" && (${CAMTYPE:0:6} == "Stereo" || ${CAMTYPE:0-3:3} == "VIO") ]]; then
   printMore="Est"
 fi
 if [[ $CAMTYPE == "Monocular" ]]; then

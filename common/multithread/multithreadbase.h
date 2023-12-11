@@ -51,8 +51,8 @@ COMMON_API void SetAffinity(multithread::ThreadPolicyInfo &event_info);
 class KeyFrame;
 class MultiThreadBase : public MutexUsed {
  public:
-  template <typename _Tp>
-  using list = std::list<_Tp>;
+  template <typename Tp>
+  using list = std::list<Tp>;
   using thread = std::thread;
 
   virtual void SetThreadPolicy(const std::string &settings_path, const std::string &thread_type);

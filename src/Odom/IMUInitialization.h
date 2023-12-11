@@ -58,9 +58,9 @@ class IMUInitialization : public MultiThreadBase {  // designed for multi thread
 
   // CREATOR_VAR_MULTITHREADS(UpdatingInitPoses,bool,b)//for last propagation in IMU Initialization to stop adding new
   // KFs in Tracking thread, useless for LocalMapping is stopped
-  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b, private,
-                           false)  // for last GBA(include propagation) required by IMU Initialization,
-                                   // LoopClosing always creates new GBA thread when it's true
+  // for last GBA(include propagation) required by IMU Initialization, LoopClosing always creates new GBA thread
+  // when it's true
+  CREATOR_VAR_MULTITHREADS(InitGBA, bool, b, private, false)
   CREATOR_VAR_MULTITHREADS(InitGBAOver, bool, b, private, false)  // for Full BA strategy Adjustments
   CREATOR_VAR_MULTITHREADS(InitGBA2, bool, , private, false)
   CREATOR_VAR_MULTITHREADS(InitGBAPriorCoeff, float, , private, 1)
