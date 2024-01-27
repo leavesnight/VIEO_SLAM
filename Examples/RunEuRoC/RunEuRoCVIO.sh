@@ -53,8 +53,8 @@ else
   exit
 fi
 
-#DstFolder=/media/sf_0Downloads/dataset/
-DstFolder=~/dataset/
+DstFolder=/media/sf_0Downloads/dataset/
+#DstFolder=~/dataset/
 
 #RUN_ADMIN=sudo
 #this sudo [VAR=value] is for USE_ROS_RVIZ=1

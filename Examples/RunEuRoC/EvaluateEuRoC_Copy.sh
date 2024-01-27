@@ -20,8 +20,8 @@ if [[ $4 != "" ]]; then
   SUBFILE=$4
 fi
 
-#DstFolder=/media/sf_0Downloads/dataset/
-DstFolder=~/dataset/
+DstFolder=/media/sf_0Downloads/dataset/
+#DstFolder=~/dataset/
 
 CAMTYPEFOLDER=${CAMTYPE%VIO}
 DstFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE/vieo_slam
