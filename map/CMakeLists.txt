@@ -5,7 +5,7 @@ set(PARENT_PROJECT_NAME_STR)
 foreach (tmp ${PARENT_PROJECT_NAME})
     set(PARENT_PROJECT_NAME_STR "${PARENT_PROJECT_NAME_STR} ${tmp}")
 endforeach ()
-message(STATUS "${PROJECT_NAME} parent project=" ${PARENT_PROJECT_NAME_STR})
+message(STATUS "${PROJECT_NAME} parent projects=" ${PARENT_PROJECT_NAME_STR})
 
 if (NOT USE_G2O_NEWEST)
     set(USE_G2O_NEWEST 0)
@@ -24,9 +24,11 @@ if (NOT root_project_name)
     if (${USE_G2O_NEWEST})
         message("build without march=native")
     else ()
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -O0 -march=native")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
     endif ()
+else ()
+    set(PROJECT_LIB_NAME_PREFIX ${PARENT_PROJECT_NAME}_)
 endif ()
 if (NOT COMPILEDWITHC17)
     include(CheckCXXCompilerFlag)
@@ -83,6 +85,7 @@ LIST(APPEND deps
         ${EIGEN3_LIBS}
         ${Sophus_LIBRARIES}
         ${PCL_LIBRARIES}
+        ${PROJECT_LIB_NAME_PREFIX}DBoW2
         )
 
 LIST(APPEND ${PROJECT_NAME}_SRCS

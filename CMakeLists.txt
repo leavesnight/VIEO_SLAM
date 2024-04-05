@@ -110,7 +110,7 @@ add_subdirectory(common)
 add_subdirectory(loop/DBoW2)
 LIST(APPEND ${PROJECT_NAME}_deps
         ${PROJECT_NAME}_common
-        DBoW2
+        ${PROJECT_NAME}_DBoW2
         )
 message("g2o newest=" ${USE_G2O_NEWEST})
 #find g2o here for Eigen>3.2.10
