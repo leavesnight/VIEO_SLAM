@@ -131,6 +131,9 @@ GeometricCamera::vector<float> GeometricCamera::TriangulateMatches(
   }
   if (!just_check_p3d) {
     if (!Triangulate(cPs, Tcws, x3D)) return vector<float>();
+  } else {
+    assert(p3D);
+    x3D = Converter::toVector3d(*p3D);
   }
   vector<float> czs(n_cams);
   CV_Assert(!purbf || n_cams == purbf->size());
