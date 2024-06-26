@@ -707,7 +707,11 @@ bool IMUInitialization::TryInitVIO_zzh() {
       mGravityVec = Converter::toCvMat(gwd);
     }
 
-    {  // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
+    {
+      // notice we cannot update scale during LoopClosing or LocalBA!
+      unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);
+
+      // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
       // if LocalMapping is killed by System::Shutdown(), don't wait any more
@@ -715,9 +719,6 @@ bool IMUInitialization::TryInitVIO_zzh() {
         usleep(1000);
       }
 
-      unique_lock<mutex> lockScale(
-          mpMap->mMutexScaleUpdateLoopClosing);  // notice we cannot update scale during LoopClosing or LocalBA!
-      unique_lock<mutex> lockScale2(mpMap->mMutexScaleUpdateGBA);
       unique_lock<mutex> lock(mpMap->mMutexMapUpdate, std::defer_lock);  // Get Map Mutex
       while (!lock.try_lock()) {
         if (Getreset()) {
@@ -1124,7 +1125,11 @@ bool IMUInitialization::TryInitVIO() {
     }
     Vector3d gweig = Converter::toVector3d(gw);
 
-    {  // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
+    {
+      // notice we cannot update scale during LoopClosing or LocalBA!
+      unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);
+
+      // Update the Map needs mutex lock: Stop local mapping, like RunGlobalBundleAdjustment() in LoopClosing.cc
       mpLocalMapper->RequestStop();  // same as CorrectLoop(), suspend/stop/freeze LocalMapping thread
       // Wait until Local Mapping has effectively stopped
       // if LocalMapping is killed by System::Shutdown(), don't wait any more
@@ -1132,9 +1137,6 @@ bool IMUInitialization::TryInitVIO() {
         usleep(1000);
       }
 
-      unique_lock<mutex> lockScale(
-          mpMap->mMutexScaleUpdateLoopClosing);  // notice we cannot update scale during LoopClosing or LocalBA!
-      unique_lock<mutex> lockScale2(mpMap->mMutexScaleUpdateGBA);
       unique_lock<mutex> lock(mpMap->mMutexMapUpdate, std::defer_lock);  // Get Map Mutex
       while (!lock.try_lock()) {
         if (Getreset()) {

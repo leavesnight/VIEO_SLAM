@@ -718,7 +718,7 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)  // nLoopKF h
   bool bUseGBAPRV = false;
   int idx = mnFullBAIdx;
   // notice we cannot update scale during LoopClosing or LocalBA!
-  unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateGBA);
+  unique_lock<mutex> lockScale(mpMap->mMutexScaleUpdateLoopClosing);
   if (mpIMUInitiator->GetVINSInited()) {
     if (!mpIMUInitiator->GetInitGBAOver()) {
       // if it's 1st Full BA just after IMU Initialized(the before ones may be cancelled)
