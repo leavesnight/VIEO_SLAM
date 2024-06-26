@@ -64,7 +64,7 @@ void odomIMURun(ifstream &finOdomdata, int totalNum, const string &settings_path
   }
   while (!finOdomdata.eof()) {
     finOdomdata >> timestamp;
-    if (finOdomdata.eof()) break;
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
     while (1) {  // until the image reading time is reached
       {
         unique_lock<mutex> lock(g_mutex);
@@ -130,7 +130,7 @@ void odomEncRun(ifstream &finOdomdata, const string &settings_path = "") {  // m
   }
   while (!finOdomdata.eof()) {
     finOdomdata >> timestamp;
-    if (finOdomdata.eof()) break;
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
     while (1) {  // until the image reading time is reached
       {
         unique_lock<mutex> lock(g_mutex);

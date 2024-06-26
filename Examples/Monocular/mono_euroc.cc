@@ -37,6 +37,9 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
   while (!finOdomdata.eof()) {
     string strTmp;
     getline(finOdomdata, strTmp);
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
+    if (strTmp.empty() || strTmp[0] == '#') continue;  // for safety
+
     int posLast = strTmp.find(',');
     timestamp = atof(strTmp.substr(0, posLast).c_str()) / 1e9;
     ++posLast;
