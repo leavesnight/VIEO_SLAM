@@ -14,6 +14,8 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include "System.h"
+#include "sophus/se3.hpp"  //TODO: implement se3 by ourself to ensure the accuracy and rightness
+#include "common/so3_extra.h"
 #include "common/multithread/multithreadbase.h"
 #include "common/mlog/log.h"
 
@@ -371,6 +373,7 @@ int main(int argc, char **argv) {
 
   // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
   // VIORBSLAM paper! load if Full BA just after IMU Initialized
+  auto &fs_settings = fSettings;
   cv::FileNode fnFBA = fs_settings["GBA.finalIterations"];
   bool bfba = false;
   if (!fnFBA.empty()) {
