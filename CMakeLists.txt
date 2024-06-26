@@ -74,10 +74,7 @@ else ()
 endif ()
 message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
-find_package(Pangolin REQUIRED)
-#find_package(Cholmod REQUIRED)#added for cholmod linear solver
-
-find_package(Eigen3 3.3.7 MODULE REQUIRED)
+find_package(Eigen3 3.3.7 REQUIRED NO_MODULE)
 message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
@@ -87,6 +84,10 @@ if (${USE_SOPHUS_NEWEST})
 else ()
     message(FATAL_ERROR "Sophus not found.")
 endif ()
+
+find_package(Pangolin REQUIRED)
+#find_package(Cholmod REQUIRED)#added for cholmod linear solver
+
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}")
 message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}")
