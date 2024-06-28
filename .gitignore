@@ -16,6 +16,7 @@ Examples/RunEuRoC/EuRoC/*
 !Examples/RunEuRoC/EuRoC/*_result.txt
 Examples/RunEuRoC/TUM_VI/*
 !Examples/RunEuRoC/TUM_VI/*_result.txt
+Examples/RunEuRoC/tmp/*
 KeyFrameTrajectory*.txt
 CameraTrajectory*.txt
 Vocabulary/ORBvoc.txt
