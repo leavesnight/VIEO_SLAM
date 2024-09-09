@@ -1,0 +1,13 @@
+build/
+lib/
+bin/
+cmake-build-*/
+.idea/
+
+/vieo_fe
+/vieo_odoms*
+/log
+/install
+/msg_gen
+/src/vieo_slam
+/Stereo_Inertial

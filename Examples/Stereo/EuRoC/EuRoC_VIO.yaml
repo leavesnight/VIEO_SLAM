@@ -128,7 +128,7 @@ RIGHT.P:  !!opencv-matrix
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 1000
+ORBextractor.nFeatures: 1200
 
 # ORB Extractor: Scale factor between levels in the scale pyramid 	
 ORBextractor.scaleFactor: 1.2
@@ -156,4 +156,7 @@ Viewer.ViewpointX: 0
 Viewer.ViewpointY: -0.7
 Viewer.ViewpointZ: -1.8
 Viewer.ViewpointF: 500
-
+# shown max cams number of viewer, -1 or no this term will use the number of images, 0 won't show any image
+Viewer.MaxCamsNum: 0
+# 1 shows pangolin/ros_rviz map, 0 not show any map
+Viewer.MapDrawer: 0

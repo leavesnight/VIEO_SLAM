@@ -32,17 +32,19 @@ PS:
 
 ### EuRoC Dataset
 
-*WithFull BA Monocular/(d)Stereo VIO:*
+*Without Full BA Monocular/(d)Stereo VIO:*
 
 **ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
 ```
+(With FBA)
 V101(1.4cm),V102(1.8),V103(4.4),V201(1.2),V202(1.3),V203(2.6),MH01(6.7),MH02(5.7),MH03(6.3),MH04(5.9),MH05(9.4)
 PS: 2017/12/26
 ```
-**ATE Random 1 OR Avg/Median of N(%.6f N) tests StereoVIO Res(m,Leica|Est\*);feat num 1000->375(default):**
-
-**With XXX_distXXX.yaml--With XXX.yaml(undist as ref)**
+**ATE Avg/Median of N tests StereoVIO Res(m,Leica|Est\*);
+Features Number Per Image 1200(default)->375(with full ba);
+XXX_distXXX.yaml(default)--XXX.yaml(undist as ref)**
 ```
+(With FBA)
 V101 0.019|0.037 ->0.018/?|0.036/? 1--0.019|0.036
 V102 0.023|0.018 ->0.021/?|0.012/? 1--0.023|0.018
 V103 0.039|0.023 ->0.038/?|0.017/? 1--0.040|0.021
@@ -54,50 +56,51 @@ MH02 0.047|0.015 ->0.052/?|0.016/? 1--0.051|0.017
 MH03 0.078|0.025 ->0.081/?|0.026/? 1--0.076|0.024
 MH04 0.081|0.044 ->0.086/?|0.058/? 1--0.093|0.054
 MH05 0.100|0.039 ->0.137/?|0.080/? 1--0.117|0.057
-Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->23 --62
-PS:2023/5/26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
-Single MH05 test: 0.092|0.038 ->0.137|0.077---0.106|0.048+
-tm cost(ms): 41 ->20 --30
+Final MH05 mean time cost per frame of frontend(ms): 41.X -> 20.X -- 30.X
+PS:2024/6/27;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i7-12700H(futrue on i9-14900HX);
++ meaning accuracy up(>=5mm)/ times cost down(>=1ms) compared with before
 ```
 
-### TUM Dataset
+### TUM_VI Dataset
 
 *Without Full BA dStereo VIO:*
 
 **ATE Random tests (1|2|...) StereoVIO Res(m);feat num 1000(default)->375:**
 
-**--With Full ORB3 St. as ref**
 ```
-corridor1   0.031-->0.032---0.011|0.012
-corridor2   0.024+->0.068---0.012|0.016
-corridor3   0.016 ->0.044---0.009|0.010
-corridor4   0.261-->0.214---0.039|0.098
-corridor5   0.040-->0.097---0.010|0.010
-magistrale1 0.107-->0.818---0.219|0.350
-magistrale2 1.134-->2.114---0.339|1.390
-magistrale3 1.437-->1.422+--2.268|2.404
-magistrale4 0.194 ->1.430---1.276|0.170
-magistrale5 0.643+->1.696---1.562|1.549
-magistrale6 0.198+->3.531---1.000|0.906
-outdoors1   8.752+->21.74---10.77|14.72
-outdoors2   4.319-->8.438---11.09|13.73
-outdoors3   2.373+->32.84---12.99|5.942
-outdoors4   2.805+->14.84---3.568|4.345
-outdoors5   5.017+->18.42---10.56|11.31
-outdoors6   15.13-->23.07---24.06|46.62
-outdoors7   1.338+->5.894---1.085|1.156
-outdoors8   3.533-->7.606---10.37|10.03
-room1       0.010 ->0.010 --0.010|0.010
-room2       0.010 ->0.009 --0.007|0.008
-room3       0.009 ->0.009 --0.008|0.007
-room4       0.006 ->0.008 --0.008|0.007
-room5       0.010 ->0.007 --0.010|0.008
-room6       0.008 ->0.007 --0.006|0.007
-slides1     0.126+->0.304---0.199|0.378
-slides2     0.418-->0.875---0.638|0.627
-slides3     0.413+->0.818---1.025|1.135
-Final parallel slides3 mean time cost per frame of frontend(ms): ~46 ->21 --31
-PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
+corridor1   0.031-->0.032
+corridor2   0.024+->0.068
+corridor3   0.016 ->0.044
+corridor4   0.261-->0.214
+corridor5   0.040-->0.097
+magistrale1 0.107-->0.818
+magistrale2 1.134-->2.114
+magistrale3 1.437-->1.422
+magistrale4 0.194 ->1.430
+magistrale5 0.643+->1.696
+magistrale6 0.198+->3.531
+outdoors1   8.752+->21.74
+outdoors2   4.319-->8.438
+outdoors3   2.373+->32.84
+outdoors4   2.805+->14.84
+outdoors5   5.017+->18.42
+outdoors6   15.13-->23.07
+outdoors7   1.338+->5.894
+outdoors8   3.533-->7.606
+room1       0.010 ->0.010
+room2       0.010 ->0.009
+room3       0.009 ->0.009
+room4       0.006 ->0.008
+room5       0.010 ->0.007
+room6       0.008 ->0.007
+slides1     0.126+->0.304
+slides2     0.418-->0.875
+slides3     0.413+->0.818
+Final slides3(current parallel, future single) mean time cost per frame of frontend(ms): ~46 ->21 --31
+PS:2024/6/27;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 3 TUM_VI) On i7-12700H;
++ meaning accuracy up(>=5mm) compared with before
 ```
 
 ## Usage
@@ -124,6 +127,13 @@ PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm
    ```
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/EncSensor.txt
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt(path to IMU data file) 9(number of IMU data: (Accelerator,Magnetic,Gyroscope) for our dataset) 0(RGBD SLAM) $OURFILE/EncSensor.txt(path to encoder data file)
+   ```
+4. Fastly use it on EuRoC/TUM-VI Benchmark like:
+
+   VIEO_SLAM:
+   ```
+   ./SetEuRoCVIO_Once.sh StereoVIO MH05difficult MH05 0.2 EuRoC EuRoC_VIO
+   ./SetEuRoCVIO_Once.sh StereoVIO dataset-room1_512_16 dataset-room1_512 0. TUM_VI TUM_VI_512_VIO
    ```
 *PS: Please contact zhuzhanghao9331@yahoo.co.jp for more details.*
 

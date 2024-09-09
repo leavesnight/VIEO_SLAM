@@ -38,10 +38,10 @@ IMU.SleepTime: 1
 GBA.iterations: 10
 GBA.initIterations: 15
 GBA.finalIterations: 0
-GBA.threshMatches: 30
-GBA.threshInliers: 30
-GBA.threshMatches2: 30
-GBA.threshInliers2: 30
+GBA.threshMatches: 55
+GBA.threshInliers: 55
+GBA.threshMatches2: 55
+GBA.threshInliers2: 55
 GBA.covisConsistency: 3
 GBA.covisConsistency2: 3
 
@@ -98,27 +98,25 @@ Camera.fps: 20.0
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
 Camera.IMREAD: "GRAYSCALE"
-Camera.clahe: 0
+Camera.clahe: 1
 
 # stereo baseline times fx
 Camera.bf: 19.3079
 # Close/Far threshold. Baseline times.
 ThDepth: 40.0
-thFarPoints: 20.0
+# thFarPoints: 20.0, old orb3 params for outdoors
 
 #--------------------------------------------------------------------------------------------
 # ORB Parameters
 #--------------------------------------------------------------------------------------------
 
 # ORB Extractor: Number of features per image
-ORBextractor.nFeatures: 375
+ORBextractor.nFeatures: 1000 # Tested with 1250
 
 # ORB Extractor: Scale factor between levels in the scale pyramid
-#ORBextractor.scaleFactor: 2 fail on TUM_VI slide1
 ORBextractor.scaleFactor: 1.2
 
 # ORB Extractor: Number of levels in the scale pyramid
-#ORBextractor.nLevels: 4 fail on TUM_VI slide1
 ORBextractor.nLevels: 8
 
 # ORB Extractor: Fast threshold
@@ -141,3 +139,7 @@ Viewer.ViewpointX: 0
 Viewer.ViewpointY: -0.7
 Viewer.ViewpointZ: -3.5
 Viewer.ViewpointF: 500
+# shown max cams number of viewer, -1 or no this term will use the number of images, 0 won't show any image
+Viewer.MaxCamsNum: 0
+# 1 shows pangolin/ros_rviz map, 0 not show any map
+Viewer.MapDrawer: 0

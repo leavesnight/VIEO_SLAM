@@ -40,7 +40,7 @@ curPath_Examples=$curPath/..
 echo curPath_Examples_Run=$curPath_Examples
 cd $curPath_Examples/${CAMTYPE%VIO}
 
-if [[ $EuRoCFolderRel == EuRoC || $EuRoCFolderRel == TUM ]]; then
+if [[ $EuRoCFolderRel == EuRoC || $EuRoCFolderRel == TUM_VI ]]; then
   DS_IMG=$EuRoCFolderRel/$EUROCFILE/mav0/cam0/data
   DS_IMG2=$EuRoCFolderRel/$EUROCFILE/mav0/cam1/data
   DS_IMU=$EuRoCFolderRel/$EUROCFILE/mav0/imu0/data.csv
@@ -50,6 +50,7 @@ else
   DS_IMU=""
   ConfigFile=""
   echo "Unsupported Datasets!"
+  exit
 fi
 
 #RUN_ADMIN=sudo

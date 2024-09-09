@@ -206,20 +206,6 @@ int main(int argc, char **argv) {
   // Stop all threads
   SLAM.Shutdown();
 
-  // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
-  // VIORBSLAM paper! load if Full BA just after IMU Initialized
-  cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
-  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
-  //     SLAM.SaveMap("KeyFrameTrajectoryMap.bin",false);
-  if (!fnFBA.empty()) {
-    if ((int)fnFBA) {
-      SLAM.FinalGBA(fnFBA);
-      cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
-    }
-  } else {
-    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
-  }
-
   // Tracking time statistics
   sort(vTimesTrack.begin(), vTimesTrack.end());
   float totaltime = 0;
@@ -230,11 +216,30 @@ int main(int argc, char **argv) {
   PRINT_INFO_MUTEX("median tracking time: " << vTimesTrack[nImages / 2] << endl);
   PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImages << endl);
 
-  // Save camera trajectory
+  // FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
+  // VIORBSLAM paper! load if Full BA just after IMU Initialized
+  auto &fs_settings = fSettings;
+  cv::FileNode fnFBA = fs_settings["GBA.finalIterations"];
+  bool bfba = false;
+  if (!fnFBA.empty()) {
+    if ((int)fnFBA) bfba = true;
+  } else {
+    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
+  }
+
+  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU_NO_FULLBA.txt");
+  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectory_NO_FULLBA.txt");
+  if (bfba) {
+    SLAM.FinalGBA(fnFBA);
+    cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
+  }
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
-  // SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
-  // SLAM.SaveMap("Map.pcd");//zzh
+  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+
   if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name);  // for Reused Sparse Map
 
   // wait for pOdomThread finished
