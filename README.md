@@ -56,8 +56,8 @@ MH03 0.078/?|0.025/? 1->0.081/?|0.026/?||?/? 1--0.076/?|0.024/? 1
 MH04 0.081/?|0.044/? 1->0.086/?|0.058/?||?/? 1--0.093/?|0.054/? 1
 MH05 0.100/?|0.039/? 1->0.137/?|0.080/?||?/? 1--0.117/?|0.057/? 1
 Final MH05 mean time cost per frame of frontend(ms): 41.X -> 20.X -- 30.X
-PS:2024/6/27;
-Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i7-12700H(futrue on i9-14900HX);
+PS:2024/9/9;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i9-14900HX virtual box with 16cores;
 + meaning accuracy up(both median diff>=5mm)/ times cost down(>=1ms) compared with before
 ```
 
@@ -97,8 +97,8 @@ slides1     0.126/? 1->0.304
 slides2     0.418/? 1->0.875
 slides3     0.413/? 1->0.818
 Final slides3(current parallel, future single) mean time cost per frame of frontend(ms): ~46 ->21
-PS:2024/6/27;
-Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 3 TUM_VI) On i7-12700H;
+PS:2024/9/9;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 3 TUM_VI) On i9-14900HX virtual box with 16cores;
 ```
 
 ## Usage

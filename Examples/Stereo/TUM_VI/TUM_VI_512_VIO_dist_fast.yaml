@@ -4,7 +4,7 @@
 Camera.delaytoimu: 0.
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
-Camera.delayForPolling: 0.001
+Camera.delayForPolling: 0.03 #0.001
 
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
@@ -44,6 +44,14 @@ GBA.threshMatches2: 30
 GBA.threshInliers2: 30
 GBA.covisConsistency: 3
 GBA.covisConsistency2: 3
+#GBA.NoLoopClosing: 1 #0
+# thread binding core/processor related; ODOM means odom threads, FE means frontend, BE means backends(LBA+GBA)
+# priority 1~99, num larger: prority higher, >99 means SCHED_FIFO with priority-99 else SCHED_RR
+ODOM.priority: 148
+FE.processor_ids: 0x03
+FE.priority: 48
+BE.processor_ids: 0x02
+BE.priority: 47
 
 #--------------------------------------------------------------------------------------------
 # Camera Parameters. Adjust them!

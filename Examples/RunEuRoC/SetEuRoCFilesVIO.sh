@@ -19,8 +19,10 @@ fi
 EuRoCFolderRel=$BenchmarkName
 if [[ $BenchmarkName == "EuRoC" ]]; then
   ConfigFileRelBase=EuRoC_VIO_dist
+  #_fast
 elif [[ $BenchmarkName == "TUM_VI" ]]; then
   ConfigFileRelBase=TUM_VI_512_VIO
+  #_dist_fast
 else
   echo "Unsupported Benchmark!"
   exit 1

@@ -7,7 +7,7 @@ test.InitVIOTmpPath: "/home/leavesnight/tmp/zzh/"
 Camera.delaytoimu: 0.
 Camera.delaytoenc: 0.
 # when IMU is read as Polling, Timu_cached = Timage_tracking_process + polling_delay (u can also use this to slow Tracking thread)
-Camera.delayForPolling: 0.001
+Camera.delayForPolling: 0.05 #0.001
 
 # sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
 IMU.sigma:
