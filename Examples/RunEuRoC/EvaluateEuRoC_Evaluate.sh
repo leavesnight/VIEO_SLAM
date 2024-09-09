@@ -24,8 +24,8 @@ if [[ $5 != "" ]]; then
   TrajectoryFileName=$5
 fi
 
-DstFolder=/media/sf_0Downloads/dataset/
-#DstFolder=~/dataset/
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
 
 DstGTFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE
 DstFolder=$DstGTFolder/vieo_slam/$SUBFILE/

@@ -24,8 +24,8 @@ if [[ $5 != "" ]]; then
   OutputFileNamePrint=$5
 fi
 
-DstFolder=/media/sf_0Downloads/dataset/
-#DstFolder=~/dataset/
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
 #DstFolder=./
 
 DstFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
