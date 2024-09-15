@@ -132,7 +132,8 @@ void LocalMapping::Run() {
               const bool bLarge = Getnum_track_inliers() > (mbMonocular ? 75 : 100);
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
-                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
+                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit,
+                                                          th_far_pts_ > 0 ? th_far_pts_ : INFINITY);
               // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
             }
           }
@@ -881,7 +882,7 @@ void LocalMapping::SearchInNeighbors() {
   size_t num_fused = 0;
   for (vector<KeyFrame *>::iterator vit = vpTargetKFs.begin(), vend = vpTargetKFs.end(); vit != vend; vit++) {
     KeyFrame *pKFi = *vit;
-    num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
+    num_fused += matcher.Fuse(pKFi, vpMapPointMatches);
   }
   PRINT_DEBUG_FILE("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
                    "localmapping_thread_debug.txt");

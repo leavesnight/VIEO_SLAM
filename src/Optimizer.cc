@@ -21,7 +21,7 @@ using namespace Eigen;
 
 void Optimizer::LocalBAPRVIDP(KeyFrame* pCurKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat& gw) {}
 void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool* pbStopFlag, Map* pMap, cv::Mat gw,
-                                                 bool bLarge, bool bRecInit) {
+                                                 bool bLarge, bool bRecInit, const float th_dist_far) {
   // Gravity vector in world frame
   Vector3d GravityVec = Converter::toVector3d(gw);
 
@@ -393,6 +393,10 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
     vPoint->setMarginalized(true);
     optimizer.addVertex(vPoint);
 
+    // handler outdoors in TUM_VI ds fly bug due to far slow moving pts
+    auto imp_start = vpEdgesMono.size();
+    bool bdist_min_ok = isfinite(th_dist_far) ? false : true;
+
     const map<KeyFrame*, set<size_t>> observations = pMP->GetObservations();
 
     // Set edges
@@ -452,6 +456,9 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             vpEdgeKFMono.push_back(pKFi);       //_vertices[1]
             vpMapPointEdgeMono.push_back(pMP);  //_vertices[0]
 
+            if (!bdist_min_ok && e->GetDepth() < th_dist_far) {
+              bdist_min_ok = true;
+            }
             // e->computeError();
             // if (e->chi2() > 100 * 5.991) {
             //   auto pr = dynamic_cast<g2o::VertexNavStatePR*>(optimizer.vertex(idx_pr_kfi))->estimate();
@@ -508,6 +515,11 @@ void Optimizer::LocalBundleAdjustmentNavStatePRV(KeyFrame* pKF, int Nlocal, bool
             vpMapPointEdgeStereo.push_back(pMP);
           }
         }
+      }
+    }
+    if (!bdist_min_ok) {
+      for (size_t ilv1 = imp_start, imp_end = vpEdgesMono.size(); ilv1 < imp_end; ++ilv1) {
+        vpEdgesMono[ilv1].pedge->setLevel(1);
       }
     }
   }
@@ -1802,9 +1814,10 @@ int Optimizer::PoseOptimization(Frame* pFrame, Frame* pLastF) {
   // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
   // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
   const float chi2Mono[4] = {5.991, 5.991, 5.991, 5.991};
-  const float chi2Stereo[4] = {7.815, 7.815, 7.815,
-                               7.815};  // chi2(0.05,3), error_block limit(over will be outliers,here also lead to
-                                        // turning point in RobustKernelHuber)
+  // chi2(0.05,3), error_block limit(over will be outliers,here also lead to turning point in RobustKernelHuber)
+  //  orb3_STRATEGY:
+  // const float chi2Stereo[4]={15.6f,9.8f,7.815f,7.815f};
+  const float chi2Stereo[4] = {7.815, 7.815, 7.815, 7.815};
   const int its[4] = {10, 10, 10, 10};
 
   int nBad = 0;

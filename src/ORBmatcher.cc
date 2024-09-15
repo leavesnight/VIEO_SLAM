@@ -988,6 +988,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
 
           // If we have already matched or there is a MapPoint skip, avoid for replicated match
           if (pMP2) continue;
+          // notice undistort cam2 starts from 1
           size_t cam2 = (pKF2->mapn2in_.size() <= idx2 ? 0 : get<0>(pKF2->mapn2in_[idx2])) + vn_cams[0];
           // notice here we avoid multi2one match done in knnmatch in computestereofisheye(), to ensure injection match
           auto iterj = mapcamidx2idxs.find(make_pair(cam2, idx2));
@@ -1053,7 +1054,6 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, vector<ve
           {
             const cv::KeyPoint &kp2 = pKF2->mvKeys[vbestIdx2[img_id]];  // Un
             auto &idx2 = vbestIdx2[img_id];
-            pair<size_t, size_t> kfidxi = make_pair(0, idx1), kfidxj = make_pair(1, idx2);
             size_t cami[2] = {cam1, (pKF2->mapn2in_.size() <= idx2 ? 0 : get<0>(pKF2->mapn2in_[idx2])) + vn_cams[0]};
             uint8_t checkdepth[2] = {0};  // 1 means create, 2 means replace
             GeometricCamera *pcam1, *pcam2;

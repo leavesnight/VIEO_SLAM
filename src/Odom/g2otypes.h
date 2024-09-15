@@ -342,7 +342,7 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   }
   inline void GetTcw_wX(Matrix3d& Rcw, Vector3d& tcw, Vector3d& Xw, double* pscale = nullptr,
                         Vector3d* phX_unscale = nullptr, Matrix3d* pRwh = nullptr, Matrix3d* pRwbh = nullptr,
-                        Matrix3d* pRbw = nullptr, Vector3d* ptwh = nullptr) {
+                        Matrix3d* pRbw = nullptr, Vector3d* ptwh = nullptr) const {
     const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xh/Ph
     // Tbs_w, bs is b for slam
     const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
@@ -415,11 +415,12 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
     Rbch_ = Rbch;
     tbch_ = tbch;
   }
-  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
+  bool isDepthPositive() const { return GetDepth() > 0.; }
+  double GetDepth() const {  // unused in IMU motion-only BA, but used in localBA&GBA
     Matrix3d Rcw;
     Vector3d tcw, wX;
     GetTcw_wX(Rcw, tcw, wX);
-    return (Rcw * wX + tcw)(2) > 0.0;  // Xc.z>0
+    return Rcw.block<1, 3>(2, 0) * wX + tcw(2);
   }
 
  protected:
