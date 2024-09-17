@@ -42,6 +42,9 @@ LoopClosing::LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc, 
       mnFullBAIdx(0),
       mnLastOdomKFId(0) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
+  cv::FileNode node_tmp = fSettings["GBA.NoLoopClosing"];
+  if (!node_tmp.empty()) bno_loop_closing_ = (bool)(int)node_tmp;
+
   cv::FileNode fnIter[] = {fSettings["GBA.iterations"],       fSettings["GBA.initIterations"],
                            fSettings["GBA.threshMatches"],    fSettings["GBA.threshMatches2"],
                            fSettings["GBA.threshInliers"],    fSettings["GBA.threshInliers2"],
@@ -163,6 +166,12 @@ bool LoopClosing::DetectLoop() {
     PRINT_DEBUG_FILE_MUTEX("SetNotErase" << mpCurrentKF->nid_ << " " << mpCurrentKF->ftimestamp_ << endl,
                            mlog::vieo_slam_debug_path, "debug.txt");
     mpCurrentKF->SetNotErase();
+  }
+  if (bno_loop_closing_) {
+    // to let relocalization module to work
+    mpKeyFrameDB->add(mpCurrentKF);
+    mpCurrentKF->SetErase();  // allow CurrentKF to be erased
+    return false;
   }
 
   // If the map contains less than 10 KF or less than 10 KF have passed from last loop detection(CorrectLoop()), close

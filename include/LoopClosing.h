@@ -127,6 +127,7 @@ class LoopClosing : public MultiThreadBase {
   std::mutex mMutexLoopQueue;
 
   // Loop detector parameters
+  bool bno_loop_closing_ = false;
   float th_covisibility_consistency_[3];
 
   // Loop detector variables
