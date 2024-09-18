@@ -614,16 +614,18 @@ static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *p
     PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i],
                               vurbfs[i], bStereos[i], cosdisparities[i]);
   if (!vpcams[0].size() || !vpcams[1].size()) return false;
-  Eigen::Matrix3d Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()),
-                            Converter::toMatrix3d(pKFs[1]->GetRotation().t())};
+  Eigen::Matrix3f Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()).cast<float>(),
+                            Converter::toMatrix3d(pKFs[1]->GetRotation().t()).cast<float>()};
   for (size_t i1 = 0; i1 < vpcams[0].size(); ++i1) {
     auto &pcam1 = vpcams[0][i1];
-    auto xn1 = pcam1->GetTrc() * pcam1->unproject(vkps[0][i1]);
-    auto ray1 = Rwc[0] * xn1;
+    // Be very very careful to unprojected p3d_tmp requires *=depth then can use full Trc,
+    //  otherwise only Rrc & cosParallaxRays check could be used
+    Vector3f xn1 = pcam1->GetTrc().so3().cast<float>() * pcam1->unproject(vkps[0][i1]).cast<float>();
+    Vector3f ray1 = Rwc[0] * xn1;
     for (size_t i2 = 0; i2 < vpcams[1].size(); ++i2) {
       auto &pcam2 = vpcams[1][i2];
-      auto xn2 = pcam2->GetTrc() * pcam2->unproject(vkps[1][i2]);
-      auto ray2 = Rwc[1] * xn2;
+      Vector3f xn2 = pcam2->GetTrc().so3().cast<float>() * pcam2->unproject(vkps[1][i2]).cast<float>();
+      Vector3f ray2 = Rwc[1] * xn2;
       // the Rays parallax angle must be in [0,180) for depth >0 (TODO: when angle >= 180, rectify here)
       const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
       if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
