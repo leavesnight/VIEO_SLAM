@@ -1372,12 +1372,12 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
       vector<size_t> vIndices2;
 
       // use Image Pyramid(&& find minDist) to get the scale consistency
-      // if camera is going forward, the old features(with PatchSize,level) should be found in
-      // (PatchSize,level+)(its area seems larger in level==0)
+      // if camera is going forward, the old features(with PatchSize,level) should be found in (PatchSize,level-)
+      //  (its area seems larger in level==0)
       if (bForward)
-        vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave);
-      else if (bBackward)
         vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, 0, nLastOctave);
+      else if (bBackward)
+        vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave);
       else
         // if cannot be sure of camera's motion, adjust level+/- 1
         vIndices2 = CurrentFrame.GetFeaturesInArea(camj, u, v, radius, nLastOctave - 1, nLastOctave + 1);
