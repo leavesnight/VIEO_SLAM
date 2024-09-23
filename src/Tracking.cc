@@ -2549,7 +2549,7 @@ bool Tracking::Relocalization() {
   vvpMapPointMatches.resize(nKFs);
 
   vector<bool> vbDiscarded;
-  vbDiscarded.resize(nKFs);
+  vbDiscarded.resize(nKFs, false);
 
   int nCandidates = 0;
 

@@ -323,7 +323,7 @@ bool LoopClosing::ComputeSim3() {
   vvpMapPointMatches.resize(nInitialCandidates);
 
   vector<bool> vbDiscarded;
-  vbDiscarded.resize(nInitialCandidates);
+  vbDiscarded.resize(nInitialCandidates, false);
 
   int nCandidates = 0;  // candidates with enough matches
 
