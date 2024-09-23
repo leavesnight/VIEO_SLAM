@@ -375,7 +375,8 @@ bool GeometricCamera::FillMatchesFromPair(const vector<GeometricCamera *> &pcams
       if (pv3dpoints)
         (*pv3dpoints)[ididxs] =
             Converter::toVector3d(p3D.clone());  // here should return pt in cami's ref frame, usually 0
-    }
+    } else
+      return false;
   } else
     return false;
   return true;
