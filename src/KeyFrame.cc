@@ -369,10 +369,11 @@ vector<KeyFrame *> KeyFrame::GetCovisiblesByWeight(const int &w) {
 
   if (mvpOrderedConnectedKeyFrames.empty()) return vector<KeyFrame *>();
 
-  vector<int>::iterator it = upper_bound(mvOrderedWeights.begin(), mvOrderedWeights.end(), w,
-                                         KeyFrame::weightComp);  // first > w, here is first < w for weightComp is >
+  // first > w, here is first < w for weightComp is >
+  auto it = upper_bound(mvOrderedWeights.begin(), mvOrderedWeights.end(), w, KeyFrame::weightComp);
+  // ref from ORB3: when all >=w, we should return member copy directly
   if (it == mvOrderedWeights.end())
-    return vector<KeyFrame *>();
+    return mvpOrderedConnectedKeyFrames;
   else {
     int n = it - mvOrderedWeights.begin();
     return vector<KeyFrame *>(
@@ -747,8 +748,8 @@ void KeyFrame::SetBadFlag(const int8_t mode) {
     // but no mvOrderedWeights will be used as public functions
     mvpOrderedConnectedKeyFrames.clear();
 
-    // KeepTree for LoadMap(), we don't change bad KFs' parent or Tcp for recovering in SaveTrajectoryTUM()
-    auto &&pparent = mpParent;
+    // KeepTree for LoadMap(), we don't change bad KFs' parent or Tcp for recovering in SaveTrajectory()
+    auto &pparent = mpParent;
     if (!pparent) {
       if (!(mode & ForceErase) || nid_) {
         PRINT_ERR_MUTEX("Error in update spanning tree");
@@ -763,7 +764,7 @@ void KeyFrame::SetBadFlag(const int8_t mode) {
         // Assign at each iteration one children with a parent (the pair with highest covisibility weight)
         // Include that children as new parent candidate for the rest
         auto &pchilds = mspChildrens;
-        while (!mspChildrens.empty())  // if empty/all Bad -> no need to adjust the spanning tree more
+        while (!pchilds.empty())  // if empty/all Bad -> no need to adjust the spanning tree more
         {
           bool bcontinue = false;
 
