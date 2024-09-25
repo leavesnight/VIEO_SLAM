@@ -474,8 +474,13 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
       Paux = ns.getRwb().transpose() * (Pw - ns.mpwb);
       JdRwb = Jproj * Rcb * Sophus::SO3exd::hat(Paux);  // Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
     } else {
-      Paux = Rcw * Pw + (tcw - tcb * scale);
-      JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
+      // chain rule starts from.here to speed up: J_dphi_bw = J_dphi_wb * (-Rbw) + J_dp_wb * (-Rwb*tbw)^, J_dp_wb is
+      //  linear retraction p_wb<-p_wb_bar+dp_wb and tbw=Rbc*tcw*s+tbc
+      //  = Jproj * (Rcw * (wP - pwb))^ * Rcb * (-Rbw) + Jproj * (-Rcw) * pwb^ * (-Rwc * Rcb) * (-Rbw)
+      //  = Jproj * (Rcw * wP - Rcw * pwb + Rcw * pwb)^ * Rcb * (-Rbw) = [Jproj * (Rcw * wP)^ * Rcb] * (-Rbw)
+      //  = Jproj * Rcw * (wp^ * Rwb) * (-Rbw)
+      const auto& Paux = Pw;
+      JdRwb = Jproj * (-Rcw) * Sophus::SO3exd::hat(Paux);
     }
   }
 
@@ -507,9 +512,13 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   if (2 == MODE_OPT_VAR) {
     // chain rule
     Matrix3d Rwb = Rbw.transpose();
-    // J_phiwb_phibw=extend_J_ARwbB(RD)/phibw_ARwbB(RD)/phiwb
-    _jacobianOplus[1].template block<DE, 3>(0, DV - 3) *= -Rbw;
+#ifdef USE_P_PLUS_RDP
+    // twb+Rwb*dtwb=-Rwb*(tbw+Rbw*dtbw)-Rwb*(Exp(drwb)-I)*tbw=>J_dtwb_dtbw=-Rbw;J_dtwb_drwb=tbw^
+    _jacobianOplus[1].template block<DE, 3>(0, 0) *= -Rbw;  // J_twb_tbw
+#else
+    // twb+dtwb=-Rwb*(tbw+dtbw)-Rwb*(Exp(drwb)-I)*tbw=>J_dtwb_dtbw=-Rwb;J_dtwb_drwb=Rwb*tbw^=>J_dtwb_drbw=-(Rwb*tbw)^
     _jacobianOplus[1].template block<DE, 3>(0, 0) *= -Rwb;  // J_twb_tbw
+#endif
 
     // J_s(=1./scale) = J_s(=scale) + Jproj * (tcw_unscale + (twh_unscale)), J_s_1/s = -1/s^2 = -scale^2
     Vector3d tscale_ext = tcw;
@@ -520,7 +529,7 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
       _jacobianOplus[offset_Twbh_].template block<DE, 3>(0, 0) *= -Rwbh;
     }
     if (-1 != offset_scale_)
-      _jacobianOplus[offset_scale_] = (_jacobianOplus[offset_scale_] * scale + Jproj * tscale_ext) * (-scale);
+      _jacobianOplus[offset_scale_] = (_jacobianOplus[offset_scale_] + Jproj * tscale_ext) * (-scale * scale);
   }
 }
 
