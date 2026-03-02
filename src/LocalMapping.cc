@@ -15,12 +15,7 @@
 namespace VIEO_SLAM {
 
 LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSettingPath)
-    : mbMonocular(bMonocular),
-      mbResetRequested(false),
-      mbFinishRequested(false),
-      mbFinished(true),
-      mpMap(pMap),
-      mnLastOdomKFId(0) {
+    : mbMonocular(bMonocular), mpMap(pMap) {
   cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
   auto node_tmp = fSettings["LocalMapping.LocalWindowSize"];
   if (node_tmp.empty()) {
@@ -35,15 +30,39 @@ LocalMapping::LocalMapping(Map *pMap, const bool bMonocular, const string &strSe
     PRINT_INFO_MUTEX(blueSTR "depth > thFarPoints will be moved from Tracking SBP && LBA CreateMP" << whiteSTR << endl);
     th_far_pts_ = (float)node_tmp;
   }
+
+  event_info_.thread_type_ = multithread::THREAD_BE_LBA;
+  SetThreadPolicy(strSettingPath, "BE");
+  pthread_ = new thread(&LocalMapping::Run, this);
+}
+LocalMapping::~LocalMapping() {
+  if (pthread_) {  // for base ~() will be called at last, here need to be stop before imu_init_~()
+    Setfinish_request(true);
+    if (pthread_->joinable()) pthread_->join();
+    delete pthread_;
+    pthread_ = nullptr;
+  }
+  if (mpIMUInitiator) {
+    delete mpIMUInitiator;
+    mpIMUInitiator = nullptr;
+  }
+
+  // release dynamic memory, e.g. pkfs in lnewkfs_
+  ReleaseDynamicMemory();
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing *pLoopCloser) { mpLoopCloser = pLoopCloser; }
 
 void LocalMapping::Run() {
-  mbFinished = false;
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  SetAffinity();
+#endif
+  PRINT_INFO_FILE(greenSTR << "Start LBA Thread" << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                  "localmapping_thread_debug.txt");
 
-  while (1)  // every 3ms until mbFinishRequested==true
-  {
+  bfinish_ = false;
+  while (1) {
     // Tracking will see that Local Mapping is busy
     SetAcceptKeyFrames(false);
 
@@ -53,7 +72,7 @@ void LocalMapping::Run() {
       // BoW conversion and insertion in Map
       PRINT_DEBUG_FILE_MUTEX("Processing New KF...", mlog::vieo_slam_debug_path, "debug.txt");
       ProcessNewKeyFrame();
-      PRINT_DEBUG_FILE_MUTEX(mpCurrentKeyFrame->mnId << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+      PRINT_DEBUG_FILE_MUTEX(mpCurrentKeyFrame->nid_ << " Over" << endl, mlog::vieo_slam_debug_path, "debug.txt");
       mpIMUInitiator->SetCurrentKeyFrame(mpCurrentKeyFrame);  // zzh
       PRINT_INFO_FILE(blueSTR "Used time in ProcessNewKF()="
                           << chrono::duration_cast<chrono::duration<double>>(chrono::steady_clock::now() - t0).count()
@@ -75,6 +94,8 @@ void LocalMapping::Run() {
                           << whiteSTR << endl,
                       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 
+      // position before the func. using it is very very very important!!!
+      mbAbortBA = false;
       if (!CheckNewKeyFrames())  // if the newKFs list is idle
       {
         // Find more matches in neighbor keyframes and fuse point duplications
@@ -84,19 +105,19 @@ void LocalMapping::Run() {
                             << whiteSTR << endl,
                         mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
       }
-#endif
-
+#else
       mbAbortBA = false;
+#endif
 
       // if the newKFs list is idle and not requested stop by LoopClosing/localization mode
       if ((!CheckNewKeyFrames()) && !stopRequested()) {
         // Local BA
         // at least 3 KFs in mpMap, we add Odom condition: 1+1=2 is the threshold of the left
-        // &&mpCurrentKeyFrame->mnId>mnLastOdomKFId+1
+        // &&mpCurrentKeyFrame->nid_>nlast_kfid_odom_+1
         if (mpMap->KeyFramesInMap() > 2) {
           chrono::steady_clock::time_point t1 = chrono::steady_clock::now();
           if (!mpIMUInitiator->GetVINSInited()) {
-            if (mpCurrentKeyFrame->mnId > mnLastOdomKFId + 1) {
+            if (mpCurrentKeyFrame->nid_ > nlast_kfid_odom_ + 1) {
               if (!mpIMUInitiator->GetSensorEnc())
                 Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame, &mbAbortBA, mpMap);  // local BA
               else
@@ -111,7 +132,8 @@ void LocalMapping::Run() {
               const bool bLarge = Getnum_track_inliers() > (mbMonocular ? 75 : 100);
               const bool bRecInit = false;  //!(mpIMUInitiator->GetInitGBA2() && mpIMUInitiator->GetInitGBAOver());
               Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame, mnLocalWindowSize, &mbAbortBA, mpMap,
-                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit);
+                                                          mpIMUInitiator->GetGravityVec(), bLarge, bRecInit,
+                                                          th_far_pts_ > 0 ? th_far_pts_ : INFINITY);
               // Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mnLocalWindowSize,&mbAbortBA, mpMap, mGravityVec);
             }
           }
@@ -144,53 +166,96 @@ void LocalMapping::Run() {
                       mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
     } else if (Stop()) {
       // Safe area to stop
-      while (isStopped() && !CheckFinish())  // maybe stopped for localization mode or LoopClosing thread's correction
-      {
-        usleep(3000);
-      }
-      if (CheckFinish())  // is this useless?
-        break;
+      // stopped for localization mode or LoopClosing thread's correction
+      while (isStopped() && !Getfinish_request() && !Getreset()) usleep(3000);
     }
-
-    ResetIfRequested();
 
     // Tracking will see that Local Mapping is idle/not busy
     SetAcceptKeyFrames(true);
 
-    if (CheckFinish()) break;
-
-    usleep(3000);
+    ResetIfRequested();
+    if (Getfinish_request()) break;
+    usleep(sleep_time_);
   }
 
   SetFinish();
 }
 
-void LocalMapping::InsertKeyFrame(KeyFrame *pKF) {
-  unique_lock<mutex> lock(mMutexNewKFs);
-  mlNewKeyFrames.push_back(pKF);
-  mbAbortBA = true;  // stop localBA
+void LocalMapping::ResetIfRequested() {
+  if (!Getreset()) return;
+  if (verbose_)
+    PRINT_INFO_FILE(redSTR "start reset LBA Thread..." << whiteSTR << endl, mlog::vieo_slam_debug_path,
+                    "localmapping_thread_debug.txt");
+  // reset relevant variables
+  int8_t id_cam = Getreset_id_cam_();
+  if (-1 == id_cam) {
+    // for thread
+    SetCurrentKeyFrames(list<KeyFrame *>());
+    ReleaseDynamicMemory();
+
+    // for mappoint culling
+    mlpRecentAddedMapPoints.clear();
+
+    // for pure odom edges
+    nlast_kfid_odom_ = 0;
+    SetInitLastCamKF(nullptr);
+  } else {
+    // TODO
+    assert(0);
+  }
+
+  Setreset(false);
+}
+void LocalMapping::SetFinish() {
+  unique_lock<mutex> lock(mutexfinish_);
+  bfinish_ = true;
+  unique_lock<mutex> lock2(mutex_stop_);
+  bstopped_ = true;
+}
+void LocalMapping::ReleaseDynamicMemory(bool block) {
+  unique_lock<mutex> lock(mutex_newkfs_, defer_lock);
+  if (block) lock.lock();
+  for (auto lit = lnewkeyframes_.begin(), lend = lnewkeyframes_.end(); lit != lend; lit++) {
+    KeyFrame *pkftmp = *lit;
+    //    auto pmap = pmaps_->GetCurrentMap();
+    //    pmap->EraseMapTimeToFrameBaseAndKeyFrame(pkftmp);  // Before SetBadFlag()!
+    if (!pkftmp->isBad()) pkftmp->SetBadFlag(KeyFrame::MapNoErase);
+
+    delete pkftmp;
+  }
+  lnewkeyframes_.clear();
 }
 
 bool LocalMapping::CheckNewKeyFrames() {
-  unique_lock<mutex> lock(mMutexNewKFs);
-  return (!mlNewKeyFrames.empty());
+  unique_lock<mutex> lock(mutex_newkfs_);
+  return !lnewkeyframes_.empty();
 }
-
 void LocalMapping::ProcessNewKeyFrame() {
+  list<KeyFrame *> curkfs;
   {
-    unique_lock<mutex> lock(mMutexNewKFs);
-    mpCurrentKeyFrame = mlNewKeyFrames.front();
-    mlNewKeyFrames.pop_front();
+    unique_lock<mutex> lock(mutex_newkfs_);
+    while (lnewkeyframes_.size() && !curkfs.size()) {
+      double ref_time = lnewkeyframes_.front()->ftimestamp_;
+      // Now tightly coupled with SLAM, clear_kfs_no_handler only happens when there are all fake slam kfs
+      while (lnewkeyframes_.size() && lnewkeyframes_.front()->ftimestamp_ == ref_time) {
+        KeyFrame *pkftmp = lnewkeyframes_.front();
+        curkfs.push_back(pkftmp);
+        lnewkeyframes_.pop_front();
+      }
+    }
+    SetCurrentKeyFrames(curkfs);
+    assert(1 == curkfs.size());
+    mpCurrentKeyFrame = curkfs.front();
   }
 
   // added by zzh, it can also be put in InsertKeyFrame()
   PRINT_INFO_FILE("state=" << (int)mpCurrentKeyFrame->getState() << ",tm=" << fixed << setprecision(9)
-                           << mpCurrentKeyFrame->ftimestamp_ << ",id=" << mpCurrentKeyFrame->mnId << endl,
+                           << mpCurrentKeyFrame->ftimestamp_ << ",id=" << mpCurrentKeyFrame->nid_ << endl,
                   mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
   if (mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK) {
     // 5 is the threshold of Reset() soon after initialization in Tracking, here we will clean these middle state==OK
     // KFs for a better map
-    if (mnLastOdomKFId > 0 && mpCurrentKeyFrame->mnId <= mnLastOdomKFId + 5) {
+    if (nlast_kfid_odom_ > 0 && mpCurrentKeyFrame->nid_ <= nlast_kfid_odom_ + 5) {
       // one kind of Reset() during the copying KFs' stage in IMU Initialization, don't cull any KF!
       if (mpIMUInitiator->SetCopyInitKFs(true)) {
         KeyFrame *pLastKF = mpCurrentKeyFrame;
@@ -219,7 +284,7 @@ void LocalMapping::ProcessNewKeyFrame() {
             mpLastCamKF = pLastKF;
           }
         } else {
-          int count = mpCurrentKeyFrame->mnId - mnLastOdomKFId;
+          int count = mpCurrentKeyFrame->nid_ - nlast_kfid_odom_;
           do {
             pLastKF = pLastKF->GetPrevKeyFrame();
             vecEraseKF.push_back(pLastKF);
@@ -245,7 +310,7 @@ void LocalMapping::ProcessNewKeyFrame() {
         mpIMUInitiator->SetCopyInitKFs(false);
       }
     }
-    mnLastOdomKFId = mpCurrentKeyFrame->mnId;
+    nlast_kfid_odom_ = mpCurrentKeyFrame->nid_;
   } else {  // OK
     mpLastCamKF = mpCurrentKeyFrame;
   }
@@ -286,7 +351,7 @@ void LocalMapping::ProcessNewKeyFrame() {
 void LocalMapping::MapPointCulling() {
   // Check Recent Added MapPoints
   list<MapPoint *>::iterator lit = mlpRecentAddedMapPoints.begin();
-  const unsigned long int nCurrentKFid = mpCurrentKeyFrame->mnId;
+  const unsigned long int nCurrentKFid = mpCurrentKeyFrame->nid_;
 
   int nThObs;
   if (mbMonocular)
@@ -299,471 +364,22 @@ void LocalMapping::MapPointCulling() {
     MapPoint *pMP = *lit;
     if (pMP->isBad()) {
       lit = mlpRecentAddedMapPoints.erase(lit);  // already bad MPs don't need to be culled any more
-    } else if (pMP->GetFoundRatio() <
-               0.25f)  // if only 1/4 visibles(matched by TrackWithMM()/TrackRefKF()/mCurrentFrame.isInFrustum(local
-                       // MPs)) can be regarded as inliers(found)
-    {
+    } else if (pMP->GetFoundRatio() < 0.25f) {
+      // if only 1/4 visibles(matched by TrackWithMM()/TrackRefKF()/mCurrentFrame.isInFrustum(local
+      //  MPs)) can be regarded as inliers(found)
       pMP->SetBadFlag();
       lit = mlpRecentAddedMapPoints.erase(lit);
-    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 2 &&
-               pMP->Observations() <= cnThObs)  // long age(>=2 frames) new unimportant(<=3 monocular KFs observation)
-                                                // MapPoints are discarded as bad ones
-    {
+    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 2 && pMP->Observations() <= cnThObs) {
+      // long age(>=2 frames) new unimportant(<=3 monocular KFs observation) MapPoints are discarded as bad ones
       pMP->SetBadFlag();  // firstly cannot be consecutively(3KFs) observed far MPs will be deleted
       lit = mlpRecentAddedMapPoints.erase(lit);
-    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >=
-               3)  // too long ago(>=3 frames) new MapPoints are not processed/culled any more
+    } else if (((int)nCurrentKFid - (int)pMP->mnFirstKFid) >= 3) {
+      // too long ago(>=3 frames) new MapPoints are not processed/culled any more
       lit = mlpRecentAddedMapPoints.erase(lit);
-    else
+    } else
       lit++;
   }
 }
-
-static inline void PrepareDataForTraingulate(const vector<GeometricCamera *> &pcams_in, KeyFrame *pKF1,
-                                             const vector<size_t> &idxs1, vector<GeometricCamera *> &pcams,
-                                             aligned_vector<Sophus::SE3d> &Twrs, aligned_vector<Eigen::Vector2d> &kps2d,
-                                             vector<cv::KeyPoint> &kps, vector<float> &sigma_lvs,
-                                             vector<vector<float>> &urbfs, bool &bStereos, float &cosdisparity) {
-  bStereos = false;
-  cosdisparity = 1.1;  // >1 designed for future inifity point
-  pcams.clear();
-  Twrs.clear();
-  kps.clear();
-  sigma_lvs.clear();
-  urbfs.clear();
-  assert(pcams_in.size() == idxs1.size());
-  assert(!pKF1->mpCameras.empty());
-  bool usedistort = Frame::usedistort_;
-  for (size_t ididxs = 0; ididxs < idxs1.size(); ++ididxs) {
-    size_t idx = idxs1[ididxs];
-    if (-1 != idx) {
-      size_t cami = pKF1->mapn2in_.size() <= idx ? 0 : get<0>(pKF1->mapn2in_[idx]);
-      pcams.push_back(pcams_in[cami]);
-      Twrs.push_back(pKF1->GetTwc() * pKF1->GetTcr());
-      const auto &kp = (!usedistort) ? pKF1->mvKeysUn[idx] : pKF1->mvKeys[idx];
-      kps.push_back(kp);
-      kps2d.push_back(Eigen::Vector2d(kp.pt.x, kp.pt.y));
-      sigma_lvs.push_back(pKF1->scalepyrinfo_.vlevelsigma2_[kp.octave]);
-      urbfs.push_back(vector<float>({pKF1->stereoinfo_.vuright_[idx], pKF1->stereoinfo_.baseline_bf_[1]}));
-      // TODO: record cosdisparity in Frame.cc for StereoDistort one
-      if (!bStereos) {
-        if (0 <= urbfs.back()[0]) bStereos = true;
-      } else
-        CV_Assert(0 <= urbfs.back()[0]);
-      if (bStereos) {
-        // this cos value is the min stereo parallax value, (the point with certain depth has max stereo parallax angle
-        // when its Xc is at the centre of baseline), here stereo parallax!=Rays parallax
-        const float cosParallaxRays =
-            cos(2 * atan2(pKF1->stereoinfo_.baseline_bf_[0] / 2., pKF1->stereoinfo_.vdepth_[idx]));
-        if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
-      }
-    }
-  }
-}
-static inline bool PrepareDatasForTraingulate(const vector<GeometricCamera *> *pcams_in, const vector<KeyFrame *> &pKFs,
-                                              const vector<vector<size_t>> &idxs, vector<GeometricCamera *> &pcams,
-                                              aligned_vector<Sophus::SE3d> &Twrs,
-                                              aligned_vector<Eigen::Vector2d> &kps2d, vector<cv::KeyPoint> *kps,
-                                              vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool *bStereos,
-                                              float &cosdisparity, float *cosdisparities) {
-  cosdisparity = 1.1;
-  vector<GeometricCamera *> vpcams[2];
-  aligned_vector<Sophus::SE3d> vTwrs[2];
-  aligned_vector<Eigen::Vector2d> vkps[2];
-  vector<float> vsigma_lvs[2];
-  vector<vector<float>> vurbfs[2];
-  for (int i = 0; i < 2; ++i)
-    PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i],
-                              vurbfs[i], bStereos[i], cosdisparities[i]);
-  if (!vpcams[0].size() || !vpcams[1].size()) return false;
-  Eigen::Matrix3d Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()),
-                            Converter::toMatrix3d(pKFs[1]->GetRotation().t())};
-  for (size_t i1 = 0; i1 < vpcams[0].size(); ++i1) {
-    auto &pcam1 = vpcams[0][i1];
-    auto xn1 = pcam1->GetTrc() * pcam1->unproject(vkps[0][i1]);
-    auto ray1 = Rwc[0] * xn1;
-    for (size_t i2 = 0; i2 < vpcams[1].size(); ++i2) {
-      auto &pcam2 = vpcams[1][i2];
-      auto xn2 = pcam2->GetTrc() * pcam2->unproject(vkps[1][i2]);
-      auto ray2 = Rwc[1] * xn2;
-      // the Rays parallax angle must be in [0,180) for depth >0 (TODO: when angle >= 180, rectify here)
-      const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
-      if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
-    }
-  }
-  pcams = std::move(vpcams[0]);
-  pcams.insert(pcams.end(), vpcams[1].begin(), vpcams[1].end());
-  Twrs = std::move(vTwrs[0]);
-  Twrs.insert(Twrs.end(), vTwrs[1].begin(), vTwrs[1].end());
-  kps2d = std::move(vkps[0]);
-  kps2d.insert(kps2d.end(), vkps[1].begin(), vkps[1].end());
-  sigma_lvs = std::move(vsigma_lvs[0]);
-  sigma_lvs.insert(sigma_lvs.end(), vsigma_lvs[1].begin(), vsigma_lvs[1].end());
-  urbfs = std::move(vurbfs[0]);
-  urbfs.insert(urbfs.end(), vurbfs[1].begin(), vurbfs[1].end());
-  return true;
-}
-void LocalMapping::CreateNewMapPoints() {
-  // Retrieve neighbor keyframes in covisibility graph
-  int nn = 10;
-  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
-  vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
-
-  // ref from ORB3
-  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
-  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
-    KeyFrame *pKF = mpCurrentKeyFrame;
-    int count = 0;
-    while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
-      vector<KeyFrame *>::iterator it = std::find(vpNeighKFs.begin(), vpNeighKFs.end(), pKF->GetPrevKeyFrame());
-      if (it == vpNeighKFs.end()) vpNeighKFs.push_back(pKF->GetPrevKeyFrame());
-      pKF = pKF->GetPrevKeyFrame();
-    }
-  }
-
-  ORBmatcher matcher(0.6, false);
-
-  cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
-  cv::Mat Rwc1 = Rcw1.t();
-  cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
-  cv::Mat Tcw1(3, 4, CV_32F);
-  Rcw1.copyTo(Tcw1.colRange(0, 3));
-  tcw1.copyTo(Tcw1.col(3));
-  cv::Mat Ow1 = mpCurrentKeyFrame->GetCameraCenter();
-
-  const float ratioFactor = 1.5f * mpCurrentKeyFrame->scalepyrinfo_.fscalefactor_;  // 1.5*1.2=1.8
-
-  int nnew = 0;  // unused here
-
-  // Search matches with epipolar restriction and triangulate
-  for (size_t i = 0; i < vpNeighKFs.size(); i++) {
-    if (i > 0 && CheckNewKeyFrames())  // if it's busy then just triangulate the best covisible KF
-      return;
-
-    KeyFrame *pKF2 = vpNeighKFs[i];
-    KeyFrame *&pKF1 = mpCurrentKeyFrame;
-
-    // Check first that baseline is not too short
-    cv::Mat Ow2 = pKF2->GetCameraCenter();
-    cv::Mat vBaseline = Ow2 - Ow1;
-    const float baseline = cv::norm(vBaseline);
-
-    if (!mbMonocular) {
-      // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe
-      // for it cannot see farther than depth camera
-      if (baseline < pKF2->stereoinfo_.baseline_bf_[0]) continue;
-    } else {
-      const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
-      const float ratioBaselineDepth = baseline / medianDepthKF2;
-
-      // at least baseline>=0.08m/8m(medianDepth)
-      if (ratioBaselineDepth < 0.01) continue;
-    }
-
-    // Search matches that fullfil epipolar constraint(with 2 sigma rule)
-    vector<vector<vector<size_t>>> vMatchedIndices;
-    matcher.SearchForTriangulation(pKF1, pKF2, vMatchedIndices, false);  // matching method is like SBBoW
-
-    shared_ptr<Pinhole> pcaminst[2];
-    vector<GeometricCamera *> pcams_in[2];
-    assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
-    bool usedistort[2] = {Frame::usedistort_, Frame::usedistort_};
-    if (!usedistort[0]) {
-      CV_Assert(!usedistort[1]);
-      auto params_tmp = pKF1->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      pcaminst[0] = make_shared<Pinhole>(params_tmp);
-      params_tmp = pKF2->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      pcaminst[1] = make_shared<Pinhole>(params_tmp);
-      pcams_in[0].push_back(pcaminst[0].get());
-      pcams_in[1].push_back(pcaminst[1].get());
-    } else {
-      CV_Assert(usedistort[1]);
-      pcams_in[0] = pKF1->mpCameras;
-      pcams_in[1] = pKF2->mpCameras;
-    }
-
-    // Triangulate each match
-    const int nmatches = vMatchedIndices.size();
-    for (int ikp = 0; ikp < nmatches; ikp++) {
-      const auto &idxs1 = vMatchedIndices[ikp][0];
-      const auto &idxs2 = vMatchedIndices[ikp][1];
-
-      vector<GeometricCamera *> pcams;
-      aligned_vector<Sophus::SE3d> Twrs;
-      vector<cv::KeyPoint> kps[2];
-      aligned_vector<Eigen::Vector2d> kps2d;
-      vector<float> sigma_lvs;
-      vector<vector<float>> urbfs;
-      bool bStereos[2];
-      float cosParallaxRays;
-      //+1 && cosParallaxRays>0 -> always choosing stereo parallax(if exists) cos value as the cosParallaxStereo
-      float cosParallaxStereo = cosParallaxRays + 1;
-      float cosParallaxStereos[2];
-      if (!PrepareDatasForTraingulate(pcams_in, vector<KeyFrame *>{pKF1, pKF2}, vector<vector<size_t>>{idxs1, idxs2},
-                                      pcams, Twrs, kps2d, kps, sigma_lvs, urbfs, bStereos, cosParallaxRays,
-                                      cosParallaxStereos))
-        continue;
-      // cout << "check pcams.size="<<pcams.size()<<endl;
-
-      cosParallaxStereo = min(cosParallaxStereos[0], cosParallaxStereos[1]);
-
-      // use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less
-      // accuracy in depth data
-      cv::Mat x3D;
-      // if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D
-      // result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature
-      // matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
-      if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
-          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {  // TODO: check orb3v1.0 use 0.9996 for inertial
-        const double thresh_cosdisparity = 1. - 1e-6;
-        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
-          continue;
-      } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
-        assert(bStereos[0]);
-        x3D = pKF1->UnprojectStereo(idxs1.front());
-        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
-      } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
-        assert(bStereos[1]);
-        x3D = pKF2->UnprojectStereo(idxs2.front());
-        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
-      } else
-        continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax
-                   // angle>=90 degrees with >=1 stereo point
-
-      // Check scale consistency, is this dist not depth very good?
-      cv::Mat normal1 = x3D - Ow1;
-      float dist1 = cv::norm(normal1);
-      cv::Mat normal2 = x3D - Ow2;
-      float dist2 = cv::norm(normal2);
-      // it seems impossible for zi>0, if possible it maybe numerical error
-      if (dist1 == 0 || dist2 == 0) continue;
-      if (th_far_pts_ > 0 && max(dist1, dist2) >= th_far_pts_) continue;
-
-      const float ratioDist = dist2 / dist1;
-      float ratioOctave[2] = {INFINITY, -INFINITY};
-      for (auto kp1 : kps[0]) {
-        for (auto kp2 : kps[1]) {
-          // here FIX ORBSLAM2/3 bug! if dist2 larger, scale2 and ratioOctave should also be larger
-          float rat_tmp = pKF2->scalepyrinfo_.vscalefactor_[kp2.octave] / pKF1->scalepyrinfo_.vscalefactor_[kp1.octave];
-          if (rat_tmp < ratioOctave[0]) ratioOctave[0] = rat_tmp;
-          if (rat_tmp > ratioOctave[1]) ratioOctave[1] = rat_tmp;
-        }
-      }
-      /*if(fabs(ratioDist-ratioOctave)>ratioFactor) continue;*/
-      // ratioOctave must be in [ratioDist/ratioFactor,ratioDist*ratioFactor], notice ratioFactor
-      // is 1.5*mpCurrentKeyFrame->mfScaleFactor
-      if (ratioDist * ratioFactor < ratioOctave[1] || ratioDist > ratioOctave[0] * ratioFactor) {
-        //        cout << "check ratio="<<ratioDist <<","<<"octave="<<ratioOctave[0]<<","<<ratioOctave[1]<<endl;
-        continue;
-      }
-
-      // Triangulation is succesfull
-      MapPoint *pMP = new MapPoint(x3D, mpCurrentKeyFrame, mpMap);  // notice pMp->mnFirstKFid=mpCurrentKeyFrame->mnID
-
-      PRINT_DEBUG_FILE_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
-      for (auto idx : idxs1) {
-        if (-1 == idx) continue;
-        pMP->AddObservation(pKF1, idx);
-        pKF1->AddMapPoint(pMP, idx);
-      }
-      for (auto idx : idxs2) {
-        if (-1 == idx) continue;
-        pMP->AddObservation(pKF2, idx);
-        pKF2->AddMapPoint(pMP, idx);
-      }
-      pMP->ComputeDistinctiveDescriptors();
-      pMP->UpdateNormalAndDepth();
-
-      mpMap->AddMapPoint(pMP);
-      mlpRecentAddedMapPoints.push_back(pMP);
-      nnew++;
-    }
-  }
-  PRINT_INFO_FILE("newmpsnum=" << nnew << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
-}
-
-void LocalMapping::SearchInNeighbors() {
-  // Retrieve neighbor keyframes
-  int nn = 10;               // RGBD/Stereo
-  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
-  const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
-  vector<KeyFrame *> vpTargetKFs;
-  for (vector<KeyFrame *>::const_iterator vit = vpNeighKFs.begin(), vend = vpNeighKFs.end(); vit != vend; vit++) {
-    KeyFrame *pKFi = *vit;
-    if (pKFi->isBad() ||
-        pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)  // bad or entered(avoid duplications), cannot be itself
-      continue;
-    vpTargetKFs.push_back(pKFi);
-    pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
-  }
-
-  // Add some covisible of covisible
-  // Extend to some second neighbors
-  for (int i = 0, imax = vpTargetKFs.size(); i < imax; i++) {
-    const vector<KeyFrame *> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
-    for (vector<KeyFrame *>::const_iterator vit2 = vpSecondNeighKFs.begin(), vend2 = vpSecondNeighKFs.end();
-         vit2 != vend2; vit2++) {
-      KeyFrame *pKFi2 = *vit2;
-      // avoid bad,duplications && itself(KF now)
-      if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->mnId ||
-          pKFi2->mnId == mpCurrentKeyFrame->mnId)
-        continue;
-      pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;  // fixed efficiency bug in ORB2
-      vpTargetKFs.push_back(pKFi2);
-    }
-#define ORB3_STRATEGY
-#ifdef ORB3_STRATEGY
-    if (mbAbortBA) return;
-#endif
-  }
-
-  // ref from ORB3
-  // Extend to temporal neighbors
-  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
-  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
-    KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
-    while (vpTargetKFs.size() < 20 && pKFi) {
-      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId) {
-        pKFi = pKFi->GetPrevKeyFrame();
-        continue;
-      }
-      vpTargetKFs.push_back(pKFi);
-      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->mnId;
-      pKFi = pKFi->GetPrevKeyFrame();
-    }
-  }
-
-  // bijection search matches
-  //  Search matches by projection from current KF in target KFs
-  ORBmatcher matcher;  // 0.6,true
-  vector<MapPoint *> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-  size_t num_fused = 0;
-  for (vector<KeyFrame *>::iterator vit = vpTargetKFs.begin(), vend = vpTargetKFs.end(); vit != vend; vit++) {
-    KeyFrame *pKFi = *vit;
-    num_fused = matcher.Fuse(pKFi, vpMapPointMatches);
-  }
-  PRINT_DEBUG_FILE("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
-                   "localmapping_thread_debug.txt");
-
-#ifdef ORB3_STRATEGY
-  if (mbAbortBA) return;
-#endif
-
-  // Search matches by projection from target KFs in current KF
-  vector<MapPoint *> vpFuseCandidates;
-  vpFuseCandidates.reserve(vpTargetKFs.size() * vpMapPointMatches.size());
-
-  for (vector<KeyFrame *>::iterator vitKF = vpTargetKFs.begin(), vendKF = vpTargetKFs.end(); vitKF != vendKF; vitKF++) {
-    KeyFrame *pKFi = *vitKF;
-
-    vector<MapPoint *> vpMapPointsKFi = pKFi->GetMapPointMatches();
-
-    for (vector<MapPoint *>::iterator vitMP = vpMapPointsKFi.begin(), vendMP = vpMapPointsKFi.end(); vitMP != vendMP;
-         vitMP++) {
-      MapPoint *pMP = *vitMP;
-      if (!pMP)  // avoid no corresponding/empty MapPoints
-        continue;
-      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->mnId)  // avoid bad,duplications
-        continue;
-      pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->mnId;
-      vpFuseCandidates.push_back(pMP);
-    }
-  }
-
-  num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
-  PRINT_DEBUG_FILE("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
-
-  // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
-  vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
-  size_t num_pts_good = 0;
-  for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
-    MapPoint *pMP = vpMapPointMatches[i];
-    if (pMP) {
-      if (!pMP->isBad()) {
-        pMP->ComputeDistinctiveDescriptors();
-        pMP->UpdateNormalAndDepth();
-        ++num_pts_good;
-      }
-    }
-  }
-  PRINT_DEBUG_FILE(
-      "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
-      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
-
-  // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
-  // incurrent KF
-  mpCurrentKeyFrame->UpdateConnections();
-}
-
-void LocalMapping::RequestStop() {
-  unique_lock<mutex> lock(mMutexStop);
-  mbStopRequested = true;
-  unique_lock<mutex> lock2(mMutexNewKFs);
-  mbAbortBA = true;
-}
-
-bool LocalMapping::Stop() {
-  unique_lock<mutex> lock(mMutexStop);
-  if (mbStopRequested && !mbNotStop) {
-    mbStopped = true;
-    PRINT_INFO_MUTEX("Local Mapping STOP"
-                     << endl);  // if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
-    return true;
-  }
-
-  return false;
-}
-
-bool LocalMapping::isStopped() {
-  unique_lock<mutex> lock(mMutexStop);
-  return mbStopped;
-}
-
-bool LocalMapping::stopRequested() {
-  unique_lock<mutex> lock(mMutexStop);
-  return mbStopRequested;
-}
-
-void LocalMapping::Release() {
-  unique_lock<mutex> lock(mMutexStop);
-  unique_lock<mutex> lock2(mMutexFinish);
-  if (mbFinished) return;
-  mbStopped = false;
-  mbStopRequested = false;
-  // we don't need to lock mMutexNewKFs for stopRequested() && Stop() will be called before calling release()
-  for (list<KeyFrame *>::iterator lit = mlNewKeyFrames.begin(), lend = mlNewKeyFrames.end(); lit != lend; lit++)
-    delete *lit;  //for it's originally in localization mode, so these KFs should be delete when it's deactivated without regarding the mpMap/mlpRecentAddedMapPoints, \
-    if its original state is stopped by LoopClosing, mlNewKeyFrames is already empty
-  mlNewKeyFrames.clear();
-
-  PRINT_INFO_MUTEX("Local Mapping RELEASE"
-                   << endl);  // if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
-}
-
-bool LocalMapping::AcceptKeyFrames() {
-  unique_lock<mutex> lock(mMutexAccept);
-  return mbAcceptKeyFrames;
-}
-
-void LocalMapping::SetAcceptKeyFrames(bool flag) {
-  unique_lock<mutex> lock(mMutexAccept);
-  mbAcceptKeyFrames = flag;
-}
-
-bool LocalMapping::SetNotStop(bool flag) {
-  unique_lock<mutex> lock(mMutexStop);
-
-  if (flag && mbStopped) return false;
-
-  mbNotStop = flag;
-
-  return true;
-}
-
-void LocalMapping::InterruptBA() { mbAbortBA = true; }
-
 void LocalMapping::KeyFrameCulling() {
   // during the copying KFs' stage in IMU Initialization, don't cull any KF!
   if (!mpIMUInitiator->SetCopyInitKFs(true)) return;
@@ -806,7 +422,7 @@ void LocalMapping::KeyFrameCulling() {
          ++vit, ++vi) {
       KeyFrame *pKF = *vit;
       // pKF is bad check for loop closing thread setnoterase and check can speed up
-      if (pKF->mnId == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
+      if (pKF->nid_ == 0 || pKF->isBad()) continue;  // cannot erase the initial KF
 
       // timespan restriction is implemented as the VIORBSLAM paper III-B
       double tmNext = -1;
@@ -818,7 +434,7 @@ void LocalMapping::KeyFrameCulling() {
           // other's connectedKFs
           if (pKF->GetPrevKeyFrame() == NULL) {
             int bkfbad = (int)pKF->isBad();
-            PRINT_INFO_MUTEX(pKF->mnId << " " << bkfbad << endl);
+            PRINT_INFO_MUTEX(pKF->nid_ << " " << bkfbad << endl);
             vbEntered[vi] = true;
             continue;
           }
@@ -845,7 +461,7 @@ void LocalMapping::KeyFrameCulling() {
       KeyFrame *pNextKF = pKF->GetNextKeyFrame();
       if (pNextKF == NULL) {
         int bkfbad = (int)pKF->isBad();
-        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->mnId << " " << bkfbad << endl);
+        PRINT_INFO_MUTEX("NoticeNextKF==NULL: " << pKF->nid_ << " " << bkfbad << endl);
         continue;
       }
       // solved old bug
@@ -924,13 +540,13 @@ void LocalMapping::KeyFrameCulling() {
 
       if (nRedundantObservations > 0.9 * nMPs) {
         if (tmNext > tmNthKF && pLastNthKF != NULL) {  // this KF in next time's local window or N+1th & its
-                                                       // prev-next<=0.5 then we should move tmNthKF forward 1 KF
+          // prev-next<=0.5 then we should move tmNthKF forward 1 KF
           pLastNthKF = pLastNthKF->GetPrevKeyFrame();
           tmNthKF = pLastNthKF == NULL ? -1 : pLastNthKF->ftimestamp_;
         }  // must done before pKF->SetBadFlag()!
 
-        // PRINT_INFO_MUTEX(pKF->mnId << "badflag" << endl);
-        PRINT_DEBUG_FILE("badflag kfid=" << pKF->mnId << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
+        // PRINT_INFO_MUTEX(pKF->nid_ << "badflag" << endl);
+        PRINT_DEBUG_FILE("badflag kfid=" << pKF->nid_ << ",tm=" << fixed << setprecision(9) << pKF->timestamp_ << ":"
                                          << (float)nRedundantObservations / nMPs << "," << tmNthKF << endl,
                          mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pKF->SetBadFlag();
@@ -941,58 +557,470 @@ void LocalMapping::KeyFrameCulling() {
   mpIMUInitiator->SetCopyInitKFs(false);
 }
 
+static inline void PrepareDataForTraingulate(const vector<camm::Camera *> &pcams_in, KeyFrame *pKF1,
+                                             const vector<size_t> &idxs1, vector<const camm::Camera *> &pcams,
+                                             aligned_vector<Sophus::SE3d> &Twrs,
+                                             aligned_vector<camm::Camera::Vec2data> &kps2d, vector<cv::KeyPoint> &kps,
+                                             vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool &bStereos,
+                                             float &cosdisparity) {
+  bStereos = false;
+  cosdisparity = 1.1;  // >1 designed for future inifity point
+  pcams.clear();
+  Twrs.clear();
+  kps.clear();
+  sigma_lvs.clear();
+  urbfs.clear();
+  assert(pcams_in.size() == idxs1.size());
+  assert(!pKF1->mpCameras.empty());
+  bool usedistort = Frame::usedistort_;
+  for (size_t ididxs = 0; ididxs < idxs1.size(); ++ididxs) {
+    size_t idx = idxs1[ididxs];
+    if (-1 != idx) {
+      size_t cami = pKF1->mapn2in_.size() <= idx ? 0 : get<0>(pKF1->mapn2in_[idx]);
+      pcams.push_back(pcams_in[cami]);
+      Twrs.push_back(pKF1->GetTwc() * pKF1->GetTcr());
+      const auto &kp = (!usedistort) ? pKF1->mvKeysUn[idx] : pKF1->mvKeys[idx];
+      kps.push_back(kp);
+      kps2d.push_back(camm::Camera::Vec2data(kp.pt.x, kp.pt.y));
+      sigma_lvs.push_back(pKF1->scalepyrinfo_.vlevelsigma2_[kp.octave]);
+      urbfs.push_back(vector<float>({pKF1->stereoinfo_.vuright_[idx], pKF1->stereoinfo_.baseline_bf_[1]}));
+      // TODO: record cosdisparity in Frame.cc for StereoDistort one
+      if (!bStereos) {
+        if (0 <= urbfs.back()[0]) bStereos = true;
+      } else
+        CV_Assert(0 <= urbfs.back()[0]);
+      if (bStereos) {
+        // this cos value is the min stereo parallax value, (the point with certain depth has max stereo parallax angle
+        // when its Xc is at the centre of baseline), here stereo parallax!=Rays parallax
+        const float cosParallaxRays =
+            cos(2 * atan2(pKF1->stereoinfo_.baseline_bf_[0] / 2., pKF1->stereoinfo_.vdepth_[idx]));
+        if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
+      }
+    }
+  }
+}
+static inline bool PrepareDatasForTraingulate(const vector<camm::Camera *> *pcams_in, const vector<KeyFrame *> &pKFs,
+                                              const vector<vector<size_t>> &idxs, vector<const camm::Camera *> &pcams,
+                                              aligned_vector<Sophus::SE3d> &Twrs,
+                                              aligned_vector<camm::Camera::Vec2data> &kps2d, vector<cv::KeyPoint> *kps,
+                                              vector<float> &sigma_lvs, vector<vector<float>> &urbfs, bool *bStereos,
+                                              float &cosdisparity, float *cosdisparities) {
+  cosdisparity = 1.1;
+  vector<const camm::Camera *> vpcams[2];
+  aligned_vector<Sophus::SE3d> vTwrs[2];
+  aligned_vector<camm::Camera::Vec2data> vkps[2];
+  vector<float> vsigma_lvs[2];
+  vector<vector<float>> vurbfs[2];
+  for (int i = 0; i < 2; ++i)
+    PrepareDataForTraingulate(pcams_in[i], pKFs[i], idxs[i], vpcams[i], vTwrs[i], vkps[i], kps[i], vsigma_lvs[i],
+                              vurbfs[i], bStereos[i], cosdisparities[i]);
+  if (!vpcams[0].size() || !vpcams[1].size()) return false;
+  Eigen::Matrix3f Rwc[2] = {Converter::toMatrix3d(pKFs[0]->GetRotation().t()).cast<float>(),
+                            Converter::toMatrix3d(pKFs[1]->GetRotation().t()).cast<float>()};
+  for (size_t i1 = 0; i1 < vpcams[0].size(); ++i1) {
+    auto &pcam1 = vpcams[0][i1];
+    camm::Camera::Vec3io p3d_tmp;
+    pcam1->UnProject(vkps[0][i1], &p3d_tmp);
+    // Be very very careful to unprojected p3d_tmp requires *=depth then can use full Trc,
+    //  otherwise only Rrc & cosParallaxRays check could be used
+    Vector3f xn1 = pcam1->GetTrc().so3().cast<float>() * p3d_tmp.cast<float>();
+    Vector3f ray1 = Rwc[0] * xn1;
+    for (size_t i2 = 0; i2 < vpcams[1].size(); ++i2) {
+      auto &pcam2 = vpcams[1][i2];
+      pcam2->UnProject(vkps[1][i2], &p3d_tmp);
+      Vector3f xn2 = pcam2->GetTrc().so3().cast<float>() * p3d_tmp.cast<float>();
+      Vector3f ray2 = Rwc[1] * xn2;
+      // the Rays parallax angle must be in [0,180) for depth >0 (TODO: when angle >= 180, rectify here)
+      const float cosParallaxRays = ray1.dot(ray2) / (ray1.norm() * ray2.norm());
+      if (cosdisparity > cosParallaxRays) cosdisparity = cosParallaxRays;
+    }
+  }
+  pcams = std::move(vpcams[0]);
+  pcams.insert(pcams.end(), vpcams[1].begin(), vpcams[1].end());
+  Twrs = std::move(vTwrs[0]);
+  Twrs.insert(Twrs.end(), vTwrs[1].begin(), vTwrs[1].end());
+  kps2d = std::move(vkps[0]);
+  kps2d.insert(kps2d.end(), vkps[1].begin(), vkps[1].end());
+  sigma_lvs = std::move(vsigma_lvs[0]);
+  sigma_lvs.insert(sigma_lvs.end(), vsigma_lvs[1].begin(), vsigma_lvs[1].end());
+  urbfs = std::move(vurbfs[0]);
+  urbfs.insert(urbfs.end(), vurbfs[1].begin(), vurbfs[1].end());
+  return true;
+}
+void LocalMapping::CreateNewMapPoints() {
+  // Retrieve neighbor keyframes in covisibility graph
+  int nn = 10;
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
+  vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+
+  // ref from ORB3
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
+    KeyFrame *pKF = mpCurrentKeyFrame;
+    int count = 0;
+    while ((vpNeighKFs.size() <= nn) && (pKF->GetPrevKeyFrame()) && (count++ < nn)) {
+      vector<KeyFrame *>::iterator it = std::find(vpNeighKFs.begin(), vpNeighKFs.end(), pKF->GetPrevKeyFrame());
+      if (it == vpNeighKFs.end()) vpNeighKFs.push_back(pKF->GetPrevKeyFrame());
+      pKF = pKF->GetPrevKeyFrame();
+    }
+  }
+
+  ORBmatcher matcher(0.6, false);
+
+  cv::Mat Rcw1 = mpCurrentKeyFrame->GetRotation();
+  cv::Mat Rwc1 = Rcw1.t();
+  cv::Mat tcw1 = mpCurrentKeyFrame->GetTranslation();
+  cv::Mat Tcw1(3, 4, CV_32F);
+  Rcw1.copyTo(Tcw1.colRange(0, 3));
+  tcw1.copyTo(Tcw1.col(3));
+  Vector3f Ow1 = Converter::toVector3d(mpCurrentKeyFrame->GetCameraCenter()).cast<float>();
+
+  const float ratioFactor = 1.5f * mpCurrentKeyFrame->scalepyrinfo_.fscalefactor_;  // 1.5*1.2=1.8
+
+  int nnew = 0;  // unused here
+
+  // Search matches with epipolar restriction and triangulate
+  for (size_t i = 0; i < vpNeighKFs.size(); i++) {
+    if (i > 0 && CheckNewKeyFrames())  // if it's busy then just triangulate the best covisible KF
+      return;
+
+    KeyFrame *pKF2 = vpNeighKFs[i];
+    KeyFrame *&pKF1 = mpCurrentKeyFrame;
+
+    // Check first that baseline is not too short
+    Vector3f Ow2 = Converter::toVector3d(pKF2->GetCameraCenter()).cast<float>();
+    Vector3f vBaseline = Ow2 - Ow1;
+    const float baseline = vBaseline.norm();
+
+    if (!mbMonocular) {
+      // for RGBD, if moved distance < mb(equivalent baseline), it's not wise to process maybe
+      // for it cannot see farther than depth camera
+      if (baseline < pKF2->stereoinfo_.baseline_bf_[0]) continue;
+    } else {
+      const float medianDepthKF2 = pKF2->ComputeSceneMedianDepth(2);
+      const float ratioBaselineDepth = baseline / medianDepthKF2;
+
+      // at least baseline>=0.08m/8m(medianDepth)
+      if (ratioBaselineDepth < 0.01) continue;
+    }
+
+    // Search matches that fullfil epipolar constraint(with 2 sigma rule)
+    vector<vector<vector<size_t>>> vMatchedIndices;
+    matcher.SearchForTriangulation(pKF1, pKF2, vMatchedIndices, false);  // matching method is like SBBoW
+
+    camm::PinholeCamera::Ptr pcaminst[2];
+    vector<camm::Camera *> pcams_in[2];
+    assert(!pKF1->mpCameras.empty() && !pKF2->mpCameras.empty());
+    bool usedistort[2] = {pKF1->usedistort_, pKF2->usedistort_};
+    if (!usedistort[0]) {
+      assert(!usedistort[1]);
+      pcaminst[0] =
+          make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF1->mpCameras[0]).get());
+      pcaminst[1] =
+          make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pKF2->mpCameras[0]).get());
+      pcams_in[0].push_back(pcaminst[0].get());
+      pcams_in[1].push_back(pcaminst[1].get());
+    } else {
+      assert(usedistort[1]);
+      for (int icam = 0, ncam = pKF1->mpCameras.size(); icam < ncam; ++icam)
+        pcams_in[0].emplace_back(pKF1->mpCameras[icam].get());
+      for (int icam = 0, ncam = pKF2->mpCameras.size(); icam < ncam; ++icam)
+        pcams_in[1].emplace_back(pKF2->mpCameras[icam].get());
+    }
+
+    // Triangulate each match
+    const int nmatches = vMatchedIndices.size();
+    for (int ikp = 0; ikp < nmatches; ikp++) {
+      const auto &idxs1 = vMatchedIndices[ikp][0];
+      const auto &idxs2 = vMatchedIndices[ikp][1];
+
+      vector<const camm::Camera *> pcams;
+      aligned_vector<Sophus::SE3d> Twrs;
+      vector<cv::KeyPoint> kps[2];
+      aligned_vector<camm::Camera::Vec2data> kps2d;
+      vector<float> sigma_lvs;
+      vector<vector<float>> urbfs;
+      bool bStereos[2];
+      float cosParallaxRays;
+      //+1 && cosParallaxRays>0 -> always choosing stereo parallax(if exists) cos value as the cosParallaxStereo
+      float cosParallaxStereo = cosParallaxRays + 1;
+      float cosParallaxStereos[2];
+      if (!PrepareDatasForTraingulate(pcams_in, vector<KeyFrame *>{pKF1, pKF2}, vector<vector<size_t>>{idxs1, idxs2},
+                                      pcams, Twrs, kps2d, kps, sigma_lvs, urbfs, bStereos, cosParallaxRays,
+                                      cosParallaxStereos))
+        continue;
+      // cout << "check pcams.size="<<pcams.size()<<endl;
+
+      cosParallaxStereo = min(cosParallaxStereos[0], cosParallaxStereos[1]);
+
+      // use triangulation method when it's 2 monocular points with enough parallax or at least 1 stereo point with less
+      // accuracy in depth data
+      camm::Camera::Vec3io x3D;
+      // if >=1 stereo point -> if Rays parallax angle is >= angleParallaxStereo1(!bStereo1->2)(will get better x3D
+      // result) && its Rays parallax angle <90 degrees(over will make 1st condition some problem && make feature
+      // matching unreliable?) if both monocular then parallax angle must be in [1.15,90) degrees
+      if (cosParallaxRays < cosParallaxStereo && cosParallaxRays > 0 &&
+          (bStereos[0] || bStereos[1] || cosParallaxRays < 0.9998)) {  // TODO: check orb3v1.0 use 0.9996 for inertial
+        const double thresh_cosdisparity = 1. - 1e-6;
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, thresh_cosdisparity, &urbfs, &Twrs).empty())
+          continue;
+      } else if (cosParallaxStereos[0] < cosParallaxStereos[1]) {
+        assert(bStereos[0]);
+        x3D = pKF1->UnprojectStereo(idxs1.front()).cast<camm::Camera::Tio>();
+        assert(!x3D.hasNaN());
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
+      } else if (cosParallaxStereos[1] < cosParallaxStereos[0]) {
+        assert(bStereos[1]);
+        x3D = pKF2->UnprojectStereo(idxs2.front()).cast<camm::Camera::Tio>();
+        assert(!x3D.hasNaN());
+        if (pcams[0]->TriangulateMatches(pcams, kps2d, sigma_lvs, &x3D, 1., &urbfs, &Twrs, true).empty()) continue;
+      } else
+        continue;  // No stereo and very low(or >=90 degrees) parallax, but here sometimes may introduce Rays parallax
+                   // angle>=90 degrees with >=1 stereo point
+
+      // Check scale consistency, is this dist not depth very good?
+      Vector3f normal1 = x3D.cast<float>() - Ow1;
+      float dist1 = normal1.norm();
+      Vector3f normal2 = x3D.cast<float>() - Ow2;
+      float dist2 = normal2.norm();
+      // it seems impossible for zi>0, if possible it maybe numerical error
+      if (dist1 == 0 || dist2 == 0) continue;
+      if (th_far_pts_ > 0 && max(dist1, dist2) >= th_far_pts_) continue;
+
+      const float ratioDist = dist2 / dist1;
+      float ratioOctave[2] = {INFINITY, -INFINITY};
+      for (auto kp1 : kps[0]) {
+        for (auto kp2 : kps[1]) {
+          // here FIX ORBSLAM2/3 bug! if dist2 larger, scale2 and ratioOctave should also be larger
+          float rat_tmp = pKF2->scalepyrinfo_.vscalefactor_[kp2.octave] / pKF1->scalepyrinfo_.vscalefactor_[kp1.octave];
+          if (rat_tmp < ratioOctave[0]) ratioOctave[0] = rat_tmp;
+          if (rat_tmp > ratioOctave[1]) ratioOctave[1] = rat_tmp;
+        }
+      }
+      /*if(fabs(ratioDist-ratioOctave)>ratioFactor) continue;*/
+      // ratioOctave must be in [ratioDist/ratioFactor,ratioDist*ratioFactor], notice ratioFactor
+      // is 1.5*mpCurrentKeyFrame->mfScaleFactor
+      if (ratioDist * ratioFactor < ratioOctave[1] || ratioDist > ratioOctave[0] * ratioFactor) {
+        //        cout << "check ratio="<<ratioDist <<","<<"octave="<<ratioOctave[0]<<","<<ratioOctave[1]<<endl;
+        continue;
+      }
+
+      // Triangulation is succesfull
+      // notice pMp->mnFirstKFid=mpCurrentKeyFrame->nid_
+      MapPoint *pMP = new MapPoint(x3D.cast<MapPoint::Tdata>(), mpCurrentKeyFrame, mpMap);
+
+      PRINT_DEBUG_FILE_MUTEX("addmp1" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+      for (auto idx : idxs1) {
+        if (-1 == idx) continue;
+        pMP->AddObservation(pKF1, idx);
+        pKF1->AddMapPoint(pMP, idx);
+      }
+      for (auto idx : idxs2) {
+        if (-1 == idx) continue;
+        pMP->AddObservation(pKF2, idx);
+        pKF2->AddMapPoint(pMP, idx);
+      }
+      pMP->ComputeDistinctiveDescriptors();
+      pMP->UpdateNormalAndDepth();
+
+      mpMap->AddMapPoint(pMP);
+      mlpRecentAddedMapPoints.push_back(pMP);
+      nnew++;
+    }
+  }
+  PRINT_INFO_FILE("newmpsnum=" << nnew << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+}
+void LocalMapping::SearchInNeighbors() {
+  // Retrieve neighbor keyframes
+  int nn = 10;               // RGBD/Stereo
+  if (mbMonocular) nn = 30;  // orb3v1.0 change 20->30
+  const vector<KeyFrame *> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+  vector<KeyFrame *> vpTargetKFs;
+  for (vector<KeyFrame *>::const_iterator vit = vpNeighKFs.begin(), vend = vpNeighKFs.end(); vit != vend; vit++) {
+    KeyFrame *pKFi = *vit;
+    if (pKFi->isBad() ||
+        pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->nid_)  // bad or entered(avoid duplications), cannot be itself
+      continue;
+    vpTargetKFs.push_back(pKFi);
+    pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;
+  }
+
+  // Add some covisible of covisible
+  // Extend to some second neighbors
+  for (int i = 0, imax = vpTargetKFs.size(); i < imax; i++) {
+    const vector<KeyFrame *> vpSecondNeighKFs = vpTargetKFs[i]->GetBestCovisibilityKeyFrames(5);  // ORB3 uses 20
+    for (vector<KeyFrame *>::const_iterator vit2 = vpSecondNeighKFs.begin(), vend2 = vpSecondNeighKFs.end();
+         vit2 != vend2; vit2++) {
+      KeyFrame *pKFi2 = *vit2;
+      // avoid bad,duplications && itself(KF now)
+      if (pKFi2->isBad() || pKFi2->mnFuseTargetForKF == mpCurrentKeyFrame->nid_ ||
+          pKFi2->nid_ == mpCurrentKeyFrame->nid_)
+        continue;
+      pKFi2->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;  // fixed efficiency bug in ORB2
+      vpTargetKFs.push_back(pKFi2);
+    }
+#define ORB3_STRATEGY
+#ifdef ORB3_STRATEGY
+    if (mbAbortBA) {
+      return;  // break;
+    }
+#endif
+  }
+
+  // ref from ORB3
+  // Extend to temporal neighbors
+  // if (mpIMUInitiator->GetSensorIMU()) {  // || mpIMUInitiator->GetSensorEnc()) {
+  if (mpIMUInitiator->GetVINSInited() || (mbMonocular && mpCurrentKeyFrame->getState() == (char)Tracking::ODOMOK)) {
+    KeyFrame *pKFi = mpCurrentKeyFrame->GetPrevKeyFrame();
+    while (vpTargetKFs.size() < 20 && pKFi) {
+      if (pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->nid_) {
+        pKFi = pKFi->GetPrevKeyFrame();
+        continue;
+      }
+      vpTargetKFs.push_back(pKFi);
+      pKFi->mnFuseTargetForKF = mpCurrentKeyFrame->nid_;
+      pKFi = pKFi->GetPrevKeyFrame();
+    }
+  }
+
+  // bijection search matches
+  //  Search matches by projection from current KF in target KFs
+  ORBmatcher matcher;  // 0.6,true
+  vector<MapPoint *> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+  size_t num_fused = 0;
+  for (vector<KeyFrame *>::iterator vit = vpTargetKFs.begin(), vend = vpTargetKFs.end(); vit != vend; vit++) {
+    KeyFrame *pKFi = *vit;
+    num_fused += matcher.Fuse(pKFi, vpMapPointMatches);
+  }
+  PRINT_DEBUG_FILE("over2 fused num = " << num_fused << endl, mlog::vieo_slam_debug_path,
+                   "localmapping_thread_debug.txt");
+
+#ifdef ORB3_STRATEGY
+  if (mbAbortBA) return;
+#endif
+
+  // Search matches by projection from target KFs in current KF
+  vector<MapPoint *> vpFuseCandidates;
+  vpFuseCandidates.reserve(vpTargetKFs.size() * vpMapPointMatches.size());
+
+  for (vector<KeyFrame *>::iterator vitKF = vpTargetKFs.begin(), vendKF = vpTargetKFs.end(); vitKF != vendKF; vitKF++) {
+    KeyFrame *pKFi = *vitKF;
+
+    vector<MapPoint *> vpMapPointsKFi = pKFi->GetMapPointMatches();
+
+    for (vector<MapPoint *>::iterator vitMP = vpMapPointsKFi.begin(), vendMP = vpMapPointsKFi.end(); vitMP != vendMP;
+         vitMP++) {
+      MapPoint *pMP = *vitMP;
+      // avoid no corresponding/empty MapPoints
+      if (!pMP) continue;
+      // avoid bad,duplications
+      if (pMP->isBad() || pMP->mnFuseCandidateForKF == mpCurrentKeyFrame->nid_) continue;
+      pMP->mnFuseCandidateForKF = mpCurrentKeyFrame->nid_;
+      vpFuseCandidates.push_back(pMP);
+    }
+  }
+
+  num_fused = matcher.Fuse(mpCurrentKeyFrame, vpFuseCandidates);
+  PRINT_DEBUG_FILE("over3, fused2= " << num_fused << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+
+  // Update MapPoints' descriptor&&normal in mpCurrentKeyFrame
+  vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
+  size_t num_pts_good = 0;
+  for (size_t i = 0, iend = vpMapPointMatches.size(); i < iend; i++) {
+    MapPoint *pMP = vpMapPointMatches[i];
+    if (pMP) {
+      if (!pMP->isBad()) {
+        pMP->ComputeDistinctiveDescriptors();
+        pMP->UpdateNormalAndDepth();
+        ++num_pts_good;
+      }
+    }
+  }
+  PRINT_DEBUG_FILE(
+      "curkf good pts num= " << num_pts_good << ":" << (float)num_pts_good / vpMapPointMatches.size() << endl,
+      mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+
+  // Update connections in covisibility graph, for possible changed MapPoints in fuse by projection from target KFs
+  // incurrent KF
+  mpCurrentKeyFrame->UpdateConnections();
+}
+
+bool LocalMapping::SetNotStop(bool flag) {
+  unique_lock<mutex> lock(mutex_stop_);
+  if (flag && bstopped_) return false;
+
+  bnot_stop_ = flag;
+  return true;
+}
+void LocalMapping::RequestStop() {
+  unique_lock<mutex> lock(mutex_stop_);
+  bstop_requested_ = true;
+  mbAbortBA = true;
+}
+void LocalMapping::RequestReset(const int8_t id_cam) {
+  PRINT_INFO_MUTEX("Reseting Local Mapper..." << flush);
+  MultiThreadBase::RequestReset(id_cam);
+  PRINT_INFO_MUTEX(" done" << endl);
+
+  // Reset IMU Initialization, must after mpLocalMapper&mpLoopClosing->RequestReset()! for no updation of
+  // mpCurrentKeyFrame& no use of mbVINSInited in IMUInitialization thread
+  PRINT_INFO_MUTEX("Resetting IMU Initiator..." << flush);
+  if (mpIMUInitiator) {
+    mpIMUInitiator->RequestReset(id_cam);
+  }
+  PRINT_INFO_MUTEX("done" << endl);
+}
+bool LocalMapping::isStopped() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstopped_;
+}
+bool LocalMapping::stopRequested() {
+  unique_lock<mutex> lock(mutex_stop_);
+  return bstop_requested_;
+}
+bool LocalMapping::Stop() {
+  unique_lock<mutex> lock(mutex_stop_);
+  if (bstop_requested_ && !bnot_stop_) {
+    bstopped_ = true;
+    PRINT_INFO_MUTEX("Local Mapping STOP" << endl);
+    // if LocalMapping is stopped for CorrectLoop()/GBA, this word should appear!
+    PRINT_INFO_FILE("Map STOP" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+    return true;
+  }
+
+  return false;
+}
+void LocalMapping::Release() {
+  unique_lock<mutex> lock(mutex_stop_);
+  {
+    unique_lock<mutex> lock2(mutexfinish_);
+    if (bfinish_) return;
+  }
+  bstop_requested_ = false;
+  bstopped_ = false;
+  // we don't need to lock mMutexNewKFs for stopRequested() && Stop() will be called before calling release()
+  // for it's originally in localization mode, so these KFs should be delete when it's deactivated without
+  // regarding the mpMap/mlpRecentAddedMapPoints, if its original state is stopped by LoopClosing, mlNewKeyFrames
+  // is already empty
+  ReleaseDynamicMemory(false);
+
+  PRINT_INFO_MUTEX("Local Mapping RELEASE" << endl);
+  // if LocalMapping is recovered from CorrectLoop()/GBA, this notice should appear!
+  PRINT_INFO_FILE("Map RELEASE" << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+}
+bool LocalMapping::AcceptKeyFrames() {
+  unique_lock<mutex> lock(mMutexAccept);
+  return mbAcceptKeyFrames;
+}
+void LocalMapping::SetAcceptKeyFrames(bool flag) {
+  unique_lock<mutex> lock(mMutexAccept);
+  mbAcceptKeyFrames = flag;
+}
+void LocalMapping::InterruptBA() { mbAbortBA = true; }
+
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v) {
   return (cv::Mat_<float>(3, 3) << 0, -v.at<float>(2), v.at<float>(1), v.at<float>(2), 0, -v.at<float>(0),
           -v.at<float>(1), v.at<float>(0), 0);
-}
-
-void LocalMapping::RequestReset() {
-  {
-    unique_lock<mutex> lock(mMutexReset);
-    mbResetRequested = true;
-  }
-
-  while (1) {
-    {
-      unique_lock<mutex> lock2(mMutexReset);
-      if (!mbResetRequested) break;
-    }
-    usleep(3000);
-  }
-}
-
-void LocalMapping::ResetIfRequested() {
-  unique_lock<mutex> lock(mMutexReset);
-  if (mbResetRequested) {
-    mlNewKeyFrames.clear();
-    mlpRecentAddedMapPoints.clear();
-    mbResetRequested = false;
-
-    mnLastOdomKFId = 0;
-    SetInitLastCamKF(nullptr);
-  }
-}
-
-void LocalMapping::RequestFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinishRequested = true;
-}
-
-bool LocalMapping::CheckFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinishRequested;
-}
-
-void LocalMapping::SetFinish() {
-  unique_lock<mutex> lock(mMutexFinish);
-  mbFinished = true;
-  unique_lock<mutex> lock2(mMutexStop);
-  mbStopped = true;
-}
-
-bool LocalMapping::isFinished() {
-  unique_lock<mutex> lock(mMutexFinish);
-  return mbFinished;
 }
 
 }  // namespace VIEO_SLAM

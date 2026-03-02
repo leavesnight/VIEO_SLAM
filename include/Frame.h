@@ -16,7 +16,6 @@
 namespace VIEO_SLAM {
 class KeyFrame;
 class MapPoint;
-class GeometricCamera;
 
 class Frame : public FrameBase {
   EncPreIntegrator *ppreint_enc_kf_;
@@ -66,8 +65,9 @@ class Frame : public FrameBase {
   bool write(ostream &os) const;                   // though we don't save Frame
 
  public:
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW  // for quaterniond in NavState && Matrix4d
-  // created by zzh over.
+  // for quaterniond in NavState && Matrix4d
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
   Frame();
 
   // Copy constructor. for Tcw is cv::Mat, we need to deep copy it
@@ -77,14 +77,14 @@ class Frame : public FrameBase {
 
   // Constructor for stereo/RGB-D(ims.size()>extractors.size())/Monocular(ims.size()==1) cameras.
   Frame(const vector<cv::Mat> &ims, const double &timeStamp, const vector<ORBextractor *> &extractors,
-        ORBVocabulary *voc, const vector<GeometricCamera *> &CamInsts, const float &bf, const float &thDepth,
+        ORBVocabulary *voc, const vector<camm::Camera::Ptr> &CamInsts, const float &bf, const float &thDepth,
         IMUPreintegrator *ppreint_imu_kf = nullptr, EncPreIntegrator *ppreint_enc_kf = nullptr, bool usedistort = true,
         const float th_far_pts = 0);
 
   std::vector<MapPoint *> &GetMapPointsRef() { return mvpMapPoints; }
 
   // Extract ORB on the image. 0 for left image and 1 for right image.
-  void ExtractORB(int flag, const cv::Mat &im, std::vector<int> *pvLappingArea = nullptr);
+  void ExtractORB(int flag, const cv::Mat &im, const std::vector<int> *pvLappingArea = nullptr);
 
   // Set the camera pose.
   void SetPose(cv::Mat Tcw);
@@ -112,7 +112,7 @@ class Frame : public FrameBase {
   void ComputeStereoFromRGBD(const cv::Mat &imDepth);
 
   // Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
-  cv::Mat UnprojectStereo(const int &i);
+  Vector3f UnprojectStereo(const int &i);
 
  public:
   // Flag to identify outlier associations.

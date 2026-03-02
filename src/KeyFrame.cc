@@ -105,7 +105,7 @@ void KeyFrame::PreIntegrationFromLastKF<IMUData>(FrameBase *plastkf, double tmi,
 // we don't update bias for convenience in LoadMap(), though we can do it as mOdomPreIntOdom is updated in read()
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrevKF, istream &is)
     : FrameBase(F),
-      mnFrameId(F.mnId),
+      mnFrameId(F.nid_),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -133,7 +133,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, KeyFrame *pPrev
 
   read(is);  // set odom list & mState
 
-  mnId = nNextId++;
+  nid_ = nNextId++;
 }
 bool KeyFrame::read(istream &is) {
   // we've done a lot in Frame Constructor with is!
@@ -151,7 +151,7 @@ bool KeyFrame::read(istream &is) {
     Serialize::readVecread(is, limu);
     SetPreIntegrationList<IMUData>(limu.begin(), limu.end());
   }
-  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through mnId
+  // Compute/Recover mOdomPreIntOdom, mpPrevKeyFrame already exists for KFs of mpMap is sorted through nid_
   if (mpPrevKeyFrame) {
     PreIntegration<EncData>(mpPrevKeyFrame);
     PreIntegration<IMUData>(mpPrevKeyFrame);
@@ -206,7 +206,7 @@ long unsigned int KeyFrame::nNextId = 0;
 
 KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shallow, KeyFrame *pPrevKF, const char state)
     : FrameBase(F),
-      mnFrameId(F.mnId),
+      mnFrameId(F.nid_),
       mnTrackReferenceForFrame(0),
       mnFuseTargetForKF(0),
       mnBALocalForKF(0),
@@ -238,7 +238,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
 
   Tcw_.release();
   SetPose(F.GetTcwRef());
-  PRINT_DEBUG_FILE_MUTEX("checkkf" << mnId << " ", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX("checkkf" << nid_ << " ", mlog::vieo_slam_debug_path, "debug.txt");
   size_t i = 0;
   for (auto iter : mvpMapPoints) {
     if (iter) PRINT_DEBUG_FILE_MUTEX(i << ":" << iter->mnId << ",", mlog::vieo_slam_debug_path, "debug.txt");
@@ -250,7 +250,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB, bool copy_shall
   F.DeepMovePreintOdomFromLastKF(mOdomPreIntIMU);
   // created by zzh over
 
-  mnId = nNextId++;
+  nid_ = nNextId++;
 }
 
 void KeyFrame::SetPose(const cv::Mat &Tcw) {
@@ -369,10 +369,11 @@ vector<KeyFrame *> KeyFrame::GetCovisiblesByWeight(const int &w) {
 
   if (mvpOrderedConnectedKeyFrames.empty()) return vector<KeyFrame *>();
 
-  vector<int>::iterator it = upper_bound(mvOrderedWeights.begin(), mvOrderedWeights.end(), w,
-                                         KeyFrame::weightComp);  // first > w, here is first < w for weightComp is >
+  // first > w, here is first < w for weightComp is >
+  auto it = upper_bound(mvOrderedWeights.begin(), mvOrderedWeights.end(), w, KeyFrame::weightComp);
+  // ref from ORB3: when all >=w, we should return member copy directly
   if (it == mvOrderedWeights.end())
-    return vector<KeyFrame *>();
+    return mvpOrderedConnectedKeyFrames;
   else {
     int n = it - mvOrderedWeights.begin();
     return vector<KeyFrame *>(
@@ -403,8 +404,8 @@ void KeyFrame::EraseMapPointMatch(MapPoint *pMP) {
   set<size_t> idxs = pMP->GetIndexInKeyFrame(this);
   for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
     auto idx = *iter;
-    mvpMapPoints[idx] = static_cast<MapPoint *>(NULL);
-    // PRINT_INFO_FILE_MUTEX("KFid" << mnId << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    mvpMapPoints[idx] = static_cast<MapPoint *>(nullptr);
+    // PRINT_INFO_FILE_MUTEX("KFid" << nid_ << "Erase MP" << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
   }
 }
 void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint *pMP) {
@@ -447,7 +448,7 @@ MapPoint *KeyFrame::GetMapPoint(const size_t &idx) {
 }
 
 void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
-  PRINT_DEBUG_FILE_MUTEX(mnId << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
+  PRINT_DEBUG_FILE_MUTEX(nid_ << "fusemp", mlog::vieo_slam_debug_path, "debug.txt");
   // not wise to search replaced too deep if this replace is outlier or max_depth too large
 #ifdef USE_SIMPLE_REPLACE
   if (!pMP || pMP->isBad()) return;
@@ -458,6 +459,7 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
     if (++depth >= depth_thresh) break;
   }
   if (!pMP || pMP->isBad()) return;
+//  if (depth) PRINT_INFO_FILE("depth=" << depth << endl, mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
 #endif
 
   // If there is already a MapPoint replace otherwise add new measurement
@@ -465,15 +467,26 @@ void KeyFrame::FuseMP(size_t idx, MapPoint *pMP) {
   if (pMPinKF) {
     if (!pMPinKF->isBad()) {
       // if pMP in pKF is better then discard pMP and use pMPinKF instead
-      if (pMPinKF->Observations() > pMP->Observations())
+      if (pMPinKF->Observations() > pMP->Observations()) {
+        // PRINT_INFO_FILE(
+        //    "replace " << pMP << " by " << pMPinKF << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << endl,
+        //    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pMP->Replace(pMPinKF);
-      else  // else replace pMPinKF with pMP
+      } else {
+        // else replace pMPinKF with pMP
+        // PRINT_INFO_FILE(
+        //    "replace " << pMPinKF << " by " << pMP << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << endl,
+        //    mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
         pMPinKF->Replace(pMP);
+      }
     }     // TODO: maybe when it's bad, can fuse it as well, just add?
   } else  // if best feature match hasn't corresponding MP, then directly use the one in vec<MP*>
   {
     pMP->AddObservation(this, idx);
-    PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt");
+    // PRINT_INFO_FILE("addmp3 " << pMP << ",tmkf=" << fixed << setprecision(9) << ftimestamp_ << ",idx=" << idx <<
+    // endl,
+    //                 mlog::vieo_slam_debug_path, "localmapping_thread_debug.txt");
+    // PRINT_DEBUG_FILE_MUTEX("addmp3" << endl, mlog::vieo_slam_debug_path, "debug.txt")
     AddMapPoint(pMP, idx);
   }
 }
@@ -499,17 +512,17 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
 
     map<KeyFrame *, set<size_t>> observations = pMP->GetObservations();
     for (auto mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
-      if (mit->first->mnId == mnId) continue;
+      if (mit->first->nid_ == nid_) continue;
       KFcounter[mit->first]++;
     }
   }
 
   // This should not happen
   if (KFcounter.empty()) {  // ODOMOK;||mState!=2&&pLastKF!=NULL
-    PRINT_INFO_MUTEX("Failed to update spanning tree! " << mnId << " " << mnFrameId << endl);
+    PRINT_INFO_MUTEX("Failed to update spanning tree! " << nid_ << " " << mnFrameId << endl);
     if (!pLastKF) {
       if (!mpParent) {
-        assert(mnId == 0);
+        assert(nid_ == 0);
       } else
         PRINT_INFO_MUTEX("but has 1 parent and " << mConnectedKeyFrameWeights.size() << " covisibility KFs" << endl);
     } else {
@@ -524,8 +537,8 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
       // 	  mvOrderedWeights.push_back(0);//0 means it's an Odom link
 
       // if first connected then update spanning tree
-      // mnId!=0/this!=plastkf is important for 0th F/KF to ensure its parent is NULL!
-      if (mbFirstConnection && mnId != 0) {
+      // nid_!=0/this!=plastkf is important for 0th F/KF to ensure its parent is NULL!
+      if (mbFirstConnection && nid_ != 0) {
         assert(this != pLastKF);
         mbFirstConnection = false;
         mpParent = pLastKF;  // the closer, the first connection is better
@@ -580,7 +593,7 @@ void KeyFrame::UpdateConnections(KeyFrame *pLastKF) {
     mvpOrderedConnectedKeyFrames = vector<KeyFrame *>(lKFs.begin(), lKFs.end());
     mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-    if (mbFirstConnection && mnId != 0) {
+    if (mbFirstConnection && nid_ != 0) {
       mpParent = mvpOrderedConnectedKeyFrames.front();  // the closer, the first connection is better
       mpParent->AddChild(this);
       mbFirstConnection = false;
@@ -651,114 +664,24 @@ void KeyFrame::SetErase() {
 
 // this will be released in UpdateLocalKeyFrames() in Tracking, no memory leak(not be deleted) for
 // bad KFs may be used by some Frames' trajectory retrieve
-void KeyFrame::SetBadFlag(bool bKeepTree) {
-  assert(!mbBad);  // check
+void KeyFrame::SetBadFlag(const int8_t mode) {
+  assert(!mbBad);
   {
     unique_lock<mutex> lock(mMutexConnections);
+    // for vkeys_/GetMapFrameMatches won't be changed in BA after set, so lock(mutex_features_) is useless
     // cannot erase the initial/fixed KF
-    if (mnId == 0)
-      return;
-    else if (mbNotErase)  // mbNotErase may be set true by LoopClosing
-    {
+    if (!(mode & ForceErase) && !nid_ && bcam_fixed_) return;
+    // mbNotErase may be set true by LoopClosing
+    if (mbNotErase) {
       mbToBeErased = true;  // wait to be erased in SetErase() by LoopClosing
       return;
     }
-    // must be final set bad and before all data to be changed,
+    // must set bad after id&not_erase check and before all data to be changed,
     // then we could 0:just isBad() after accessing all data may be changed when setbadflag or
     // 1: use some extra judgements
     mbBad = true;
   }
-  CV_Assert(mnId != 0);
-
-  // erase the relation with this(&KF)
-  for (map<KeyFrame *, int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend = mConnectedKeyFrameWeights.end();
-       mit != mend; mit++)
-    // erase the directed edge from others to this (1 undirected edge <==> 2 directed edges)
-    mit->first->EraseConnection(this);
-
-  for (size_t i = 0; i < mvpMapPoints.size(); i++)
-    if (mvpMapPoints[i]) mvpMapPoints[i]->EraseObservation(this);  // erase this observation in this->mvpMapPoints
-  {
-    unique_lock<mutex> lock(mMutexConnections);
-
-    // erase the directed edge from this to others in covisibility graph, this is also used as the interface
-    mConnectedKeyFrameWeights.clear();
-    // erase the directed edge for the interface GetVectorCovisibleKeyFrames() will use mvpOrderedConnectedKeyFrames,
-    // but no mvOrderedWeights will be used as public functions
-    mvpOrderedConnectedKeyFrames.clear();
-
-    if (!bKeepTree) {  // for LoadMap(), we don't change bad KFs' parent or Tcp for recovering in SaveTrajectoryTUM()
-      // Update Spanning Tree
-      set<KeyFrame *> sParentCandidates;
-      assert(mpParent != NULL);
-      // 	if (mpParent!=NULL)
-      sParentCandidates.insert(mpParent);
-
-      // Assign at each iteration one children with a parent (the pair with highest covisibility weight)
-      // Include that children as new parent candidate for the rest
-      while (!mspChildrens.empty())  // if empty/all Bad -> no need to adjust the spanning tree more
-      {
-        bool bContinue = false;
-
-        int max = -1;
-        KeyFrame *pC;
-        KeyFrame *pP;
-
-        for (set<KeyFrame *>::iterator sit = mspChildrens.begin(), send = mspChildrens.end(); sit != send; sit++) {
-          KeyFrame *pKF = *sit;
-          // here no need to consider multithread problem for SetBadFlag() is not for multithread,
-          // which uses SetErase tech. in loop closing thread
-          if (pKF->isBad()) continue;
-
-          // Check if a parent candidate is connected to the keyframe (children of this)
-          vector<KeyFrame *> vpConnected = pKF->GetVectorCovisibleKeyFrames();
-          for (size_t i = 0, iend = vpConnected.size(); i < iend; i++) {
-            for (set<KeyFrame *>::iterator spcit = sParentCandidates.begin(), spcend = sParentCandidates.end();
-                 spcit != spcend; spcit++) {
-              if (vpConnected[i]->mnId == (*spcit)->mnId) {
-                // notice vpConnected[i]->GetWeight(pKF) may not exist for not in time
-                // vpConnected[i]->UpdateConnections()
-                int w = pKF->GetWeight(vpConnected[i]);
-                // the pair(pC,pP) highest covisibility weight
-                if (w > max) {
-                  pC = pKF;
-                  pP = vpConnected[i];
-                  max = w;
-                  bContinue = true;
-                }
-              }
-            }
-          }
-        }
-
-        // this updation(connecting culled KF's children with the KF's parent/children) is same as mbFirstConnection(the
-        // closest covisibility KF)
-        if (bContinue) {
-          // connect pC to its new parent pP(max covisibility in sParentCandidates)
-          pC->ChangeParent(pP);
-          // put pC(max covisibility child correspoding to sParentCandidates) into sParentCandidates
-          sParentCandidates.insert(pC);
-          mspChildrens.erase(pC);
-        } else  // if left children's 1st layer covisibility KFs have no sParentCandidates(max==-1) -> break
-          break;
-      }
-
-      // The childs with no covisibility links/edges with any parent candidate, assign it to this kf's parent
-      if (!mspChildrens.empty())
-        for (set<KeyFrame *>::iterator sit = mspChildrens.begin(); sit != mspChildrens.end(); sit++) {
-          (*sit)->ChangeParent(mpParent);
-        }
-    }
-    // notice here mspChildrens may not be empty, and it doesn't take part in the propagation in LoopClosing thread
-    // 	if (mpParent!=NULL){
-    mpParent->EraseChild(this);
-    if (!bKeepTree) {
-      // maybe for bad kf's Tcw_ changes small, old code here no lock(mMutexPose); but for safety, we add it here
-      unique_lock<mutex> lock(mMutexPose);
-      mTcp = Tcw_ * mpParent->GetPoseInverse();  // the inter spot/link of Frames with its refKF in spanning tree
-    }
-    // 	}
-  }
+  assert(nid_);
 
   // Update Prev/Next KeyFrame in prev/next, mbBad is not absolutely related to its existence
   {
@@ -800,13 +723,116 @@ void KeyFrame::SetBadFlag(bool bKeepTree) {
     mpPrevKeyFrame->SetNavState(ns_preint_new);
     mpNextKeyFrame->PreIntegration<IMUData>(mpPrevKeyFrame);
     mpNextKeyFrame->PreIntegration<EncData>(mpPrevKeyFrame);
-    mpPrevKeyFrame = mpNextKeyFrame = NULL;  // clear this KF's pointer, to check if its prev/next is deleted
+    mpPrevKeyFrame = mpNextKeyFrame = nullptr;  // clear this KF's pointer, to check if its prev/next is deleted
   }
 
-  // erase this(&KF) in mpMap && mpKeyFrameDB
-  mpMap->EraseKeyFrame(this);
-  mpKeyFrameDB->erase(this);
-  // cout << "End " << mnId << " " << ftimestamp_ << endl;
+  // erase features
+  {
+    unique_lock<mutex> lock(mMutexFeatures);
+    for (size_t i = 0; i < mvpMapPoints.size(); i++)
+      if (mvpMapPoints[i]) mvpMapPoints[i]->EraseObservation(this);  // erase this observation in this->mvpMapPoints
+  }
+
+  if (bcam_fixed_) {
+    // erase the relation with this(&KF)
+    for (map<KeyFrame *, int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend = mConnectedKeyFrameWeights.end();
+         mit != mend; mit++)
+      // erase the directed edge from others to this (1 undirected edge <==> 2 directed edges)
+      mit->first->EraseConnection(this);
+
+    unique_lock<mutex> lock(mMutexConnections);
+
+    // erase the directed edge from this to others in covisibility graph, this is also used as the interface
+    mConnectedKeyFrameWeights.clear();
+    // erase the directed edge for the interface GetVectorCovisibleKeyFrames() will use mvpOrderedConnectedKeyFrames,
+    // but no mvOrderedWeights will be used as public functions
+    mvpOrderedConnectedKeyFrames.clear();
+
+    // KeepTree for LoadMap(), we don't change bad KFs' parent or Tcp for recovering in SaveTrajectory()
+    auto &pparent = mpParent;
+    if (!pparent) {
+      if (!(mode & ForceErase) || nid_) {
+        PRINT_ERR_MUTEX("Error in update spanning tree");
+        exit(-1);
+      }
+    } else {
+      if (!(mode & KeepTree)) {
+        // Update Spanning Tree
+        set<KeyFrame *> sparent_candidates;
+        sparent_candidates.insert(pparent);
+
+        // Assign at each iteration one children with a parent (the pair with highest covisibility weight)
+        // Include that children as new parent candidate for the rest
+        auto &pchilds = mspChildrens;
+        while (!pchilds.empty())  // if empty/all Bad -> no need to adjust the spanning tree more
+        {
+          bool bcontinue = false;
+
+          int max = -1;
+          KeyFrame *pchild;
+          KeyFrame *pparent;
+
+          for (set<KeyFrame *>::iterator sit = pchilds.begin(), send = pchilds.end(); sit != send; sit++) {
+            KeyFrame *pkf = *sit;
+            // here no need to consider multithread problem for SetBadFlag() is not for multithread,
+            // which uses SetErase tech. in loop closing thread
+            if (pkf->isBad()) continue;
+
+            // Check if a parent candidate is connected to the keyframe (children of this)
+            vector<KeyFrame *> vpconnected = pkf->GetVectorCovisibleKeyFrames();
+            for (size_t i = 0, iend = vpconnected.size(); i < iend; i++) {
+              for (set<KeyFrame *>::iterator spcit = sparent_candidates.begin(), spcend = sparent_candidates.end();
+                   spcit != spcend; spcit++) {
+                if (vpconnected[i]->nid_ == (*spcit)->nid_) {
+                  // notice vpConnected[i]->GetWeight(pKF) may not exist for not in time
+                  // vpConnected[i]->UpdateConnections()
+                  int w = pkf->GetWeight(vpconnected[i]);
+                  // the pair(pC,pP) highest covisibility weight
+                  if (w > max) {
+                    pchild = pkf;
+                    pparent = vpconnected[i];
+                    max = w;
+                    bcontinue = true;
+                  }
+                }
+              }
+            }
+          }
+
+          // this updation(connecting culled KF's children with the KF's parent/children) is same as
+          // mbFirstConnection(the closest covisibility KF)
+          if (bcontinue) {
+            // connect pchild to its new parent pparent(max covisibility in sparent_candidates)
+            pchild->ChangeParent(pparent);
+            // put pchild(max covisibility child correspoding to sparent_candidates) into sparent_candidates
+            sparent_candidates.insert(pchild);
+            pchilds.erase(pchild);
+          } else  // if left children's 1st layer covisibility KFs have no sparent_candidates(max==-1) -> break
+            break;
+        }
+
+        // The childs with no covisibility links/edges with any parent candidate, assign it to this kf's parent
+        if (!pchilds.empty())
+          for (auto sit = pchilds.begin(); sit != pchilds.end(); sit++) {
+            (*sit)->ChangeParent(pparent);
+          }
+      } else
+        assert(mode == KeepTree);
+      // notice here mspChildrens may not be empty, and it doesn't take part in the propagation in LoopClosing thread
+      pparent->EraseChild(this);
+      if (!(mode & KeepTree)) {
+        // maybe for bad kf's Tcw_ changes small, old code here no lock(mMutexPose); but for safety, we add it here
+        unique_lock<mutex> lock(mMutexPose);
+        mTcp = Tcw_ * pparent->GetPoseInverse();  // the inter spot/link of Frames with its refKF in spanning tree
+      }
+    }
+  }
+
+  if (bcam_fixed_) {
+    mpKeyFrameDB->erase(this);
+    if (static_cast<bool>(mode & MapNoErase)) return;
+    mpMap->EraseKeyFrame(this);
+  }
 }
 
 bool KeyFrame::isBad() {
@@ -827,20 +853,20 @@ void KeyFrame::EraseConnection(KeyFrame *pKF) {
   if (bUpdate) UpdateBestCovisibles();
 }
 
-cv::Mat KeyFrame::UnprojectStereo(int i) {
+Vector3f KeyFrame::UnprojectStereo(int i) {
   if (mapn2in_.size() > i) {
     const float z = stereoinfo_.vdepth_[i];
     if (z > 0) {
       auto ididxs = GetMapn2idxs(i);
-      CV_Assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
+      assert(-1 != ididxs && stereoinfo_.goodmatches_[ididxs]);
 
       unique_lock<mutex> lock(mMutexPose);
       Vector3d x3Dw =
           Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)) * (GetTcr() * stereoinfo_.v3dpoints_[ididxs]) +
           Converter::toVector3d(Twc.rowRange(0, 3).col(3));
-      return Converter::toCvMat(x3Dw);
+      return x3Dw.cast<float>();
     } else {
-      return cv::Mat();
+      return Vector3f::Constant(NAN);
     }
   }
 
@@ -852,12 +878,13 @@ cv::Mat KeyFrame::UnprojectStereo(int i) {
     Vector3f uv_normal = mpCameras[0]->toK().cast<float>().inverse() * Vector3f(u, v, 1);
     const float x = uv_normal[0] * z;
     const float y = uv_normal[1] * z;
-    cv::Mat x3Dc = (cv::Mat_<float>(3, 1) << x, y, z);
+    Vector3f x3Dc(x, y, z);
 
     unique_lock<mutex> lock(mMutexPose);
-    return Twc.rowRange(0, 3).colRange(0, 3) * x3Dc + Twc.rowRange(0, 3).col(3);
+    return Converter::toMatrix3d(Twc.rowRange(0, 3).colRange(0, 3)).cast<float>() * x3Dc +
+           Converter::toVector3d(Twc.rowRange(0, 3).col(3)).cast<float>();
   } else
-    return cv::Mat();
+    return Vector3f::Constant(NAN);
 }
 
 float KeyFrame::ComputeSceneMedianDepth(const int q) {
@@ -872,13 +899,12 @@ float KeyFrame::ComputeSceneMedianDepth(const int q) {
 
   vector<float> vDepths;
   vDepths.reserve(N);
-  cv::Mat Rcw2 = Tcw.row(2).colRange(0, 3);
-  Rcw2 = Rcw2.t();
+  Eigen::Vector3f Rcw2 = Converter::toVector3d(Tcw.row(2).colRange(0, 3)).cast<float>();
   float zcw = Tcw.at<float>(2, 3);
   for (int i = 0; i < N; i++) {
     if (vpMapPoints[i]) {
       MapPoint *pMP = vpMapPoints[i];
-      cv::Mat x3Dw = pMP->GetWorldPos();
+      MapPoint::Vector3data x3Dw = pMP->GetWorldPos();
       float z = Rcw2.dot(x3Dw) + zcw;
       vDepths.push_back(z);
     }

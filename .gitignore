@@ -11,11 +11,12 @@ Examples/RGB-D/rgbd_tum
 Examples/Stereo/stereo_euroc
 Examples/Stereo/stereo_kitti
 Examples/Stereo/stereo_vr
-Examples/ROS/*/Mono
-Examples/ROS/*/MonoAR
-Examples/ROS/*/RGBD
-Examples/ROS/*/Stereo
-Examples/ROS/*/Stereo_Inertial
+Examples/Stereo/VR/VR_tmp.yaml
+Examples/RunEuRoC/EuRoC/*
+!Examples/RunEuRoC/EuRoC/*_result.txt
+Examples/RunEuRoC/TUM_VI/*
+!Examples/RunEuRoC/TUM_VI/*_result.txt
+Examples/RunEuRoC/tmp/*
 KeyFrameTrajectory*.txt
 CameraTrajectory*.txt
 Vocabulary/ORBvoc.txt

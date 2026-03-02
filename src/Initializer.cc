@@ -14,7 +14,7 @@
 namespace VIEO_SLAM {
 
 Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iterations) {
-  mK = ReferenceFrame.mpCameras[0]->toKcv().clone();
+  mK = Converter::toCvMat(Matrix3d(ReferenceFrame.mpCameras[0]->toK().cast<double>()));
 
   assert(!ReferenceFrame.usedistort_);
   mvKeys1 = ReferenceFrame.mvKeysUn;

@@ -25,25 +25,27 @@ MapSparseName=""
 if [[ $7 != "" ]]; then
   MapSparseName=$7
 fi
+SUBFILE=$CAMTYPE
+if [[ $8 != "" ]]; then
+  SUBFILE=$8
+fi
 
 curPath=$(dirname $(readlink -f "$0"))
 echo curPath_Once=$curPath
 
 cd $curPath
-source ./RunEuRoCVIO.sh $CAMTYPE $EUROCFILE $EUROCFILE2 "$EuRoCFolderRel" "$ConfigFileRel" "$MapSparseName"
-#cd $curPath
-#SUBFILE=VIO/NoLoopMore_0.2
-#source ./EvaluateEuRoC_Evaluate.sh
+bash ./RunEuRoCVIO.sh $CAMTYPE $EUROCFILE $EUROCFILE2 "$EuRoCFolderRel" "$ConfigFileRel" "$MapSparseName"
 cd $curPath
-SUBFILE=$CAMTYPE
-source ./EvaluateEuRoC_Copy.sh
-source ./EvaluateEuRoC_Evaluate.sh
+bash ./EvaluateEuRoC_Copy.sh $EuRoCFolderRel $EUROCFILE $CAMTYPE $SUBFILE
+cd $curPath
+TrajectoryFileName=CameraTrajectoryIMU
+bash ./EvaluateEuRoC_Evaluate.sh $EuRoCFolderRel $EUROCFILE $SUBFILE $OFFSET $TrajectoryFileName
 
 cd $curPath
 if [[ ${CAMTYPE:0:9} == "Monocular" ]]; then
-  source ./printResultATE.sh $EUROCFILE $SUBFILE GT $EuRoCFolderRel
+  bash ./printResultATE.sh $EUROCFILE $SUBFILE GT $EuRoCFolderRel
 else
-  source ./printResultATE.sh $EUROCFILE $SUBFILE "" $EuRoCFolderRel
+  bash ./printResultATE.sh $EUROCFILE $SUBFILE "" $EuRoCFolderRel
 fi
 
 cd $curPath

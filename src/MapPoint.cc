@@ -5,7 +5,6 @@
 #include <mutex>
 #include "MapPoint.h"
 #include "ORBmatcher.h"
-#include "KannalaBrandt8.h"
 #include "common/mlog/log.h"
 
 namespace VIEO_SLAM {
@@ -19,7 +18,7 @@ void MapPoint::UpdateScale(const float& scale) {
 
 // for Load/SaveMap()
 MapPoint::MapPoint(KeyFrame* pRefKF, Map* pMap, istream& is)
-    : mnFirstKFid(pRefKF->mnId),
+    : mnFirstKFid(pRefKF->nid_),
       nObs(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
@@ -36,7 +35,6 @@ MapPoint::MapPoint(KeyFrame* pRefKF, Map* pMap, istream& is)
       mfMaxDistance(0),
       mpMap(pMap) {
   read(is);
-  mNormalVector = cv::Mat::zeros(3, 1, CV_32F);
 
   // MapPoints can be created from Tracking and Local Mapping. This mutex avoid conflicts with id.
   unique_lock<mutex> lock(mpMap->mMutexPointCreation);
@@ -47,14 +45,13 @@ bool MapPoint::read(istream& is) {
   {
     unique_lock<mutex> lock2(mGlobalMutex);
     unique_lock<mutex> lock(mMutexPos);
-    mWorldPos.create(3, 1, CV_32F);                     // allocate if needed
-    is.read((char*)mWorldPos.data, sizeof(float) * 3);  // float xyz
+    is.read((char*)mWorldPos.data(), sizeof(float) * 3);  // float xyz
   }
   return is.good();
 }
 bool MapPoint::write(ostream& os) {
   // we save mnId,refKF's old id in SaveMap()
-  os.write((char*)(GetWorldPos().data), sizeof(float) * 3);  // float xyz
+  os.write((char*)(GetWorldPos().data()), sizeof(float) * 3);  // float xyz
   return os.good();
 }
 
@@ -63,8 +60,8 @@ bool MapPoint::write(ostream& os) {
 long unsigned int MapPoint::nNextId = 0;
 mutex MapPoint::mGlobalMutex;
 
-MapPoint::MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap)
-    : mnFirstKFid(pRefKF->mnId),
+MapPoint::MapPoint(const Vector3data& Pos, KeyFrame* pRefKF, Map* pMap)
+    : mnFirstKFid(pRefKF->nid_),
       nObs(0),
       mnBALocalForKF(0),
       mnFuseCandidateForKF(0),
@@ -80,15 +77,14 @@ MapPoint::MapPoint(const cv::Mat& Pos, KeyFrame* pRefKF, Map* pMap)
       mfMinDistance(0),
       mfMaxDistance(0),
       mpMap(pMap) {
-  Pos.copyTo(mWorldPos);
-  mNormalVector = cv::Mat::zeros(3, 1, CV_32F);
+  mWorldPos = Pos;
 
   // MapPoints can be created from Tracking and Local Mapping. This mutex avoid conflicts with id.
   unique_lock<mutex> lock(mpMap->mMutexPointCreation);
   mnId = nNextId++;
 }
 
-MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF)
+MapPoint::MapPoint(const Vector3data& Pos, Map* pMap, Frame* pFrame, const int& idxF)
     : mnFirstKFid(-1),
       nObs(0),
       mnBALocalForKF(0),
@@ -103,15 +99,15 @@ MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF
       mbBad(false),
       mpReplaced(NULL),
       mpMap(pMap) {
-  Pos.copyTo(mWorldPos);
+  mWorldPos = Pos;
   // similar to part in the StereoInitialization(): Update Normal&Depth Compute Descriptor
   //  TODO(zzh): check dist&level from multicams instead of current ref cam 0
-  cv::Mat Ow = pFrame->GetCameraCenter();
-  mNormalVector = mWorldPos - Ow;
-  mNormalVector = mNormalVector / cv::norm(mNormalVector);  // normalized normal vector
+  Vector3calc twcr = Converter::toVector3d(pFrame->GetCameraCenter()).cast<Tcalc>();
+  mNormalVector = mWorldPos - twcr;
+  mNormalVector.normalize();
 
-  cv::Mat PC = Pos - Ow;
-  const float dist = cv::norm(PC);
+  Vector3calc PC = Pos - twcr;
+  const float dist = PC.norm();
   const int level = pFrame->mvKeys[idxF].octave;  // Un
   const float levelScaleFactor = pFrame->scalepyrinfo_.vscalefactor_[level];
   const int nLevels = pFrame->scalepyrinfo_.vscalefactor_.size();
@@ -126,21 +122,21 @@ MapPoint::MapPoint(const cv::Mat& Pos, Map* pMap, Frame* pFrame, const int& idxF
   mnId = nNextId++;
 }
 
-void MapPoint::SetWorldPos(const cv::Mat& Pos, bool block) {
+void MapPoint::SetWorldPos(const Vector3data& Pos, bool block) {
   unique_lock<mutex> lock2(mGlobalMutex);
   unique_lock<mutex> lock(mMutexPos, defer_lock);
   if (block) lock.lock();
-  Pos.copyTo(mWorldPos);
+  mWorldPos = Pos;
 }
 
-cv::Mat MapPoint::GetWorldPos() {
+MapPoint::Vector3data MapPoint::GetWorldPos() {
   unique_lock<mutex> lock(mMutexPos);
-  return mWorldPos.clone();
+  return mWorldPos;
 }
 
-cv::Mat MapPoint::GetNormal() {
+MapPoint::Vector3data MapPoint::GetNormal() {
   unique_lock<mutex> lock(mMutexPos);
-  return mNormalVector.clone();
+  return mNormalVector;
 }
 
 KeyFrame* MapPoint::GetReferenceKeyFrame() {
@@ -158,7 +154,7 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx) {
   if (mObservations.end() != iter) {
     indexes = iter->second;
   }
-  CV_Assert(indexes.end() == indexes.find(idx));
+  assert(indexes.end() == indexes.find(idx));
   indexes.insert(idx);
   mObservations[pKF] = indexes;
   PRINT_DEBUG_FILE_MUTEX(mnId << "add obs" << idx << " ", mlog::vieo_slam_debug_path, "debug.txt");
@@ -283,7 +279,7 @@ void MapPoint::Replace(MapPoint* pMP) {
         auto idxs_old = pMP->GetObservations()[pKF];
         CV_Assert(idxs_old.end() == idxs_old.find(idx));
         pKF->EraseMapPointMatch(idx);
-        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->mnId << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
+        PRINT_DEBUG_FILE_MUTEX("erase:" << pKF->nid_ << "," << idx << endl, mlog::vieo_slam_debug_path, "debug.txt");
       }
     }
   }
@@ -354,8 +350,8 @@ void MapPoint::ComputeDistinctiveDescriptors() {
   for (size_t i = 0; i < N; i++) {
     Distances[i][i] = 0;
     for (size_t j = i + 1; j < N; j++) {
-      int distij = ORBmatcher::DescriptorDistance(
-          vDescriptors[i], vDescriptors[j]);  // the hamming distance of the 256 bit descriptor(at the fastest way)
+      // the hamming distance of the 256 bit descriptor(at the fastest way)
+      int distij = ORBmatcher::DescriptorDistance(vDescriptors[i], vDescriptors[j]);
       Distances[i][j] = distij;
       Distances[j][i] = distij;
     }
@@ -428,44 +424,44 @@ bool MapPoint::IsInKeyFrame(KeyFrame* pKF, size_t idx, size_t cami) {
 void MapPoint::UpdateNormalAndDepth() {
   map<KeyFrame*, set<size_t>> observations;
   KeyFrame* prefkf;
-  cv::Mat Pos;
+  Vector3calc Pos;
   {
     unique_lock<mutex> lock1(mMutexFeatures);
     unique_lock<mutex> lock2(mMutexPos);
     if (mbBad) return;
     observations = mObservations;
     prefkf = mpRefKF;
-    Pos = mWorldPos.clone();
+    Pos = mWorldPos.cast<Tcalc>();
   }
 
   if (observations.empty()) return;
 
-  cv::Mat normal = cv::Mat::zeros(3, 1, CV_32F);
+  Vector3calc normal = Vector3calc::Zero();
   int n = 0;
   for (map<KeyFrame*, set<size_t>>::iterator mit = observations.begin(), mend = observations.end(); mit != mend;
        mit++) {
     KeyFrame* pKF = mit->first;
-    cv::Mat twcr = pKF->GetCameraCenter();
+    Vector3calc twcr = Converter::toVector3d(pKF->GetCameraCenter()).cast<Tcalc>();
     auto idxs = mit->second;
     for (auto iter = idxs.begin(), iterend = idxs.end(); iter != iterend; ++iter) {
-      cv::Mat twc = twcr.clone();
+      Vector3calc twc = twcr;
       auto idx = *iter;
       size_t cami = pKF->mapn2in_.size() <= idx ? 0 : get<0>(pKF->mapn2in_[idx]);
       if (pKF->mpCameras.size() > cami) {
-        GeometricCamera* pcam1 = pKF->mpCameras[cami];
-        const cv::Mat Rcrw = pKF->GetRotation();
-        twc += Rcrw.t() * pcam1->Getcvtrc();
+        auto pcam1 = pKF->mpCameras[cami];
+        const Matrix3calc Rcrw = Converter::toMatrix3d(pKF->GetRotation()).cast<Tcalc>();
+        twc += Rcrw.transpose() * pcam1->GetTrc().translation();
       }
-      cv::Mat normali = Pos - twc;
-      normal = normal + normali / cv::norm(normali);
+      Vector3calc normali = Pos - twc;
+      normal = normal + normali / normali.norm();
       n++;
     }
   }
 
   // TODO(zzh): check dist&level from multicams instead of current ref cam 0
-  cv::Mat PC = Pos - prefkf->GetCameraCenter();
-  const float dist =
-      cv::norm(PC);  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
+  Vector3calc PC = Pos - Converter::toVector3d(prefkf->GetCameraCenter()).cast<Tcalc>();
+  // why not dist*cos(theta)? then we have deltaPatch'/deltaPatch=dist/dist'(without rotation)
+  const float dist = PC.norm();
   auto& trackinfo = GetTrackInfoRef();
   if (INFINITY == trackinfo.track_depth_) trackinfo.track_depth_ = dist;
   CV_Assert(observations.find(prefkf) != observations.end());
@@ -524,7 +520,7 @@ void MapPoint::_TrackFastMatchInfo::Reset(Frame* pf) {
   //  return;
   //  }
 
-  if (pf) last_seen_frameid_ = pf->mnId;  // don't need to match it in SBP()
+  if (pf) last_seen_frameid_ = pf->nid_;  // don't need to match it in SBP()
 
   //  if (vtrack_cami_.empty()) return;
   //  auto cami = pf->mapn2in_.size() <= i ? 0 : get<0>(pf->mapn2in_[i]);

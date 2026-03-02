@@ -32,72 +32,79 @@ PS:
 
 ### EuRoC Dataset
 
-*WithFull BA Monocular/(d)Stereo VIO:*
+*(d)Monocular/(d)Stereo VIO:*
 
 **ATE Min Of Random 3 tests MonocularVIO Res(cm,Leica);feat num 1000:**
 ```
+(With FBA)
 V101(1.4cm),V102(1.8),V103(4.4),V201(1.2),V202(1.3),V203(2.6),MH01(6.7),MH02(5.7),MH03(6.3),MH04(5.9),MH05(9.4)
 PS: 2017/12/26
 ```
-**ATE Random 1 test StereoVIO Res(m,Leica|Est\*);feat num 1000->375(default):**
 
-**With XXX_distXXX.yaml--With XXX.yaml(undist as ref)**
+**ATE Avg/Median of N tests StereoVIO Res(m,Leica|Est\*);
+Features Number Per Image 1200(default;with||out full ba)->375(no loopclosing;with||out full ba);
+XXX_distXXX.yaml--XXX.yaml(undist without full ba as ref)**
 ```
-V101 0.019|0.037 ->0.018|0.036 --0.019|0.036
-V102 0.023|0.018 ->0.021|0.012 --0.023|0.018
-V103 0.039|0.023 ->0.038|0.017 --0.040|0.021+
-V201 0.014|0.014 ->0.019|0.017 --0.030|0.030
-V202 0.016|0.014 ->0.012|0.009 --0.014|0.011
-V203 0.017|0.016 ->0.020|0.015 --0.026|0.024-
-MH01 0.060|0.016+->0.062|0.011 --0.069|0.024
-MH02 0.047|0.015 ->0.052|0.016 --0.051|0.017
-MH03 0.078|0.025 ->0.081|0.026 --0.076|0.024
-MH04 0.081|0.044 ->0.086|0.058 --0.093|0.054-
-MH05 0.100|0.039 ->0.137|0.080+--0.117|0.057+
-Final parallel MH01~3 mean time cost per frame of frontend(ms): ~86 ->23 --62
-PS:2023/5/26;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
-Single MH05 test: 0.092|0.038 ->0.137|0.077---0.106|0.048+
-tm cost(ms): 41 ->20 --30
+V101 0.017888/0.017616|0.035052/0.034860||0.019735/0.019514|0.035789/0.035731->0.018910/0.018985|0.035632/0.035471||0.020756/0.021202|0.035918/0.036252--0.018476/0.018231|0.035063/0.035029 10
+V102 0.022362/0.022213|0.016317/0.016273||0.021366/0.021214|0.014588/0.014620->0.024741/0.025009|0.019132/0.019268||0.022603/0.022760|0.016506/0.016661--0.022545/0.022436|0.015767/0.015836 10
+V103 0.038916/0.038863|0.021750/0.021647||0.038115/0.037802|0.020986/0.020389->0.043644/0.040182|0.027705/0.022665||0.044555/0.040441|0.029167/0.023657--0.038710/0.038631|0.020553/0.020438 10
+V201 0.015749/0.014587|0.015731/0.014304||0.022818/0.023921|0.022530/0.023320->0.014915/0.014982|0.014996/0.014842||0.023473/0.021866|0.023411/0.021846--0.024517/0.024946|0.024161/0.024381 10
+V202 0.019527/0.019495|0.017804/0.017634||0.023671/0.022422|0.022215/0.020864->0.020402/0.020161|0.018902/0.018731||0.031844/0.031650|0.031324/0.031341--0.020858/0.019811|0.019544/0.018579 10
+V203 0.019012/0.017985|0.017980/0.016481||0.021353/0.020476|0.020542/0.019832->0.060442/0.056718|0.058173/0.055665||0.086015/0.088312|0.083809/0.086926--0.038777/0.038115|0.037079/0.036610 10
+MH01 0.059842/0.059756|0.017838/0.017249||0.066127/0.065833|0.024341/0.023576->0.058831/0.059010|0.016081/0.015900||0.070513/0.071213|0.030387/0.031152--0.067008/0.067172|0.020542/0.020248 10
+MH02 0.047977/0.048046|0.013370/0.013479||0.055555/0.056624|0.020540/0.020171->0.049461/0.049422|0.015902/0.015881||0.064356/0.063641|0.032989/0.033975--0.063953/0.061788|0.029255/0.028646 10
+MH03 0.077632/0.076835|0.022180/0.022058||0.069532/0.068211|0.030862/0.031337->0.069338/0.068886|0.025994/0.026027||0.062263/0.059950|0.037323/0.038242--0.081279/0.081786|0.027322/0.027452 10
+MH04 0.072695/0.072156|0.038317/0.038364||0.081037/0.082057|0.041786/0.041933->0.078449/0.076010|0.061373/0.056185||0.094425/0.094830|0.072156/0.071767--0.096471/0.098185|0.059423/0.059678 10
+MH05 0.096981/0.096364|0.040337/0.040273||0.121044/0.123658|0.064372/0.064665->0.093922/0.095772|0.044452/0.042012||0.120464/0.120727|0.067696/0.062810--0.114954/0.111532|0.058268/0.053788 10
+Avg          /0.044   |        /0.023   ||        /0.049   |        /0.029   ->        /0.048   |        /0.029   ||        /0.058   |        /0.0413  --        /0.053   |        /0.031
+Final MH05 mean time cost per frame of frontend(ms): 43.X -> 11.X -- 35.X
+PS:2024/9/9;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 10) On i9-14900HX virtual box with 16cores;
++ meaning accuracy up(both median diff>=5mm)/ times cost down(>=1ms) compared with before
+! means the key accuracy for this dataset
 ```
 
-### TUM Dataset
+### TUM_VI Dataset
 
-*Without Full BA dStereo VIO:*
+*dStereo VIO:*
 
-**ATE Random tests (1|2|...) StereoVIO Res(m);feat num 1000(default)->375:**
+**ATE Avg/Median of N tests MonocularVIO||StereoVIO Res(m);
+feat num 1500||1000(default)->||375;
+all wo full ba**
 
-**--With Full ORB3 St. as ref**
 ```
-corridor1   0.031-->0.032---0.011|0.012
-corridor2   0.024+->0.068---0.012|0.016
-corridor3   0.016 ->0.044---0.009|0.010
-corridor4   0.261-->0.214---0.039|0.098
-corridor5   0.040-->0.097---0.010|0.010
-magistrale1 0.107-->0.818---0.219|0.350
-magistrale2 1.134-->2.114---0.339|1.390
-magistrale3 1.437-->1.422+--2.268|2.404
-magistrale4 0.194 ->1.430---1.276|0.170
-magistrale5 0.643+->1.696---1.562|1.549
-magistrale6 0.198+->3.531---1.000|0.906
-outdoors1   8.752+->21.74---10.77|14.72
-outdoors2   4.319-->8.438---11.09|13.73
-outdoors3   2.373+->32.84---12.99|5.942
-outdoors4   2.805+->14.84---3.568|4.345
-outdoors5   5.017+->18.42---10.56|11.31
-outdoors6   15.13-->23.07---24.06|46.62
-outdoors7   1.338+->5.894---1.085|1.156
-outdoors8   3.533-->7.606---10.37|10.03
-room1       0.010 ->0.010 --0.010|0.010
-room2       0.010 ->0.009 --0.007|0.008
-room3       0.009 ->0.009 --0.008|0.007
-room4       0.006 ->0.008 --0.008|0.007
-room5       0.010 ->0.007 --0.010|0.008
-room6       0.008 ->0.007 --0.006|0.007
-slides1     0.126+->0.304---0.199|0.378
-slides2     0.418-->0.875---0.638|0.627
-slides3     0.413+->0.818---1.025|1.135
-Final parallel slides3 mean time cost per frame of frontend(ms): ~46 ->21 --31
-PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm) compared with before
+corridor1   ||  0.030333/0.030333  1-> 0.104489/0.104489  1
+corridor2   ||  0.037978/0.037978  1-> 0.037800/0.037800  1
+corridor3   ||  0.009488/0.009488  1-> 0.014729/0.014729  1
+corridor4   ||  0.160247/0.160247  1-> 0.295224/0.295224  1
+corridor5   ||  0.054881/0.054881  1-> 0.065482/0.065482  1
+magistrale1 ||  0.140162/0.140162  1-> 0.485789/0.485789  1
+magistrale2 ||  1.431317/1.431317  1-> 1.406868/1.406868  1
+magistrale3 ||  2.283627/2.283627  1-> 2.118524/2.118524  1
+magistrale4 ||  0.080294/0.080294  1-> 2.050121/2.050121  1
+magistrale5 ||  1.004619/1.004619  1-> 1.171270/1.171270  1
+magistrale6 ||  0.171341/0.171341  1-> 2.416196/2.416196  1
+outdoors1   || 11.745594/11.745594 1->14.222525/14.222525 1
+outdoors2   ||  2.103154/2.103154  1->32.152353/32.152353 1
+outdoors3   ||  3.119151/3.119151  1->16.678324/16.678324 1
+outdoors4   ||  2.778857/2.778857  1-> 8.069969/8.069969  1
+outdoors5   ||  4.616562/4.616562  1-> 5.163795/5.163795  1
+outdoors6   || 22.152639/22.152639 1->13.542675/13.542675 1
+outdoors7   ||  1.583668/1.583668  1-> 2.408600/2.408600  1
+outdoors8   ||  5.684597/5.684597  1-> 6.446467/6.446467  1
+room1       ||  0.009263/0.009263  1-> 0.009624/0.009624  1
+room2       ||  0.008006/0.008006  1-> 0.007604/0.007604  1
+room3       ||  0.011118/0.011118  1-> 0.006626/0.006626  1
+room4       ||  0.007057/0.007057  1-> 0.007481/0.007481  1
+room5       ||  0.007530/0.007530  1-> 0.007580/0.007580  1
+room6       ||  0.006508/0.006508  1-> 0.006697/0.006697  1
+slides1     ||  0.085470/0.085470  1-> 0.441656/0.441656  1
+slides2     ||  0.215374/0.215374  1-> 1.072960/1.072960  1
+slides3     ||  0.644625/0.644625  1-> 0.404310/0.404310  1
+Avg         ||          /2.15       ->         /3.96
+Final slides3 mean time cost per frame of frontend(ms): X.X || 32.X -> 17.X
+PS:2024/9/9;
+Script(./EvaluateEuRoC_Ntimes.sh StereoVIO 3 TUM_VI) On i9-14900HX virtual box with 16cores;
 ```
 
 ## Usage
@@ -124,6 +131,13 @@ PS:2023/6/2;Script(SetEuRoCFilesVIO.sh) On i7-12700H;+ meaning accuracy up(>=5mm
    ```
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/EncSensor.txt
     ./rgbd_tum ../../Vocabulary/ORBvoc.bin ./kinect2_qhd.yaml $OURFILE $OURFILE/associate.txt $OURFILE/IMUSensor.txt(path to IMU data file) 9(number of IMU data: (Accelerator,Magnetic,Gyroscope) for our dataset) 0(RGBD SLAM) $OURFILE/EncSensor.txt(path to encoder data file)
+   ```
+4. Fastly use it on EuRoC/TUM-VI Benchmark like:
+
+   VIEO_SLAM:
+   ```
+   ./SetEuRoCVIO_Once.sh StereoVIO MH05difficult MH05 0.2 EuRoC EuRoC_VIO
+   ./SetEuRoCVIO_Once.sh StereoVIO dataset-room1_512_16 dataset-room1_512 0. TUM_VI TUM_VI_512_VIO
    ```
 *PS: Please contact zhuzhanghao9331@yahoo.co.jp for more details.*
 
@@ -208,7 +222,7 @@ We use the new thread and chrono functionalities of C++11.
 ## Pangolin+Sophus
 We use [Pangolin](https://github.com/stevenlovegrove/Pangolin) for visualization and user interface. Dowload and install instructions can be found at: https://github.com/stevenlovegrove/Pangolin. **Tested with commit id 86eb4975fc4f.**
 
-We use [Sophus](https://github.com/strasdat/Sophus) for more compact translation and rotation operation. **Tested with commit id 780cd0fce405.**
+We use [Sophus](https://github.com/strasdat/Sophus) for more compact translation and rotation operation. **Tested with commit id 780cd0fce405(old code with Eigen 3.3.7).**
 
 ## OpenCV
 We use [OpenCV](http://opencv.org) to manipulate images and features. Dowload and install instructions can be found at: http://opencv.org. **Required at leat 2.4.3. Tested with OpenCV 4.5/3.2.0**.

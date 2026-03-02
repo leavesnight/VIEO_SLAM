@@ -1,7 +1,8 @@
 #!/bin/bash
-EuRoCFolderRel=EuRoC
 EUROCFILE="MH05difficult"
 SUBFILE="StereoVIO"
+EuRoCFolderRel=EuRoC
+OutputFileNamePrint=""
 if [[ $1 != "" ]]; then
   EUROCFILE=$1
 fi
@@ -19,12 +20,20 @@ fi
 if [[ $4 != "" ]]; then
   EuRoCFolderRel=$4
 fi
+if [[ $5 != "" ]]; then
+  OutputFileNamePrint=$5
+fi
 
-DstFolder=~/dataset/$EuRoCFolderRel/$EUROCFILE/orbslam2/$SUBFILE/
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
+#DstFolder=./
+
+DstFolder=${DstFolder}/$EuRoCFolderRel/$EUROCFILE/vieo_slam/$SUBFILE/
 function printInfo() {
   echo "dataset_name=$EUROCFILE"
   echo "result_ate.txt="
   cat ${DstFolder}/result_ate.txt
+#  cat ${DstFolder}/result_ate_NO.txt
   if [[ $print_gt != 0 ]]; then
     echo "result_ate_GT.txt="
     cat ${DstFolder}/result_ate_GT.txt
@@ -32,7 +41,12 @@ function printInfo() {
   if [[ $print_est != 0 ]]; then
     echo "result_ate_Est.txt="
     cat ${DstFolder}/result_ate_Est.txt
+#    cat ${DstFolder}/result_ate_NO_Est.txt
   fi
 }
 
-printInfo
+if [[ $OutputFileNamePrint == "" ]]; then
+  printInfo
+else
+  printInfo >> $OutputFileNamePrint
+fi

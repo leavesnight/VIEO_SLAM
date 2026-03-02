@@ -8,8 +8,9 @@
 #define CREATOR_VAR_MUTEX(Name, Type, Suffix, InitVal) \
   Type Suffix##Name##_ = InitVal;                      \
   mutable mutex mutex##Name##_;
+// ensure multithread safety, we should not return Type const&
 #define CREATOR_GET(Name, Type, Suffix)      \
-  Type const& Get##Name(void) const {        \
+  Type Get##Name(void) const {               \
     unique_lock<mutex> lock(mutex##Name##_); \
     return Suffix##Name##_;                  \
   }

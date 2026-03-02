@@ -1,27 +1,34 @@
 cmake_minimum_required(VERSION 3.16)
 project(VIEO_SLAM)
 
+# if 1 please: echo "export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib" > ~/.bashrc
+# else may cannot find g2o soft linked .so
 set(USE_G2O_NEWEST 0)
 set(USE_SOPHUS_NEWEST 1)
 set(USE_OPENCV_NEWEST 1)
 set(ADD_VR_EXAMPLE 0)
+set(SET_AFFINITY_LINUX 1)
+set(USE_PCL 1)
 
 # default built type
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif ()
 message(STATUS "${PROJECT_NAME} Build type: " ${CMAKE_BUILD_TYPE})
+if (SET_AFFINITY_LINUX)
+    add_compile_definitions(SET_AFFINITY_LINUX=1)
+endif ()
 if (${USE_G2O_NEWEST})
     message("build without march=native")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
-    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
+    #set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")#DEBUG default is -O0
+    #set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
+    #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")#RELEASE default has -O3
 else ()
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3 ")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall   -O3 ")
-    SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
-    SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
+    #set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
+    #set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native")
+    #set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -march=native")
 endif ()
 # Use c++17
 include(CheckCXXCompilerFlag)
@@ -41,9 +48,9 @@ message(STATUS "${PROJECT_NAME} shared=" ${${PROJECT_NAME}_LIB_TYPE})
 
 # Set the output directory for the build executables and libraries
 if (WIN32)
-    set(${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
+    set(${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin CACHE PATH "Target for the ${PROJECT_NAME} libraries")
 else (WIN32)
-    set(${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
+    set(${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib CACHE PATH "Target for the ${PROJECT_NAME} libraries")
 endif (WIN32)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${${PROJECT_NAME}_LIBRARY_OUTPUT_DIRECTORY})
@@ -65,42 +72,44 @@ else ()
         endif ()
     endif ()
 endif ()
+message(STATUS "${PROJECT_NAME} OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
 
-find_package(Pangolin REQUIRED)
-find_package(PCL REQUIRED COMPONENT common io filters)
-find_package(Cholmod REQUIRED)#added for cholmod linear solver
-
+find_package(Eigen3 3.3.7 REQUIRED NO_MODULE)
+message(STATUS "${PROJECT_NAME} EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 if (${USE_SOPHUS_NEWEST})
     add_definitions(-DUSE_SOPHUS_NEWEST)
     # Find Sophus, we found only newest master branch code could be directly compiled with eigen 3.3.7
     find_package(Sophus REQUIRED)
     message(STATUS "Sophus_INCLUDE_DIR=${Sophus_INCLUDE_DIR}; LIBS=${Sophus_LIBRARIES}; Ver=${Sophus_VERSION}")
-
-    message(STATUS "OpenCV_INCLUDE_DIRS=${OpenCV_INCLUDE_DIRS}; LIBS=${OpenCV_LIBS}; ${OpenCV_VERSION}")
-    message(STATUS "EIGEN3_INCLUDE_DIRS=${EIGEN3_INCLUDE_DIR}; LIBS=${EIGEN3_LIBS}; ${EIGEN3_VERSION}")
 else ()
     message(FATAL_ERROR "Sophus not found.")
 endif ()
 
+find_package(Pangolin REQUIRED)
+#find_package(Cholmod REQUIRED)#added for cholmod linear solver
+
+message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
+message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_DEBUG=${CMAKE_CXX_FLAGS_DEBUG}")
+message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}")
+message(STATUS "${PROJECT_NAME} CMAKE_CXX_FLAGS_RELWITHDEBINFO=${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+
 include_directories(
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include/CameraModels
         ${PROJECT_SOURCE_DIR}/src/Odom
-        ${CHOLMOD_INCLUDE_DIR}
+        #${CHOLMOD_INCLUDE_DIR}
         ${OpenCV_INCLUDE_DIRS}
         ${Pangolin_INCLUDE_DIRS}
-        ${PCL_INCLUDE_DIRS}
+        ${EIGEN3_INCLUDE_DIR}
         ${Sophus_INCLUDE_DIR}
         ${G2O_INCLUDE_DIR}
 )
-add_definitions(${PCL_DEFINITIONS})
 
 add_subdirectory(common)
 add_subdirectory(loop/DBoW2)
 LIST(APPEND ${PROJECT_NAME}_deps
         ${PROJECT_NAME}_common
-        DBoW2
+        ${PROJECT_NAME}_DBoW2
         )
 message("g2o newest=" ${USE_G2O_NEWEST})
 #find g2o here for Eigen>3.2.10
@@ -118,8 +127,16 @@ else ()
             g2o
             )
 endif ()
+if (${USE_PCL})
+    add_compile_definitions(USE_PCL=1)
+    add_subdirectory(map)
 
-add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
+    LIST(APPEND ${PROJECT_NAME}_deps
+            ${PROJECT_NAME}_map
+            )
+endif ()
+
+LIST(APPEND ${PROJECT_NAME}_SRCS
         src/System.cc
         src/Tracking.cc
         src/LocalMapping.cc
@@ -144,20 +161,18 @@ add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
         src/Odom/OdomData.cpp
         src/Odom/OdomPreIntegrator.cpp
         src/Odom/IMUInitialization.cpp
-
         src/Odom/g2otypes.cpp
+        )
 
-        src/CameraModels/GeometricCamera.cpp
-        src/CameraModels/Pinhole.cpp
-        src/CameraModels/KannalaBrandt8.cpp
-        src/CameraModels/radtan.cpp)
-
+add_library(${PROJECT_NAME} ${${PROJECT_NAME}_LIB_TYPE}
+        ${${PROJECT_NAME}_SRCS}
+        )
 target_link_libraries(${PROJECT_NAME}
         ${${PROJECT_NAME}_deps}
-        ${CHOLMOD_LIBRARIES}
+        #${CHOLMOD_LIBRARIES}
         ${OpenCV_LIBS}
         ${Pangolin_LIBRARIES}
-        ${PCL_LIBRARIES}
+        ${EIGEN3_LIBS}
         ${Sophus_LIBRARIES}
         ${G2O_LIBRARIES}
         )

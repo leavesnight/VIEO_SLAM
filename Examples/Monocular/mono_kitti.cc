@@ -23,10 +23,11 @@
 #include <fstream>
 #include <chrono>
 #include <iomanip>
-
 #include <opencv2/core/core.hpp>
-
+#include <opencv2/imgcodecs.hpp>
 #include "System.h"
+#include "common/multithread/multithreadbase.h"
+#include "common/mlog/log.h"
 
 using namespace std;
 

@@ -1,0 +1,120 @@
+%YAML:1.0
+
+# Timestamp shift(s) Timage = Timu/Tenc + image_delay
+Camera.delaytoimu: 0.
+Camera.delaytoenc: 0.
+# when Odom needs to be calibrated online with td(Timage = Todom(shifted) - td), this param means -td_max, default 0
+Camera.delaytoOdomMin: -0.001
+# when Odom read as Polling/Timage+td_max>Todom(shifted), tracking thread will delay until Timage_in+this time; Extra wait_s for ros is also this time
+Camera.delayForPolling: 0.05 #0.001
+
+# sigma[4]: g(gyroscope_noise_density) a(accelerometer_noise_density) bg(gyroscope_random_walk) ba(accelerometer_random_walk); notice Sigma_g/ad=sigma_g(/_a)^2/dt, Sigma_bg(/_ba)=sigma_bg(/_ba)^2, Cov_bgd(/_bad)=Sigma_bg(/_ba)*deltat
+IMU.sigma:
+  [1.6e-4, 2.8e-3, 2.2e-5, 8.6e-4]
+
+IMU.freq_hz: 200.0
+IMU.dt_cov_noise_fix: 1
+
+# acc=acc*IMU.dMultiplyG, if below is 9.80665 meaning acc=acc*9.80665, but internal referenced G used for prior is still 9.810
+IMU.dMultiplyG: 1.
+
+# camera-imu frame transformation, Pi = Tic * Pc; For stereo: now it's just camref/cam0's Tbc
+Camera.Tbc:
+  [-0.9995250378696743, 0.0075019185074052044, -0.02989013031643309, 0.045574835649698026,
+   0.029615343885863205, -0.03439736061393144, -0.998969345370175, -0.071161801837997044,
+   -0.008522328211654736, -0.9993800792498829, 0.03415885127385616, -0.044681254117144367,
+   0.0, 0.0, 0.0, 1.0]
+
+# Local Window size(0 means pure-vision+IMU Initialzation but no IMU error in BA): JW is 20, VIORBSLAM paper uses 10, but 5 for V203 in my PC
+LocalMapping.LocalWindowSize: 10
+
+# the Error allow between "simultaneous" IMU data(Timu=Timu+delaytoimu) & Image's ftimestamp_(Timg): Timu=[Timg-err,Timg+err]; out of this range, no IMU data is used between 2KFs/Fs, max 1/fps; we suppose ErrEncImg=ErrIMUImg
+ErrIMUImg: 0.03
+
+# IMU Initialization Check starts at InitTime and ends at FinalTime, the IMU Initialization thread also sleep(SleepTime) (s)
+IMU.InitTime: 0
+IMU.FinalTime: 15
+IMU.SleepTime: 1
+
+# normal & initial & final Full BA iterations, default is 10,15,20; final uses 0 means no Full BA at the end of execution
+GBA.iterations: 10
+GBA.initIterations: 15
+GBA.finalIterations: 0
+GBA.threshMatches: 55
+GBA.threshInliers: 55
+GBA.threshMatches2: 55
+GBA.threshInliers2: 55
+GBA.covisConsistency: 3
+GBA.covisConsistency2: 3
+
+#--------------------------------------------------------------------------------------------
+# Camera Parameters. Adjust them!
+#--------------------------------------------------------------------------------------------
+Camera.type: "KannalaBrandt8"
+
+# Left Camera calibration and distortion parameters (OpenCV)
+Camera.fx: 190.97847715128717
+Camera.fy: 190.9733070521226
+Camera.cx: 254.93170605935475
+Camera.cy: 256.8974428996504
+
+# Kannala-Brandt distortion parameters
+Camera.k1: 0.0034823894022493434
+Camera.k2: 0.0007150348452162257
+Camera.k3: -0.0020532361418706202
+Camera.k4: 0.00020293673591811182
+
+# Lapping area between images
+Camera.lappingBegin: 0
+Camera.lappingEnd: 511
+# Camera resolution
+Camera.width: 512
+Camera.height: 512
+
+# Camera frames per second
+Camera.fps: 20.0
+
+# Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
+Camera.RGB: 1
+Camera.IMREAD: "GRAYSCALE"
+Camera.clahe: 1
+
+# stereo baseline
+Camera.b: 0.101
+# Close/Far threshold. Baseline times.
+ThDepth: 40.0
+# thFarPoints: 20.0, old orb3 params for outdoors
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+
+# ORB Extractor: Number of features per image
+ORBextractor.nFeatures: 1500 # Tested with 1250
+
+# ORB Extractor: Scale factor between levels in the scale pyramid
+ORBextractor.scaleFactor: 1.2
+
+# ORB Extractor: Number of levels in the scale pyramid
+ORBextractor.nLevels: 8
+
+# ORB Extractor: Fast threshold
+# Image is divided in a grid. At each cell FAST are extracted imposing a minimum response.
+# Firstly we impose iniThFAST. If no corners are detected we impose a lower value minThFAST
+# You can lower these values if your images have low contrast
+ORBextractor.iniThFAST: 20 # 20
+ORBextractor.minThFAST: 7 # 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3
+Viewer.ViewpointX: 0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500

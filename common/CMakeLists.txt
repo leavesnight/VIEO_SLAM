@@ -27,15 +27,9 @@ if (NOT root_project_name)
     message(WARNING "${PROJECT_NAME} is root project!")
     if (${USE_G2O_NEWEST})
         message("build without march=native")
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0")
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
-        set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
     else ()
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3 ")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall   -O3 ")
-        SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
-        SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall -O0 -march=native")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -O0 -march=native")
     endif ()
 endif ()
 if (NOT COMPILEDWITHC17)
@@ -102,6 +96,10 @@ LIST(APPEND deps
 LIST(APPEND SOURCEFILES
         ${CMAKE_CURRENT_SOURCE_DIR}/mlog/log.cpp
         serialize/serialize.cpp
+        multithread/multithreadbase.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_pinhole.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_radtan.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/camera_models/camera_kb8.cpp
         )
 
 message(STATUS "pjs_dir=" ${PROJECT_SOURCE_DIR})

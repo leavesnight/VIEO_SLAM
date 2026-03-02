@@ -4,17 +4,20 @@
 
 #include <iostream>
 #include <algorithm>
-#include <fstream>
 #include <iomanip>
 #include <chrono>
 
-#include <opencv2/core/core.hpp>
-
-#include <System.h>
 #include <dirent.h>
 #include <libgen.h>
-
 #include <rapidjson/document.h>
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include "System.h"
+#include "sophus/se3.hpp"  //TODO: implement se3 by ourself to ensure the accuracy and rightness
+#include "common/so3_extra.h"
+#include "common/multithread/multithreadbase.h"
+#include "common/mlog/log.h"
 
 using namespace std;
 using namespace rapidjson;
@@ -111,7 +114,7 @@ void odomRun(vector<double> &vTimestampsImu, vector<cv::Point3f> &vAcc, vector<c
   PRINT_INFO_MUTEX(greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl);
 }
 
-void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, string &tmp_configfile_path,
+void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string &pathCalib, string &tmp_configfile_path,
                           bool mute = true);
 
 int main(int argc, char **argv) {
@@ -251,9 +254,6 @@ int main(int argc, char **argv) {
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], tmp_configfile_path, VIEO_SLAM::System::STEREO, true);
   g_pSLAM = &SLAM;
-#ifdef MUTE_VIEWER
-  g_pSLAM->ShutdownViewer();
-#endif
 
   // Vector for tracking time statistics
   vector<float> vTimesTrack;
@@ -361,20 +361,6 @@ int main(int argc, char **argv) {
   // Stop all threads
   SLAM.Shutdown();
 
-  // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
-  // VIORBSLAM paper! load if Full BA just after IMU Initialized
-  cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
-  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
-  //     SLAM.SaveMap("KeyFrameTrajectoryMap.bin",false);
-  if (!fnFBA.empty()) {
-    if ((int)fnFBA) {
-      SLAM.FinalGBA(fnFBA);
-      PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
-    }
-  } else {
-    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
-  }
-
   // Tracking time statistics
   sort(vTimesTrack.begin(), vTimesTrack.end());
   float totaltime = 0;
@@ -385,11 +371,26 @@ int main(int argc, char **argv) {
   PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImagesUsed << endl);
   PRINT_INFO_MUTEX("max tracking time: " << vTimesTrack.back() << endl);
 
-  // Save camera trajectory
-  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
-  const bool bgravity_as_w = fSettings["Output.gravity_as_w"].empty() ? false : (int)fSettings["Output.gravity_as_w"];
+  // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
+  // VIORBSLAM paper! load if Full BA just after IMU Initialized
+  auto &fs_settings = fSettings;
+  cv::FileNode fnFBA = fs_settings["GBA.finalIterations"];
+  bool bfba = false;
+  if (!fnFBA.empty()) {
+    if ((int)fnFBA) bfba = true;
+  } else {
+    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
+  }
+
+  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectoryCamPoseIMUBias_NO_FULLBA.txt", 1);
+  if (bfba) {
+    SLAM.FinalGBA(fnFBA);
+    PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
+  }
+  const bool bgravity_as_w =
+      fs_settings["Output.gravity_as_w"].empty() ? false : (int)fs_settings["Output.gravity_as_w"];
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt", bgravity_as_w);
-  SLAM.SaveTrajectoryTUM("CameraTrajectory.txt", 0, bgravity_as_w);
   SLAM.SaveTrajectoryTUM("CameraTrajectoryCamPoseIMUBias.txt", 1);
 
   return 0;
@@ -579,7 +580,7 @@ class exfstream : public fstream {
     }
   }
 };
-template<>
+template <>
 void exfstream::write_yaml(const string &key, const Eigen::VectorXd &data) {
   auto &fs = *this;
   CV_Assert(data.size());
@@ -594,7 +595,7 @@ void exfstream::write_yaml(const string &key, const Eigen::VectorXd &data) {
   fs << data[ilast];
   fs << "]" << endl;
 }
-template<>
+template <>
 void exfstream::write_yaml(const string &key, const cv::Mat &data) {
   auto &fs = *this;
   CV_Assert(!data.empty());
@@ -620,8 +621,7 @@ void exfstream::write_yaml(const string &key, const cv::Mat &data) {
   }
   fs << "]" << endl;
 }
-void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, string &tmp_configfile_path,
-                          bool mute) {
+void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string &pathCalib, string &tmp_configfile_path, bool mute) {
   typedef struct SetType {
     int type = 0;  // 0 is vec, 1 is double, 2 is cv::Mat, 3 is int, 4 is string
     struct DataType {
@@ -788,7 +788,7 @@ void AutoFillParamsFromDS(cv::FileStorage &fSettings, const string& pathCalib, s
           Ttmp.so3() = Sophus::SO3exd(R);
           Ttmp = Ttmp.inverse();
           for (int row = 0; row < 3; ++row) {
-            Tcv.at<double>(row, 3)  = Ttmp.translation()[row];
+            Tcv.at<double>(row, 3) = Ttmp.translation()[row];
           }
           R = Ttmp.so3().matrix();
           for (int row = 0; row < 3; ++row)

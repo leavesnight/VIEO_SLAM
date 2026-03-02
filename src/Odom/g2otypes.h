@@ -14,7 +14,7 @@
 #include "optimizer/g2o/g2o/core/base_multi_edge.h"
 #include "optimizer/g2o/g2o/types/types_six_dof_expmap.h"
 #endif
-#include "GeometricCamera.h"
+#include "common/camera_models/camera_base.h"
 #include "NavState.h"
 #include "OdomPreIntegrator.h"
 
@@ -28,8 +28,9 @@ namespace g2o {
 using namespace VIEO_SLAM;
 using namespace Eigen;
 
-// extend edges to get H
+using Vector2img = Eigen::Matrix<FLT_CAMM, 2, 1>;
 
+// extend edges to get H
 typedef enum HessianExactMode { kExactNoRobust, kExactRobust, kNotExact } eHessianExactMode;
 
 template <int D, typename E, typename VertexXi>
@@ -137,10 +138,11 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   }
   virtual MatrixXijd getHessianXij(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
-      if (_hessianRowMajor) {
 #ifdef USE_G2O_NEWEST
+      if (_hessianRowMajor[0]) {
         return MatrixXjid(std::get<0>(_hessianTupleTransposed)).transpose();
 #else
+      if (_hessianRowMajor) {
         return MatrixXijd(_hessianTransposed.transpose());
 #endif
       } else {
@@ -162,10 +164,11 @@ class BaseBinaryEdgeEx : public BaseBinaryEdge<D, E, VertexXi, VertexXj> {
   }
   virtual MatrixXjid getHessianXji(int8_t exact_mode = (int8_t)kExactRobust) const {
     if ((int8_t)kNotExact == exact_mode) {
-      if (_hessianRowMajor) {
 #ifdef USE_G2O_NEWEST
+      if (_hessianRowMajor[0]) {
         return MatrixXjid(std::get<0>(_hessianTupleTransposed));
 #else
+      if (_hessianRowMajor) {
         return MatrixXjid(_hessianTransposed);
 #endif
       } else {
@@ -332,15 +335,17 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
 
   bool read(std::istream& is) { return true; }
   bool write(std::ostream& os) const { return true; }
-  static VectorDEd cam_project(GeometricCamera* intr, Vector3d x_C, double bf = 0) {
+  static VectorDEd cam_project(camm::Camera* intr, Vector3d x_C, double bf = 0) {
     VectorDEd res;
-    res.template segment<2>(0) = intr->project(x_C);
+    Vector2img x_img;
+    intr->Project(x_C, &x_img);
+    res.template segment<2>(0) = x_img.cast<double>();
     if (DE > 2) res[2] = res[0] - bf / x_C[2];
     return res;
   }
   inline void GetTcw_wX(Matrix3d& Rcw, Vector3d& tcw, Vector3d& Xw, double* pscale = nullptr,
                         Vector3d* phX_unscale = nullptr, Matrix3d* pRwh = nullptr, Matrix3d* pRwbh = nullptr,
-                        Matrix3d* pRbw = nullptr, Vector3d* ptwh = nullptr) {
+                        Matrix3d* pRbw = nullptr, Vector3d* ptwh = nullptr) const {
     const VertexSBAPointXYZ* pXh = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);  // Xh/Ph
     // Tbs_w, bs is b for slam
     const VertexNavState<DV>* vNS = static_cast<const VertexNavState<DV>*>(_vertices[1]);
@@ -401,28 +406,29 @@ class EdgeReproject : public BaseMultiEdgeEx<DE, Matrix<double, DE, 1>> {
   }
   void linearizeOplus() override;
 
-  void SetParams(GeometricCamera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
+  void SetParams(camm::Camera* intr, const Matrix3d Rcrb_ = Matrix3d::Identity(),
                  const Vector3d tcrb_ = Vector3d::Zero(), const float* bf = NULL) {
     intr_ = intr;
-    Matrix3d Rccr = intr_->GetTcr().rotationMatrix();
+    Matrix3d Rccr = intr_->GetTcr().rotationMatrix().cast<double>();
     Rcb = Rccr * Rcrb_;
-    tcb = Rccr * tcrb_ + intr_->GetTcr().translation();
+    tcb = Rccr * tcrb_ + intr_->GetTcr().translation().cast<double>();
     if (bf) bf_ = *bf;
   }
   void SetParams(const Matrix3d& Rbch, const Vector3d& tbch) {
     Rbch_ = Rbch;
     tbch_ = tbch;
   }
-  bool isDepthPositive() {  // unused in IMU motion-only BA, but used in localBA&GBA
+  bool isDepthPositive() const { return GetDepth() > 0.; }
+  double GetDepth() const {  // unused in IMU motion-only BA, but used in localBA&GBA
     Matrix3d Rcw;
     Vector3d tcw, wX;
     GetTcw_wX(Rcw, tcw, wX);
-    return (Rcw * wX + tcw)(2) > 0.0;  // Xc.z>0
+    return Rcw.block<1, 3>(2, 0) * wX + tcw(2);
   }
 
  protected:
   double bf_;
-  GeometricCamera* intr_;  // Camera intrinsics
+  camm::Camera* intr_;  // Camera intrinsics
   // Camera-IMU extrinsics
   Matrix3d Rcb, Rbch_;
   Vector3d tcb, tbch_;
@@ -447,7 +453,11 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
 
   // Jacobian of camera projection, par((K*Pc)(0:1))/par(Pc)=J_e_Pc, error = obs - pi( Pc )
   Matrix<double, DE, 3> Jproj;  // J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2], here Xc->Xc+dXc
-  Jproj.template block<2, 3>(0, 0) = -intr_->projectJac(Pc);
+  {
+    Matrix<double, 2, 3> Jproj_tmp;
+    intr_->Project(Pc, nullptr, &Jproj_tmp);
+    Jproj.template block<2, 3>(0, 0) = -Jproj_tmp;
+  }
   // ur=ul-b*fx/dl,dl=z => J_e_P'=J_e_Pc=-[fx/z 0 -fx*x/z^2; 0 fy/z -fy*y/z^2; fx/z 0 -fx*x/z^2+bf/z^2]
   if (DE > 2) Jproj.template block<1, 3>(2, 0) << Jproj(0, 0), Jproj(0, 1), Jproj(0, 2) - bf_ * invz_2;
 
@@ -471,8 +481,13 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
       Paux = ns.getRwb().transpose() * (Pw - ns.mpwb);
       JdRwb = Jproj * Rcb * Sophus::SO3exd::hat(Paux);  // Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
     } else {
-      Paux = Rcw * Pw + (tcw - tcb * scale);
-      JdRwb = Jproj * (Sophus::SO3exd::hat(Paux) * Rcb.matrix());
+      // chain rule starts from.here to speed up: J_dphi_bw = J_dphi_wb * (-Rbw) + J_dp_wb * (-Rwb*tbw)^, J_dp_wb is
+      //  linear retraction p_wb<-p_wb_bar+dp_wb and tbw=Rbc*tcw*s+tbc
+      //  = Jproj * (Rcw * (wP - pwb))^ * Rcb * (-Rbw) + Jproj * (-Rcw) * pwb^ * (-Rwc * Rcb) * (-Rbw)
+      //  = Jproj * (Rcw * wP - Rcw * pwb + Rcw * pwb)^ * Rcb * (-Rbw) = [Jproj * (Rcw * wP)^ * Rcb] * (-Rbw)
+      //  = Jproj * Rcw * (wp^ * Rwb) * (-Rbw)
+      const auto& Paux = Pw;
+      JdRwb = Jproj * (-Rcw) * Sophus::SO3exd::hat(Paux);
     }
   }
 
@@ -504,9 +519,13 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
   if (2 == MODE_OPT_VAR) {
     // chain rule
     Matrix3d Rwb = Rbw.transpose();
-    // J_phiwb_phibw=extend_J_ARwbB(RD)/phibw_ARwbB(RD)/phiwb
-    _jacobianOplus[1].template block<DE, 3>(0, DV - 3) *= -Rbw;
+#ifdef USE_P_PLUS_RDP
+    // twb+Rwb*dtwb=-Rwb*(tbw+Rbw*dtbw)-Rwb*(Exp(drwb)-I)*tbw=>J_dtwb_dtbw=-Rbw;J_dtwb_drwb=tbw^
+    _jacobianOplus[1].template block<DE, 3>(0, 0) *= -Rbw;  // J_twb_tbw
+#else
+    // twb+dtwb=-Rwb*(tbw+dtbw)-Rwb*(Exp(drwb)-I)*tbw=>J_dtwb_dtbw=-Rwb;J_dtwb_drwb=Rwb*tbw^=>J_dtwb_drbw=-(Rwb*tbw)^
     _jacobianOplus[1].template block<DE, 3>(0, 0) *= -Rwb;  // J_twb_tbw
+#endif
 
     // J_s(=1./scale) = J_s(=scale) + Jproj * (tcw_unscale + (twh_unscale)), J_s_1/s = -1/s^2 = -scale^2
     Vector3d tscale_ext = tcw;
@@ -517,7 +536,7 @@ void EdgeReproject<DE, DV, NV, MODE_OPT_VAR>::linearizeOplus() {
       _jacobianOplus[offset_Twbh_].template block<DE, 3>(0, 0) *= -Rwbh;
     }
     if (-1 != offset_scale_)
-      _jacobianOplus[offset_scale_] = (_jacobianOplus[offset_scale_] * scale + Jproj * tscale_ext) * (-scale);
+      _jacobianOplus[offset_scale_] = (_jacobianOplus[offset_scale_] + Jproj * tscale_ext) * (-scale * scale);
   }
 }
 

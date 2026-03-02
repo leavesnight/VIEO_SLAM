@@ -8,7 +8,7 @@
 #include "MapPoint.h"
 #include "KeyFrame.h"
 #include <set>
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 
 namespace VIEO_SLAM {
 
@@ -24,7 +24,7 @@ class Map : public MutexUsed {
   int mnChangeIdx;  // Index related to any change when mMutexMapUpdate is locked && current KF's Pose is changed
  public:
   // for scale updation in IMU Initialization thread
-  std::mutex mMutexScaleUpdateGBA, mMutexScaleUpdateLoopClosing;
+  std::mutex mMutexScaleUpdateLoopClosing;
 
   void InformNewChange() {
     unique_lock<std::mutex> lock(mMutexMap);

@@ -5,12 +5,13 @@
 
 #include <iostream>
 #include <algorithm>
-#include <fstream>
+#include <iomanip>
 #include <chrono>
-
 #include <opencv2/core/core.hpp>
-
-#include <System.h>
+#include <opencv2/imgcodecs.hpp>
+#include "System.h"
+#include "common/multithread/multithreadbase.h"
+#include "common/mlog/log.h"
 
 using namespace std;
 
@@ -24,7 +25,34 @@ bool g_brgbdFinished = false;
 mutex g_mutex;
 
 // a new thread simulating the odom serial threads
-void odomIMURun(ifstream &finOdomdata, int totalNum) {  // must use &
+void odomIMURun(ifstream &finOdomdata, int totalNum, const string &settings_path = "") {  // must use &
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  {
+    cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
+    VIEO_SLAM::multithread::ThreadPolicyInfo event_info;
+    const string thread_type = "ODOM";
+    auto node_tmp = fsettings[thread_type + ".processor_ids"];
+    size_t num_cores = sysconf(_SC_NPROCESSORS_CONF);
+    event_info.affinity_mask_ = node_tmp.empty() ? ((size_t)(0x1 << num_cores) - 1) : (size_t)(int)node_tmp;
+    node_tmp = fsettings[thread_type + ".priority"];
+    event_info.priority_ = node_tmp.empty() ? 49 : (size_t)(int)node_tmp;
+    event_info.thread_type_ = VIEO_SLAM::multithread::THREAD_ODOM;
+    int priority_max_rr = sched_get_priority_max(SCHED_RR);
+    if (event_info.priority_ > priority_max_rr) {
+      PRINT_INFO_FILE_MUTEX("th_name=" << (int)event_info.thread_type_
+                                       << ",SCHED_FIFO, priority_min/max_rr=" << sched_get_priority_min(SCHED_RR) << "/"
+                                       << priority_max_rr << ",min/max_fifo=" << sched_get_priority_min(SCHED_FIFO)
+                                       << "/" << sched_get_priority_max(SCHED_FIFO) << std::endl,
+                            VIEO_SLAM::mlog::vieo_slam_debug_path, "alg_event.txt");
+      event_info.policy_ = SCHED_FIFO;
+      event_info.priority_ -= priority_max_rr;
+    } else
+      event_info.policy_ = SCHED_RR;
+    VIEO_SLAM::multithread::SetAffinity(event_info);
+  }
+#endif
+  PRINT_INFO_MUTEX("OdomIMUThread created!" << endl);
   // read until reading over
   int nTotalNum = 2 + 4 + 3 * 3;
   if (totalNum != 0) nTotalNum = totalNum;
@@ -36,7 +64,7 @@ void odomIMURun(ifstream &finOdomdata, int totalNum) {  // must use &
   }
   while (!finOdomdata.eof()) {
     finOdomdata >> timestamp;
-    if (finOdomdata.eof()) break;
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
     while (1) {  // until the image reading time is reached
       {
         unique_lock<mutex> lock(g_mutex);
@@ -52,14 +80,9 @@ void odomIMURun(ifstream &finOdomdata, int totalNum) {  // must use &
       // 	cout<<redSTR"Wrong imu data! t: "<<timestamp<<whiteSTR<<endl;
       // 	continue;
       //       }
-#ifndef TRACK_WITH_IMU
-      g_pSLAM->TrackOdom(timestamp, odomdata, (char)VIEO_SLAM::System::ENCODER);
-#else
-      g_pSLAM->TrackOdom(timestamp, odomdata + (nTotalNum - 6),
-                         (char)VIEO_SLAM::System::IMU);  // jump vl,vr,quat[4],magnetic data[3] then it's axyz,wxyz for
-                                                         // default 15, please ensure the last 6 data is axyz,wxyz
-      // g_pSLAM->TrackOdom(timestamp,odomdata,(char)VIEO_SLAM::System::ENCODER);//nTotalNum=2
-#endif
+      // jump vl,vr,quat[4],magnetic data[3] then it's axyz,wxyz for default 15, please ensure the last 6 data is
+      // axyz,wxyz
+      g_pSLAM->TrackOdom(timestamp, odomdata + (nTotalNum - 6), (char)VIEO_SLAM::System::IMU);
     }
     // cout<<greenSTR<<timestamp<<whiteSTR<<endl;
     tmstpLast = timestamp;
@@ -68,7 +91,34 @@ void odomIMURun(ifstream &finOdomdata, int totalNum) {  // must use &
   finOdomdata.close();
   cout << greenSTR "Simulation of Odom Data Reading is over." << whiteSTR << endl;
 }
-void odomEncRun(ifstream &finOdomdata) {  // must use &
+void odomEncRun(ifstream &finOdomdata, const string &settings_path = "") {  // must use &
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  {
+    cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
+    VIEO_SLAM::multithread::ThreadPolicyInfo event_info;
+    const string thread_type = "ODOM";
+    auto node_tmp = fsettings[thread_type + ".processor_ids"];
+    size_t num_cores = sysconf(_SC_NPROCESSORS_CONF);
+    event_info.affinity_mask_ = node_tmp.empty() ? ((size_t)(0x1 << num_cores) - 1) : (size_t)(int)node_tmp;
+    node_tmp = fsettings[thread_type + ".priority"];
+    event_info.priority_ = node_tmp.empty() ? 49 : (size_t)(int)node_tmp;
+    event_info.thread_type_ = VIEO_SLAM::multithread::THREAD_ODOM_Enc;
+    int priority_max_rr = sched_get_priority_max(SCHED_RR);
+    if (event_info.priority_ > priority_max_rr) {
+      PRINT_INFO_FILE_MUTEX("th_name=" << (int)event_info.thread_type_
+                                       << ",SCHED_FIFO, priority_min/max_rr=" << sched_get_priority_min(SCHED_RR) << "/"
+                                       << priority_max_rr << ",min/max_fifo=" << sched_get_priority_min(SCHED_FIFO)
+                                       << "/" << sched_get_priority_max(SCHED_FIFO) << std::endl,
+                            VIEO_SLAM::mlog::vieo_slam_debug_path, "alg_event.txt");
+      event_info.policy_ = SCHED_FIFO;
+      event_info.priority_ -= priority_max_rr;
+    } else
+      event_info.policy_ = SCHED_RR;
+    VIEO_SLAM::multithread::SetAffinity(event_info);
+  }
+#endif
+  PRINT_INFO_MUTEX("OdomEncThread created!" << endl);
   // read until reading over
   int nTotalNum = 2;
   double *odomdata = new double[nTotalNum];
@@ -80,7 +130,7 @@ void odomEncRun(ifstream &finOdomdata) {  // must use &
   }
   while (!finOdomdata.eof()) {
     finOdomdata >> timestamp;
-    if (finOdomdata.eof()) break;
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
     while (1) {  // until the image reading time is reached
       {
         unique_lock<mutex> lock(g_mutex);
@@ -92,12 +142,8 @@ void odomEncRun(ifstream &finOdomdata) {  // must use &
       finOdomdata >> odomdata[i];
     }
     getline(finOdomdata, strTmp);
-    if (timestamp > tmstpLast) {  // avoid == condition
-#ifndef TRACK_WITH_IMU
-      g_pSLAM->TrackOdom(timestamp, odomdata, (char)VIEO_SLAM::System::ENCODER);
-#else
+    if (timestamp > tmstpLast) {                                                  // avoid == condition
       g_pSLAM->TrackOdom(timestamp, odomdata, (char)VIEO_SLAM::System::ENCODER);  // nTotalNum=2
-#endif
     }
     // cout<<greenSTR<<timestamp<<whiteSTR<<endl;
     tmstpLast = timestamp;
@@ -109,9 +155,10 @@ void odomEncRun(ifstream &finOdomdata) {  // must use &
 // zzh over
 
 int main(int argc, char **argv) {
-  char bMode = 0;  // 0 for RGBD(pure/VIO/VEO/VIEO), 1 for MonocularVIO, 2 for Monocular
-  thread *pOdomThread = nullptr, *pEncThread = nullptr;
-  ifstream finOdomdata, finEncdata;
+  char bMode = 0;                   // 0 for RGBD(pure/VIO/VEO/VIEO), 1 for MonocularVIO, 2 for Monocular
+  bool bodoms[2] = {false, false};  // IMU/Enc
+  thread *pOdomThread[2] = {nullptr};
+  ifstream finOdomdata[2], *pfinOdomdata = &finOdomdata[0];
   int totalNum = 2;
   cout << fixed << setprecision(6) << endl;
   string map_sparse_name = "";
@@ -123,12 +170,12 @@ int main(int argc, char **argv) {
       // Map Reuse RGBD
       map_sparse_name = argv[9];
     case 9: {
-      finEncdata.open(argv[8]);
-      if (finEncdata.is_open()) {
+      finOdomdata[1].open(argv[8]);
+      if (finOdomdata[1].is_open()) {
         string strTmp;
-        getline(finEncdata, strTmp);
-        getline(finEncdata, strTmp);
-        getline(finEncdata, strTmp);
+        getline(finOdomdata[1], strTmp);
+        getline(finOdomdata[1], strTmp);
+        getline(finOdomdata[1], strTmp);
       }
     }
     case 8:
@@ -137,21 +184,24 @@ int main(int argc, char **argv) {
     case 7:
       totalNum = atoi(argv[6]);
     case 6: {
-      finOdomdata.open(argv[5]);
-      if (!finOdomdata.is_open()) {
+      if (totalNum == 2) {
+        bodoms[1] = true;
+        pfinOdomdata = &finOdomdata[1];
+        if (finOdomdata[1].is_open()) finOdomdata[1].close();
+      } else {
+        bodoms[0] = true;
+        if (finOdomdata[1].is_open()) bodoms[1] = true;
+      }
+      pfinOdomdata->open(argv[5]);
+      if (!pfinOdomdata->is_open()) {
         cerr << redSTR "Please check the last path_to_odometryData" << endl;
+        bodoms[0] = bodoms[1] = false;
         break;
       }
       string strTmp;
-      getline(finOdomdata, strTmp);
-      getline(finOdomdata, strTmp);
-      getline(finOdomdata, strTmp);  // odom.txt should have 3 unused lines
-      if (totalNum == 2)
-        pOdomThread = new thread(&odomEncRun, ref(finOdomdata));  // must use ref()
-      else {
-        pOdomThread = new thread(&odomIMURun, ref(finOdomdata), totalNum);  // must use ref()
-        if (finEncdata.is_open()) pEncThread = new thread(&odomEncRun, ref(finEncdata));
-      }
+      getline(*pfinOdomdata, strTmp);
+      getline(*pfinOdomdata, strTmp);
+      getline(*pfinOdomdata, strTmp);  // odom.txt should have 3 unused lines
     } break;
     default:
       cerr << endl
@@ -195,6 +245,8 @@ int main(int argc, char **argv) {
   VIEO_SLAM::System SLAM(argv[1], argv[2], sensor, true, map_sparse_name);
   bool bLoaded = false;
   g_pSLAM = &SLAM;
+  if (bodoms[0]) pOdomThread[0] = new thread(&odomIMURun, ref(finOdomdata[0]), totalNum, argv[2]);  // must use ref()
+  if (bodoms[1]) pOdomThread[1] = new thread(&odomEncRun, ref(finOdomdata[1]), argv[2]);
   //    cin.get();
 
   node_tmp = fSettings["Camera.usedistort"];
@@ -278,21 +330,6 @@ int main(int argc, char **argv) {
   // Stop all threads
   SLAM.Shutdown();
 
-  // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
-  // VIORBSLAM paper! load if Full BA just after IMU Initialize
-  cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
-  SLAM.SaveTrajectoryTUM("CameraTrajectory_NO_FULLBA.txt");
-  //  SLAM.SaveMap("MapTmp.bin",false,true,true);
-  if (!fnFBA.empty() && !bLoaded) {
-    if ((int)fnFBA) {
-      SLAM.FinalGBA(fnFBA);
-      cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
-    }
-  } else {
-    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
-  }
-  //  SLAM.LoadMap("MapTmp.bin",false,true);
-
   // Tracking time statistics
   sort(vTimesTrack.begin(), vTimesTrack.end());
   float totaltime = 0;
@@ -303,18 +340,35 @@ int main(int argc, char **argv) {
   PRINT_INFO_MUTEX("median tracking time: " << vTimesTrack[nImages / 2] << endl);
   PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImages << endl);
 
-  // Save camera trajectory
-  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
+  // FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
+  // VIORBSLAM paper! load if Full BA just after IMU Initialize
+  auto &fs_settings = fSettings;
+  cv::FileNode fnFBA = fs_settings["GBA.finalIterations"];
+  bool bfba = false;
+  if (!fnFBA.empty()) {
+    if ((int)fnFBA) bfba = true;
+  } else {
+    cout << redSTR "No FullBA at the end!" << whiteSTR << endl;
+  }
+
+  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectory_NO_FULLBA.txt");
+  if (bfba) {
+    SLAM.FinalGBA(fnFBA);
+    cout << azureSTR "Execute FullBA at the end!" << whiteSTR << endl;
+  }
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+
+  // Save Maps
   if (map_sparse_name == "")
-    SLAM.SaveMap("Map.pcd");  // for PCL Map
+    SLAM.SaveMap("Map.pcd", true);  // for PCL Map
   else
-    SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
+    SLAM.SaveMap(map_sparse_name);  // for Reused Sparse Map
 
   // wait for pOdomThread finished
-  if (pOdomThread) pOdomThread->join();
-  if (pEncThread) pEncThread->join();
+  for (int i = 0; i < sizeof(pOdomThread) / sizeof(pOdomThread[0]); ++i)
+    if (pOdomThread[i]) pOdomThread[i]->join();
   return 0;
 }
 

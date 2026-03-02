@@ -40,7 +40,7 @@ curPath_Examples=$curPath/..
 echo curPath_Examples_Run=$curPath_Examples
 cd $curPath_Examples/${CAMTYPE%VIO}
 
-if [[ $EuRoCFolderRel == EuRoC || $EuRoCFolderRel == TUM ]]; then
+if [[ $EuRoCFolderRel == EuRoC || $EuRoCFolderRel == TUM_VI ]]; then
   DS_IMG=$EuRoCFolderRel/$EUROCFILE/mav0/cam0/data
   DS_IMG2=$EuRoCFolderRel/$EUROCFILE/mav0/cam1/data
   DS_IMU=$EuRoCFolderRel/$EUROCFILE/mav0/imu0/data.csv
@@ -50,14 +50,25 @@ else
   DS_IMU=""
   ConfigFile=""
   echo "Unsupported Datasets!"
+  exit
 fi
 
+#DstFolder=/media/sf_0Downloads/dataset/
+DstFolder=~/dataset/
+
+#RUN_ADMIN=sudo
+#this sudo [VAR=value] is for USE_ROS_RVIZ=1
+#RUN_ADMIN="sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/opt/ros/neotic/lib "
+#RUN_ADMIN="sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:~/ros2_foxy/install "
+RUN_BIN=./stereo_euroc
 if [[ $CAMTYPE == "StereoVIO" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ${DstFolder}/$DS_IMG ${DstFolder}/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ${DstFolder}/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "MonocularVIO" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/$DS_IMU 6 "$MapSparseName"
+  RUN_BIN=./mono_euroc
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ${DstFolder}/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ${DstFolder}/$DS_IMU 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Stereo" ]]; then
-  ./stereo_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG ~/dataset/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ${DstFolder}/$DS_IMG ${DstFolder}/$DS_IMG2 $EuRoCLike_TimeStamps/$EUROCFILE2.txt ${DstFolder}/${DS_IMU}.Null 6 "$MapSparseName"
 elif [[ $CAMTYPE == "Monocular" ]]; then
-  ./mono_euroc ../../Vocabulary/ORBvoc.bin "$ConfigFile" ~/dataset/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ~/dataset/${DS_IMU}.Null 6 "$MapSparseName"
+  RUN_BIN=./mono_euroc
+  ${RUN_ADMIN} ${RUN_BIN} ../../Vocabulary/ORBvoc.bin "$ConfigFile" ${DstFolder}/$DS_IMG $EuRoCLike_TimeStamps/$EUROCFILE2.txt ${DstFolder}/${DS_IMU}.Null 6 "$MapSparseName"
 fi

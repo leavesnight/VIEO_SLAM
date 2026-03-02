@@ -6,7 +6,7 @@
 #define KEYFRAME_H
 
 #include "FrameBase.h"
-#include "common/multithreadbase.h"
+#include "common/multithread/multithreadbase.h"
 #include "MapPoint.h"
 #include "KeyFrameDatabase.h"
 
@@ -15,7 +15,6 @@ namespace VIEO_SLAM {
 class Map;
 class MapPoint;
 class KeyFrameDatabase;
-class GeometricCamera;
 
 class KeyFrame : public FrameBase, public MutexUsed {
   char mState;
@@ -165,13 +164,21 @@ class KeyFrame : public FrameBase, public MutexUsed {
   cv::Mat GetRotation();
   cv::Mat GetTranslation();
 
-  cv::Mat UnprojectStereo(int i);
+  Vector3f UnprojectStereo(int i);
 
   // Set/check bad flag
   bool isBad() override;  // mbBad
   // Erase the relation with this(&KF), Update Spanning Tree&& mbBad+mTcp, erase this(&KF) in mpMap && mpKeyFrameDB;
-  // KeepTree=true is used for BadKF's recover in LoadMap()
-  void SetBadFlag(bool bKeepTree = false);
+  // mode==KeepTree is used for BadKF's recover in LoadMap()
+  // we should ensure one cycle isBad()=false safety or only SetBadFlag in the same thread where isBad() is used
+  typedef enum _BadFlagMode {
+    UpdateTree,
+    KeepTree,
+    MapNoErase = 0x1 << 1,
+    ForceErase = 0x1 << 2,
+    ProducePrior = 0x1 << 3
+  } BadFlagMode;
+  void SetBadFlag(const int8_t mode = UpdateTree);
 
   // Enable/Disable bad flag changes
   void SetNotErase();  // mbNotErase=true means it cannot be directly erased by SetBadFlag(), but can use SetErase()
@@ -217,7 +224,7 @@ class KeyFrame : public FrameBase, public MutexUsed {
   float hist_med_depth_ = 5.f;
   float ComputeSceneMedianDepth(const int q);
 
-  static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->mnId < pKF2->mnId; }
+  static bool lId(KeyFrame *pKF1, KeyFrame *pKF2) { return pKF1->nid_ < pKF2->nid_; }
 
   // The following variables are accesed from only 1 thread or never change (no mutex needed).
  public:

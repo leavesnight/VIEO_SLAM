@@ -5,7 +5,6 @@
 #pragma once
 
 namespace VIEO_SLAM {
-//#define MUTE_VIEWER
 //#define TIMER_FLOW
 
 //#define USE_STRATEGY_ABANDON
@@ -20,6 +19,13 @@ namespace VIEO_SLAM {
 //#define DRAW_ALL_KPS
 //#define DRAW_KP2MP_LINE
 
-const double kRatioIMUSigma = 1e4;                                            // 1e3 / 9;
-const double kCoeffDeltatPrior[2] = {kRatioIMUSigma * 1e-3, kRatioIMUSigma};  // 1e-4};
+typedef double FLT_VIEO;
+typedef float FLT_CAMM;
+typedef double FLT_CALC_CAMM;
+
+// Strategy related params
+// BA with IMU related params, dataset uses 1e4, but real fast motion requires ~1e2
+constexpr double kRatioIMUSigma = 1e3 / 9;  // 1e4;  //
+// g then a
+constexpr double kCoeffDeltatPrior[2] = {kRatioIMUSigma, kRatioIMUSigma * 1e-3};  // 1e-4};
 }  // namespace VIEO_SLAM

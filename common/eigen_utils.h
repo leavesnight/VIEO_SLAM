@@ -9,25 +9,24 @@
 #include <unordered_map>
 #include <vector>
 #include <list>
-
 #include <Eigen/Dense>
 
 namespace Eigen {
 
-template <class T>
-using aligned_list = std::list<T, Eigen::aligned_allocator<T>>;
+template <class _Tp>
+using aligned_list = std::list<_Tp, Eigen::aligned_allocator<_Tp>>;
 
-template <typename T>
-using aligned_vector = std::vector<T, Eigen::aligned_allocator<T>>;
+template <typename _Tp>
+using aligned_vector = std::vector<_Tp, Eigen::aligned_allocator<_Tp>>;
 
-template <typename T>
-using aligned_deque = std::deque<T, Eigen::aligned_allocator<T>>;
+template <typename _Tp>
+using aligned_deque = std::deque<_Tp, Eigen::aligned_allocator<_Tp>>;
 
-template <typename K, typename V>
-using aligned_map = std::map<K, V, std::less<K>, Eigen::aligned_allocator<std::pair<K const, V>>>;
+template <typename _Key, typename _Tp, typename _Compare = std::less<_Key>>
+using aligned_map = std::map<_Key, _Tp, _Compare, Eigen::aligned_allocator<std::pair<_Key const, _Tp>>>;
 
-template <typename K, typename V>
+template <typename _Key, typename _Tp, typename _Hash = std::hash<_Key>, typename _Pred = std::equal_to<_Key>>
 using aligned_unordered_map =
-    std::unordered_map<K, V, std::hash<K>, std::equal_to<K>, Eigen::aligned_allocator<std::pair<K const, V>>>;
+    std::unordered_map<_Key, _Tp, _Hash, _Pred, Eigen::aligned_allocator<std::pair<_Key const, _Tp>>>;
 
 }  // namespace Eigen

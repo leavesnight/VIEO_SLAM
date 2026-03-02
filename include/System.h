@@ -5,29 +5,29 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
 
-#include "IMUInitialization.h"
-// created by zzh
-
 #include <string>
 #include <thread>
+#include <mutex>
 #include <opencv2/core/core.hpp>
-#include "Tracking.h"
-#include "FrameDrawer.h"
-#include "MapDrawer.h"
-#include "Map.h"
-#include "LocalMapping.h"
-#include "LoopClosing.h"
-#include "KeyFrameDatabase.h"
-#include "ORBVocabulary.h"
-#include "Viewer.h"
-#include "common/mlog/log.h"
+#include "loop/DBoW2/DBoW2/BowVector.h"
+#include "loop/DBoW2/DBoW2/FeatureVector.h"
+#include "loop/DBoW2/DBoW2/FORB.h"
+
+namespace DBoW2 {
+template <class TDescriptor, class F>
+/// Generic Vocabulary
+class TemplatedVocabulary;
+}
 
 namespace VIEO_SLAM {
-class IMUInitialization;  // zzh
-
+class IMUInitialization;
 class Viewer;
 class FrameDrawer;
 class Map;
+class MapPoint;
+class MapDrawer;
+class KeyFrameDatabase;
+typedef DBoW2::TemplatedVocabulary<DBoW2::FORB::TDescriptor, DBoW2::FORB> ORBVocabulary;
 class Tracking;
 class LocalMapping;
 class LoopClosing;
@@ -38,12 +38,12 @@ class System {
 
   // Local Mapper. It manages the local map and performs local bundle adjustment.
   IMUInitialization* mpIMUInitiator;
-  // System thread: a new IMUInitialization thread added
-  std::thread* mptIMUInitialization;
-
-  void SaveMapPCL(const string& filename);
 
  public:
+  using string = std::string;
+  template <typename _Tp>
+  using vector = std::vector<_Tp>;
+
   enum eOdom { ENCODER = 0, IMU, BOTH };
 
   // Process the given (IMU/encoder)odometry data. mode==0:Encoder data 2 vl,vr; 1:qIMU data 4 qxyzw; 2:Both 6
@@ -57,9 +57,9 @@ class System {
   // from Twb
   void SaveKeyFrameTrajectoryNavState(const string& filename, bool bUseTbc = true);
   void SaveTrajectoryNavState(const string& filename, bool bUseTbc = true);
-  void SaveMap(const string& filename, bool bPCL = true, bool bUseTbc = true, bool bSaveBadKF = false);
+  void SaveMap(const string& filename, bool bPCL = false, bool bUseTbc = true, bool bSaveBadKF = false);
   // if read bad KFs, we correct mpTracker->mlpReferences
-  bool LoadMap(const string& filename, bool bPCL = true, bool bReadBadKF = false);
+  bool LoadMap(const string& filename, bool bPCL = false, bool bReadBadKF = false);
   void SaveFrame(string foldername, const cv::Mat& im, const cv::Mat& depthmap, double tm_stamp);
   int mkdir_p(string foldername, int mode);
 
@@ -94,13 +94,15 @@ class System {
   void DeactivateLocalizationMode();
   // This SaveMap through window
   void SaveMap();
+  // This LoadMap through window, no localization mode change
+  void LoadMap();
 
   // Returns true if there have been a big map change (loop closure, global BA)
   // since last call to this function
   bool MapChanged();  // used by user, need try
 
   // Reset the system (clear map)
-  void Reset();
+  void Reset(bool bsmart = false);
 
   void ShutdownViewer();
   // All threads will be requested to finish.
@@ -159,28 +161,28 @@ class System {
   LoopClosing* mpLoopCloser;
 
   // The viewer draws the map and the current camera pose. It uses Pangolin.
-  Viewer* mpViewer;
+  Viewer* mpViewer = nullptr;
 
-  FrameDrawer* mpFrameDrawer;
-  MapDrawer* mpMapDrawer;
+  FrameDrawer* mpFrameDrawer = nullptr;
+  MapDrawer* mpMapDrawer = nullptr;
 
-  // System threads: Local Mapping, Loop Closing(will create a new GBA thread), Viewer.
+  // System threads: Loop Closing(will create a new GBA thread), Viewer.
   // The Tracking thread "lives" in the main execution thread that creates the System object.
-  std::thread* mptLocalMapping;
-  std::thread* mptLoopClosing;
   std::thread* mptViewer;
 
   // Reset flag
   std::mutex mMutexReset;
-  bool mbReset;
+  bool mbReset = false;
+  bool breset_smart_ = false;
 
   // Change mode flags
   std::mutex mutex_mode_;
   bool bactivate_localization_mode_ = false;
   bool bdeactivate_localization_mode_ = false;
   bool bsave_map_ = false;
-  // map_name_[0] is map_sparse_name_, [1] is map_dense_name_(now PCL)
-  vector<string> map_name_ = {"Map.bin", "Map.pcd"};
+  bool bload_map_ = false;
+  // map_name_[0] is map_sparse_name_(save), [1] is map_dense_name_(now PCL), [2] for map_sparse_(load)
+  vector<string> map_name_ = {"Map.bin", "Map.pcd", ""};
 
   // Tracking state
   int mTrackingState;

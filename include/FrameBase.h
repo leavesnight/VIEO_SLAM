@@ -8,7 +8,7 @@
 #include <vector>
 #include <array>
 #include <set>
-#include "GeometricCamera.h"
+#include "common/camera_models/camera_base.h"
 #include "Converter.h"
 #include "common/so3_extra.h"
 #include "NavState.h"
@@ -109,7 +109,7 @@ class FrameBase {
   static Eigen::Vector3d meigtcb;
   static bool usedistort_;
   static bool busedist_set_;
-  vector<GeometricCamera *> mpCameras;
+  vector<camm::Camera::Ptr> mpCameras;
 
  public:  // BAFrameBase related
   virtual bool isBad() { return mbBad; }
@@ -122,7 +122,12 @@ class FrameBase {
   vector<pair<size_t, size_t>> mapn2in_;
   // the left associated members are from mDescriptors
 
-  long unsigned int mnId;
+  // some unchanged members after constructor func.
+  using FrameId = unsigned long;
+  static constexpr FrameId InvalidFrameId = (FrameId)(-1);
+  // notice construct this in derived Frame/KeyFrame with different static nnext_id_
+  // now smaller nid_ also mean smaller/same timestamp_(future may not)!
+  FrameId nid_;
 
   // flow related
   // Threshold close/far points. Close points are inserted from 1 view.
@@ -163,9 +168,9 @@ class FrameBase {
     // to speed up ba for (un)distorted RGBD/(rectified) stereo; <0 means "Monocular" keypoints
     vector<float> vuright_;
     // Triangulated stereo observations in reference frame. for ComputeStereoXXX() and UnprojectStereo()
-    aligned_vector<Vector3d> v3dpoints_;                // keep same size with vidxs_matches
-    vector<bool> goodmatches_;                          // keep same size with vidxs_matches
-    map<pair<size_t, size_t>, size_t> mapcamidx2idxs_;  // final size_t max < mvidxsMatches.size()
+    aligned_vector<Vector3d> v3dpoints_;          // keep same size with vidxs_matches
+    vector<bool> goodmatches_;                    // keep same size with vidxs_matches
+    camm::Camera::MapCamIdx2Idx mapcamidx2idxs_;  // final size_t max < vidxs_matches.size()
     // Stereo baseline in meters; bf means Stereo baseline multiplied by fx; bf = b * f
     float baseline_bf_[2] = {15.f / 250, 15.f};
   } StereoInfo;

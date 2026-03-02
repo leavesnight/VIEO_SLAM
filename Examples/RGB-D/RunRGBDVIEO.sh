@@ -93,7 +93,7 @@ fi
 
 mkdir $OURFILE/orbslam2/
 mkdir $OURFILE/orbslam2/$SUBFILE
-cp ./CameraTrajectory.txt ./CameraTrajectory_NO_FULLBA.txt KeyFrameTrajectory.txt KeyFrameTrajectoryIMU.txt $OURFILE/orbslam2/$SUBFILE/
+cp ./CameraTrajectory.txt ./CameraTrajectory_NO_FULLBA.txt KeyFrameTrajectory.txt KeyFrameTrajectory_NO_FULLBA.txt $OURFILE/orbslam2/$SUBFILE/
 cp ./Map.pcd $OURFILE/orbslam2/$SUBFILE/
 cp ./CameraTrajectory.txt $OURFILE/orbslam2/
 

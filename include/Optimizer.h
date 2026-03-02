@@ -13,7 +13,7 @@
 #include "g2o/solvers/eigen/linear_solver_eigen.h"
 #include "g2o/core/optimization_algorithm_gauss_newton.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
+//#include "g2o/solvers/cholmod/linear_solver_cholmod.h"
 #include "g2o/solvers/dense/linear_solver_dense.h"
 #include "g2o/core/robust_kernel_impl.h"
 #include "g2o/types/sim3/types_seven_dof_expmap.h"
@@ -24,7 +24,7 @@
 #include "optimizer/g2o/g2o/solvers/linear_solver_eigen.h"  //must before linear_solver_cholmod...
 #include "optimizer/g2o/g2o/core/optimization_algorithm_gauss_newton.h"
 #include "optimizer/g2o/g2o/solvers/linear_solver_dense.h"
-#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
+//#include "optimizer/g2o/g2o/solvers/linear_solver_cholmod.h"
 #include "optimizer/g2o/g2o/core/robust_kernel_impl.h"
 #include "optimizer/g2o/g2o/types/types_seven_dof_expmap.h"
 
@@ -37,7 +37,7 @@
 #include "KeyFrame.h"
 #include "LoopClosing.h"
 #include "Frame.h"
-#include "Pinhole.h"
+#include "common/camera_models/camera_pinhole.h"
 
 namespace VIEO_SLAM {
 
@@ -61,7 +61,8 @@ class Optimizer {
 
   // Nlocal>=1(if <1 it's 1)
   void static LocalBundleAdjustmentNavStatePRV(KeyFrame *pKF, int Nlocal, bool *pbStopFlag, Map *pMap, cv::Mat gw,
-                                               bool bLarge = false, bool bRecInit = false);
+                                               bool bLarge = false, bool bRecInit = false,
+                                               float th_dist_far = INFINITY);
   // add all KFs && MPs(having edges(monocular/stereo) to some KFs) to optimizer, optimize their Pose/Pos and save it in
   // KF.mTcwGBA && MP.mPosGBA, nScaleOpt==0 no scale optimized, ==1 scale of MapPoints' Pw/Xw optimized, ==2 scale of
   // MapPoints' Xw && KeyFrames' pwb optimized
@@ -218,10 +219,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
 
   g2o::SparseOptimizer optimizer;
 #ifdef USE_G2O_NEWEST
+  // descending/optimization strategy is still LM
   g2o::OptimizationAlgorithmLevenberg *solver = new g2o::OptimizationAlgorithmLevenberg(
       unique_ptr<g2o::BlockSolverX>(new g2o::BlockSolverX(unique_ptr<g2o::BlockSolverX::LinearSolverType>(
-          new g2o::LinearSolverCholmod<g2o::BlockSolverX::PoseMatrixType>()))));  // descending/optimization strategy is
-                                                                                  // still LM
+          new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>()))));
 #else
   // 9*1 is Log(R),t,v/P/pvR, 6*1 bgi,bai/bi/Bias, (3*1 is location of landmark,) 3 types of
   // vertices so using BlockSolverX, though here 9_6 is also OK for unary edge in BA
@@ -379,7 +380,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const float deltaMono = sqrt(5.991);    // chi2(0.05,2)
   const float deltaStereo = sqrt(7.815);  // chi2 distribution chi2(0.05,3), the huber kernel delta
 
-  Pinhole CamInst;
+  camm::PinholeCamera::Ptr CamInst = nullptr;
   assert(!pFrame->mpCameras.empty());
   bool usedistort = Frame::usedistort_;
   // configs for Prior Hessian
@@ -396,9 +397,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
   const auto &frame_mps = pFrame->GetMapPointsRef();  // GetMapPointMatches();
   {
     if (!usedistort) {
-      auto params_tmp = pFrame->mpCameras[0]->getParameters();
-      params_tmp.resize(4);
-      CamInst.setParameters(params_tmp);
+      CamInst = make_shared<camm::PinholeCamera>(static_pointer_cast<camm::PinholeCamera>(pFrame->mpCameras[0]).get());
     }
 
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);  // forbid other threads to rectify pFrame->mvpMapPoints' Position
@@ -409,7 +408,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
       if (pMP) {
         // add fixed mp vertices for motion_only BA
         g2o::VertexSBAPointXYZ *vPoint = new g2o::VertexSBAPointXYZ();  //<3,Eigen::Vector3d>, for MPs' Xw
-        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
         int id = i + id_mp_beg;  //>=maxKFid+1
         vPoint->setId(id);
         vPoint->setFixed(true);
@@ -423,10 +422,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         {
           g2o::EdgeReprojectPVR *e = new g2o::EdgeReprojectPVR();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb);
+            e->SetParams(CamInst.get(), Rcb, tcb);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb);
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb);
           }
 
           // 0 Xw, VertexSBAPointXYZ* corresponding to pMP->mWorldPos
@@ -458,10 +457,10 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame *pLastKF, const cv::Mat 
         {
           g2o::EdgeReprojectPVRStereo *e = new g2o::EdgeReprojectPVRStereo();
           if (!usedistort)
-            e->SetParams(&CamInst, Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
+            e->SetParams(CamInst.get(), Rcb, tcb, &pFrame->stereoinfo_.baseline_bf_[1]);
           else {
             assert(pFrame->mapn2in_.size() > i);
-            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])], Rcb, tcb,
+            e->SetParams(pFrame->mpCameras[get<0>(pFrame->mapn2in_[i])].get(), Rcb, tcb,
                          &pFrame->stereoinfo_.baseline_bf_[1]);
           }
 

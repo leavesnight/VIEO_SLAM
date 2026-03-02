@@ -59,8 +59,10 @@ void Viewer::Run() {
   pangolin::Var<bool> menuShowKeyFrames("menu.Show KeyFrames", true, true);
   pangolin::Var<bool> menuShowGraph("menu.Show Graph", true, true);
   pangolin::Var<bool> menuLocalizationMode("menu.Localization Mode", false, true);
-  pangolin::Var<bool> menuSaveMap("menu.Save Map", false, true);
+  pangolin::Var<bool> menuSaveMap("menu.Save Map", false, false);
+  pangolin::Var<bool> menuLoadMap("menu.Load Map", false, false);
   pangolin::Var<bool> menuReset("menu.Reset", false, false);
+  pangolin::Var<bool> menuResetSmart("menu.ResetSmart", false, false);
 
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlRenderState s_cam(
@@ -78,13 +80,12 @@ void Viewer::Run() {
   cv::namedWindow("VIEO_SLAM: Current Frame");
 
   bool bFollow = true;
-  bool bLocalizationMode = false;
-  bool bsave_map = false;
+  bool blocalization_mode = false;
 
   while (1) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
+    if (mpMapDrawer) mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
 
     if (menuFollowCamera && bFollow) {
       s_cam.Follow(Twc);
@@ -97,30 +98,43 @@ void Viewer::Run() {
       bFollow = false;
     }
 
-    if (menuLocalizationMode && !bLocalizationMode) {
-      mpSystem->ActivateLocalizationMode();
-      bLocalizationMode = true;
-    } else if (!menuLocalizationMode && bLocalizationMode) {
-      mpSystem->DeactivateLocalizationMode();
-      bLocalizationMode = false;
+    auto blocalization_mode_now = blocalization_mode_.load();
+    if (blocalization_mode != blocalization_mode_now) {  // toggle it
+      menuLocalizationMode = blocalization_mode_now;
     }
-    if (menuSaveMap && !bsave_map) {
+    if (menuLocalizationMode && !blocalization_mode) {
+      mpSystem->ActivateLocalizationMode();
+      blocalization_mode = true;
+      blocalization_mode_.store(true);
+    } else if (!menuLocalizationMode && blocalization_mode) {
+      mpSystem->DeactivateLocalizationMode();
+      blocalization_mode = false;
+      blocalization_mode_.store(false);
+    }
+    if (menuSaveMap) {
       mpSystem->SaveMap();
       menuSaveMap.Reset();
+    }
+    if (menuLoadMap) {
+      mpSystem->LoadMap();
+      menuLoadMap.Reset();
     }
 
     d_cam.Activate(s_cam);
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    mpMapDrawer->DrawCurrentCamera(Twc);
-    if (menuShowKeyFrames || menuShowGraph) mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);
-    if (menuShowPoints) mpMapDrawer->DrawMapPoints();
+    if (mpMapDrawer) {
+      mpMapDrawer->DrawCurrentCamera(Twc);
+      if (menuShowKeyFrames || menuShowGraph) mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);
+      if (menuShowPoints) mpMapDrawer->DrawMapPoints();
+    }
 
     pangolin::FinishFrame();
 
     if (max_cams_num) {
       cv::Mat toShow;
+      assert(mpFrameDrawer);
       cv::Mat im = mpFrameDrawer->DrawFrame(0);
-      if (mpFrameDrawer->showallimages_) {
+      if (mpFrameDrawer->showallimages_ && !im.empty()) {
         int n_cams = mpFrameDrawer->n_cams_;
         if (-1 != max_cams_num && max_cams_num < mpFrameDrawer->n_cams_) n_cams = max_cams_num;
         if (1 <= n_cams) {
@@ -163,19 +177,21 @@ void Viewer::Run() {
       cv::waitKey(mT);
     }
 
-    if (menuReset) {
+    if (menuReset || menuResetSmart) {
       menuFollowCamera.Reset();
       menuShowGraph.Reset();
       menuShowKeyFrames.Reset();
       menuShowPoints.Reset();
       menuLocalizationMode.Reset();
-      menuSaveMap.Reset();
       menuReset.Reset();
-      if (bLocalizationMode) mpSystem->DeactivateLocalizationMode();
-      bLocalizationMode = false;
-      bsave_map = false;
+      if (blocalization_mode) {
+        mpSystem->DeactivateLocalizationMode();
+        blocalization_mode = false;
+        blocalization_mode_.store(false);
+      }
       bFollow = true;
-      mpSystem->Reset();
+      mpSystem->Reset(menuResetSmart);
+      menuResetSmart.Reset();
     }
 
     if (Stop()) {

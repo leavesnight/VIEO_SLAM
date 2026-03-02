@@ -4,13 +4,15 @@
 
 #include <iostream>
 #include <algorithm>
-#include <fstream>
 #include <iomanip>
 #include <chrono>
-
 #include <opencv2/core/core.hpp>
-
-#include <System.h>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include "System.h"
+#include "common/multithread/multithreadbase.h"
+#include "common/mlog/log.h"
 
 using namespace std;
 
@@ -24,7 +26,34 @@ bool g_brgbdFinished = false;
 mutex g_mutex;
 
 // a new thread simulating the odom serial threads
-void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
+void odomRun(ifstream &finOdomdata, int totalNum, const string &settings_path = "") {  // must use &
+  // bind to assigned core
+#if defined(SET_AFFINITY_LINUX)
+  {
+    cv::FileStorage fsettings(settings_path, cv::FileStorage::READ);
+    VIEO_SLAM::multithread::ThreadPolicyInfo event_info;
+    const string thread_type = "ODOM";
+    auto node_tmp = fsettings[thread_type + ".processor_ids"];
+    size_t num_cores = sysconf(_SC_NPROCESSORS_CONF);
+    event_info.affinity_mask_ = node_tmp.empty() ? ((size_t)(0x1 << num_cores) - 1) : (size_t)(int)node_tmp;
+    node_tmp = fsettings[thread_type + ".priority"];
+    event_info.priority_ = node_tmp.empty() ? 49 : (size_t)(int)node_tmp;
+    event_info.thread_type_ = VIEO_SLAM::multithread::THREAD_ODOM;
+    int priority_max_rr = sched_get_priority_max(SCHED_RR);
+    if (event_info.priority_ > priority_max_rr) {
+      PRINT_INFO_FILE_MUTEX("th_name=" << (int)event_info.thread_type_
+                                       << ",SCHED_FIFO, priority_min/max_rr=" << sched_get_priority_min(SCHED_RR) << "/"
+                                       << priority_max_rr << ",min/max_fifo=" << sched_get_priority_min(SCHED_FIFO)
+                                       << "/" << sched_get_priority_max(SCHED_FIFO) << std::endl,
+                            VIEO_SLAM::mlog::vieo_slam_debug_path, "alg_event.txt");
+      event_info.policy_ = SCHED_FIFO;
+      event_info.priority_ -= priority_max_rr;
+    } else
+      event_info.policy_ = SCHED_RR;
+    VIEO_SLAM::multithread::SetAffinity(event_info);
+  }
+#endif
+  PRINT_INFO_MUTEX("OdomThread created!" << endl);
   // read until reading over
   int nTotalNum = 6;  // wx~z,ax~z
   if (totalNum != 0) nTotalNum = totalNum;
@@ -37,7 +66,8 @@ void odomRun(ifstream &finOdomdata, int totalNum) {  // must use &
   while (!finOdomdata.eof()) {
     string strTmp;
     getline(finOdomdata, strTmp);
-    if (strTmp[0] == '#') continue;  // for safety
+    if (finOdomdata.eof() || finOdomdata.fail()) break;
+    if (strTmp.empty() || strTmp[0] == '#') continue;  // for safety
 
     int posLast = strTmp.find(',');
     timestamp = atof(strTmp.substr(0, posLast).c_str()) / 1e9;
@@ -99,8 +129,6 @@ int main(int argc, char **argv) {
       string strTmp;
       // EuRoC/TUM_VI's imu data file only has one unused line
       getline(finOdomdata, strTmp);
-      pOdomThread = new thread(&odomRun, ref(finOdomdata), totalNum);  // must use ref()
-      PRINT_INFO_MUTEX("OdomThread created!" << endl);
     } break;
     default:
       cerr << endl
@@ -180,7 +208,8 @@ int main(int argc, char **argv) {
 
   // Create SLAM system. It initializes all system threads and gets ready to process frames.
   VIEO_SLAM::System SLAM(argv[1], argv[2], VIEO_SLAM::System::STEREO, true, map_sparse_name);
-  g_pSLAM = &SLAM;  // zzh
+  g_pSLAM = &SLAM;
+  pOdomThread = new thread(&odomRun, ref(finOdomdata), totalNum, argv[2]);  // must use ref()
 
   const int nImages = vstrImageLeft.size();
 
@@ -292,21 +321,6 @@ int main(int argc, char **argv) {
   // Stop all threads, gba waited in Shutdown() and won't be forced stop in Shutdown()
   SLAM.Shutdown();
 
-  // Save camera trajectory
-  // zzh: FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
-  // VIORBSLAM paper! load if Full BA just after IMU Initialized
-  cv::FileNode fnFBA = fSettings["GBA.finalIterations"];
-  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
-  //     SLAM.SaveMap("KeyFrameTrajectoryMap.bin",false);
-  if (!fnFBA.empty()) {
-    if ((int)fnFBA) {
-      SLAM.FinalGBA(fnFBA);
-      PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
-    }
-  } else {
-    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
-  }
-
   // Tracking time statistics
   sort(vTimesTrack.begin(), vTimesTrack.end());
   float totaltime = 0;
@@ -317,12 +331,33 @@ int main(int argc, char **argv) {
   PRINT_INFO_MUTEX("mean tracking time: " << totaltime / nImages << endl);
   PRINT_INFO_MUTEX("max tracking time: " << vTimesTrack.back() << endl);
 
-  // Save camera trajectory
+  // FinalGBA, this is just the FullBA column in the paper! see "full BA at the end of the execution" in V-B of the
+  // VIORBSLAM paper! load if Full BA just after IMU Initialized
+  auto fs_settings = fsSettings;
+  cv::FileNode fnFBA = fs_settings["GBA.finalIterations"];
+  bool bfba = false;
+  if (!fnFBA.empty()) {
+    if ((int)fnFBA) bfba = true;
+  } else {
+    PRINT_INFO_MUTEX(redSTR "No FullBA at the end!" << whiteSTR << endl);
+  }
+
+  // Save trajectory
+  SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU_NO_FULLBA.txt");
+  SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory_NO_FULLBA.txt");
+  SLAM.SaveTrajectoryTUM("CameraTrajectory_NO_FULLBA.txt");
+  if (bfba) {
+    SLAM.FinalGBA(fnFBA);
+    PRINT_INFO_MUTEX(azureSTR "Execute FullBA at the end!" << whiteSTR << endl);
+  }
   SLAM.SaveKeyFrameTrajectoryNavState("KeyFrameTrajectoryIMU.txt");
-  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
   SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+  SLAM.SaveTrajectoryNavState("CameraTrajectoryIMU.txt");
   SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
-  if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name, false);  // for Reused Sparse Map
+
+  // for Reused Sparse Map
+  if (map_sparse_name != "") SLAM.SaveMap(map_sparse_name);
 
   // wait for pOdomThread finished
   if (pOdomThread) pOdomThread->join();
